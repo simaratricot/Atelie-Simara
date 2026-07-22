@@ -2232,7 +2232,7 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
 };
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const isLoja = typeof window!=="undefined" && new URLSearchParams(window.location.search).get("loja")==="1";
   const [view,setView]=useState("dashboard");
   const [menuOpen,setMenuOpen]=useState(false);
