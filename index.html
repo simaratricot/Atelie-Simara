@@ -2352,21 +2352,10 @@ function App() {
 }
 
     // Mount the app
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(React.createElement(App));
-    document.getElementById('loading').style.display = 'none';
-  </script>
-</body>
-</html>
-// ... final da sua função App()
-  return (
-    <div>...</div>
-  );
-}
-
-// 👈 ADICIONE AS DUAS LINHAS AQUI
-document.getElementById('loading')?.remove();
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+   // Mount the app
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+document.getElementById('loading').style.display = 'none';
 </script>
 </body>
 </html>
