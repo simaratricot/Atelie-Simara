@@ -2354,4 +2354,30 @@ function App() {
     document.getElementById('loading').style.display='none';
   </script>
 </body>
+  <!-- Bibliotecas do Firebase e Firestore -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+  // Suas chaves de conexão
+  const firebaseConfig = {
+    apiKey: "AIzaSyAxpRqwdQT3Hn6wvA7IATE-jWhY9wwhl2M",
+    authDomain: "atelie-simara-lobui.firebaseapp.com",
+    projectId: "atelie-simara-lobui",
+    storageBucket: "atelie-simara-lobui.firebasestorage.app",
+    messagingSenderId: "328061242191",
+    appId: "1:328061242191:web:76bcc80d7bc384bdf2d33a",
+    measurementId: "G-CJCXNLMGH7"
+  };
+
+  // Inicializa o Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Deixa disponível no seu código principal
+  window.db = db;
+  window.collection = collection;
+  window.addDoc = addDoc;
+  window.getDocs = getDocs;
+</script>
 </html>
