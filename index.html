@@ -8,6 +8,23 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-title" content="Simara Lobui"/>
   <title>Simara Lobui – Tricot, Amor & Arte</title>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAxpRqwdQT3Hn6wvA7IATE-jWhY9wwhl2M",
+      authDomain: "atelie-simara-lobui.firebaseapp.com",
+      projectId: "atelie-simara-lobui",
+      storageBucket: "atelie-simara-lobui.firebasestorage.app",
+      messagingSenderId: "328061242191",
+      appId: "1:328061242191:web:76bcc80d7bc384bdf2d33a"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    // Habilita cache offline para funcionar sem internet
+    db.enablePersistence().catch(e => console.warn("Offline persistence:", e.code));
+  </script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -210,54 +227,93 @@ const verificarEspaco = () => {
   } catch { return 0; }
 };
 
+// ─── FIREBASE STORAGE — salva na nuvem + cache local ─────────────────────────
+const fbSave = async (key, value) => {
+  try {
+    // Fotos são grandes — salva sem fotos no Firebase, só local
+    const forCloud = Array.isArray(value)
+      ? value.map(item => {
+          if (typeof item !== "object" || !item) return item;
+          const c = {...item};
+          if (c.photos?.length) c.photos = c.photos.map((p,i) => i===0 ? p : "[foto]");
+          if (c.foto && c.foto.length > 10000) c.foto = "[foto]";
+          return c;
+        })
+      : (typeof value === "object" && value
+          ? {...value, fotoArtesa: value.fotoArtesa ? "[foto]" : ""}
+          : value);
+    await db.collection("atelie").doc(key).set({ value: JSON.stringify(forCloud), updated: Date.now() });
+  } catch(e) { console.warn("Firebase save error:", e.message); }
+};
+
+const fbLoad = async (key) => {
+  try {
+    const doc = await db.collection("atelie").doc(key).get();
+    if (doc.exists) return JSON.parse(doc.data().value);
+    return null;
+  } catch(e) { console.warn("Firebase load error:", e.message); return null; }
+};
+
 const useStorage = (key, initial) => {
   const K = "atelie_" + key;
+  const loaded = useRef(false);
 
   const [val, setVal] = useState(() => {
     try {
       const s = localStorage.getItem(K);
-      if (s !== null && s !== "") return JSON.parse(s);
-      // Tenta backup
-      const bk = localStorage.getItem(K + "_bk");
-      if (bk !== null && bk !== "") return JSON.parse(bk);
+      if (s) return JSON.parse(s);
       return initial;
     } catch { return initial; }
   });
 
+  // Carrega do Firebase na primeira vez (dados mais recentes da nuvem)
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    fbLoad(key).then(cloudVal => {
+      if (cloudVal !== null) {
+        // Mescla: dados locais têm prioridade sobre fotos, nuvem tem prioridade sobre texto
+        const localVal = (() => { try { const s=localStorage.getItem(K); return s?JSON.parse(s):null; } catch{return null;} })();
+        if (localVal && Array.isArray(localVal) && Array.isArray(cloudVal)) {
+          // Mescla: pega fotos do local, resto da nuvem
+          const merged = cloudVal.map(cv => {
+            const lv = localVal.find(l => l.id === cv.id);
+            if (!lv) return cv;
+            return {...cv, photos: lv.photos||cv.photos, foto: lv.foto||cv.foto};
+          });
+          // Adiciona itens locais que não estão na nuvem
+          localVal.forEach(lv => { if (!cloudVal.find(cv => cv.id === lv.id)) merged.push(lv); });
+          setVal(merged);
+          localStorage.setItem(K, JSON.stringify(merged));
+        } else if (!localVal) {
+          setVal(cloudVal);
+          localStorage.setItem(K, JSON.stringify(cloudVal));
+        }
+      }
+    });
+  }, []);
+
   const set = useCallback(u => {
     setVal(prev => {
       const next = typeof u === "function" ? u(prev) : u;
-      // Tenta salvar normalmente
+      // 1. Salva local imediatamente
       try {
-        const str = JSON.stringify(next);
-        localStorage.setItem(K, str);
-        localStorage.setItem(K + "_bk", str);
+        localStorage.setItem(K, JSON.stringify(next));
+        localStorage.setItem(K + "_bk", JSON.stringify(next));
       } catch(e) {
-        // Se falhou por espaço, comprime fotos e tenta de novo
-        console.warn(`[Storage] Espaço insuficiente para "${key}", comprimindo fotos...`);
+        // Se cheio, tenta sem fotos
         try {
-          const comprimido = comprimirFotos(next);
-          const str2 = JSON.stringify(comprimido);
-          localStorage.setItem(K, str2);
-          localStorage.setItem(K + "_bk", str2);
-          console.info(`[Storage] "${key}" salvo após compressão.`);
-        } catch(e2) {
-          // Última tentativa: remove fotos completamente
-          try {
-            const semFotos = JSON.parse(JSON.stringify(next));
-            const limpo = Array.isArray(semFotos)
-              ? semFotos.map(i => ({...i, photos:[], foto:"", fotoArtesa:""}))
-              : {...semFotos, fotoArtesa:""};
-            localStorage.setItem(K, JSON.stringify(limpo));
-            console.error(`[Storage] "${key}" salvo SEM fotos. localStorage cheio!`);
-          } catch(e3) {
-            console.error(`[Storage] FALHA CRÍTICA ao salvar "${key}":`, e3);
-          }
-        }
+          const s = Array.isArray(next)
+            ? next.map(i=>({...i,photos:[],foto:""}))
+            : {...next,fotoArtesa:""};
+          localStorage.setItem(K, JSON.stringify(s));
+        } catch {}
       }
+      // 2. Salva na nuvem em background
+      fbSave(key, next);
       return next;
     });
-  }, [K]);
+  }, [K, key]);
 
   return [val, set];
 };
@@ -2354,30 +2410,4 @@ function App() {
     document.getElementById('loading').style.display='none';
   </script>
 </body>
-  <!-- Bibliotecas do Firebase e Firestore -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-  // Suas chaves de conexão
-  const firebaseConfig = {
-    apiKey: "AIzaSyAxpRqwdQT3Hn6wvA7IATE-jWhY9wwhl2M",
-    authDomain: "atelie-simara-lobui.firebaseapp.com",
-    projectId: "atelie-simara-lobui",
-    storageBucket: "atelie-simara-lobui.firebasestorage.app",
-    messagingSenderId: "328061242191",
-    appId: "1:328061242191:web:76bcc80d7bc384bdf2d33a",
-    measurementId: "G-CJCXNLMGH7"
-  };
-
-  // Inicializa o Firebase
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  // Deixa disponível no seu código principal
-  window.db = db;
-  window.collection = collection;
-  window.addDoc = addDoc;
-  window.getDocs = getDocs;
-</script>
 </html>
