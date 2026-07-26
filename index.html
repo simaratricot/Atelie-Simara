@@ -228,35 +228,29 @@ const verificarEspaco = () => {
 };
 
 // ─── FIREBASE STORAGE — salva na nuvem + cache local ─────────────────────────
-const fbSave = async (key, value) => {
+const fbSave = (key, value) => {
   try {
-    // Fotos são grandes — salva sem fotos no Firebase, só local
     const forCloud = Array.isArray(value)
       ? value.map(item => {
           if (typeof item !== "object" || !item) return item;
           const c = {...item};
-          if (c.photos?.length) c.photos = c.photos.map((p,i) => i===0 ? p : "[foto]");
-          if (c.foto && c.foto.length > 10000) c.foto = "[foto]";
+          if (c.photos?.length > 1) c.photos = [c.photos[0]];
+          if (c.foto && c.foto.length > 50000) c.foto = "[foto]";
           return c;
         })
       : (typeof value === "object" && value
           ? {...value, fotoArtesa: value.fotoArtesa ? "[foto]" : ""}
           : value);
-    await db.collection("atelie").doc(key).set({ value: JSON.stringify(forCloud), updated: Date.now() });
-  } catch(e) { console.warn("Firebase save error:", e.message); }
-};
-
-const fbLoad = async (key) => {
-  try {
-    const doc = await db.collection("atelie").doc(key).get();
-    if (doc.exists) return JSON.parse(doc.data().value);
-    return null;
-  } catch(e) { console.warn("Firebase load error:", e.message); return null; }
+    db.collection("atelie").doc(key).set({
+      value: JSON.stringify(forCloud),
+      updated: Date.now()
+    });
+  } catch(e) { console.warn("Firebase save:", e.message); }
 };
 
 const useStorage = (key, initial) => {
   const K = "atelie_" + key;
-  const loaded = useRef(false);
+  const synced = useRef(false);
 
   const [val, setVal] = useState(() => {
     try {
@@ -266,50 +260,42 @@ const useStorage = (key, initial) => {
     } catch { return initial; }
   });
 
-  // Carrega do Firebase na primeira vez (dados mais recentes da nuvem)
+  // Carrega Firebase UMA vez — só se localStorage estiver vazio
   useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    fbLoad(key).then(cloudVal => {
-      if (cloudVal !== null) {
-        // Mescla: dados locais têm prioridade sobre fotos, nuvem tem prioridade sobre texto
-        const localVal = (() => { try { const s=localStorage.getItem(K); return s?JSON.parse(s):null; } catch{return null;} })();
-        if (localVal && Array.isArray(localVal) && Array.isArray(cloudVal)) {
-          // Mescla: pega fotos do local, resto da nuvem
-          const merged = cloudVal.map(cv => {
-            const lv = localVal.find(l => l.id === cv.id);
-            if (!lv) return cv;
-            return {...cv, photos: lv.photos||cv.photos, foto: lv.foto||cv.foto};
-          });
-          // Adiciona itens locais que não estão na nuvem
-          localVal.forEach(lv => { if (!cloudVal.find(cv => cv.id === lv.id)) merged.push(lv); });
-          setVal(merged);
-          localStorage.setItem(K, JSON.stringify(merged));
-        } else if (!localVal) {
-          setVal(cloudVal);
-          localStorage.setItem(K, JSON.stringify(cloudVal));
+    if (synced.current) return;
+    synced.current = true;
+    const local = localStorage.getItem(K);
+    if (!local) {
+      // Sem dados locais — busca da nuvem
+      db.collection("atelie").doc(key).get().then(doc => {
+        if (doc.exists) {
+          try {
+            const v = JSON.parse(doc.data().value);
+            setVal(v);
+            localStorage.setItem(K, JSON.stringify(v));
+          } catch {}
         }
-      }
-    });
+      }).catch(() => {});
+    }
   }, []);
 
   const set = useCallback(u => {
     setVal(prev => {
       const next = typeof u === "function" ? u(prev) : u;
-      // 1. Salva local imediatamente
+      // Salva local SEMPRE primeiro
       try {
-        localStorage.setItem(K, JSON.stringify(next));
-        localStorage.setItem(K + "_bk", JSON.stringify(next));
+        const str = JSON.stringify(next);
+        localStorage.setItem(K, str);
+        localStorage.setItem(K + "_bk", str);
       } catch(e) {
-        // Se cheio, tenta sem fotos
         try {
-          const s = Array.isArray(next)
-            ? next.map(i=>({...i,photos:[],foto:""}))
-            : {...next,fotoArtesa:""};
-          localStorage.setItem(K, JSON.stringify(s));
+          const sem = Array.isArray(next)
+            ? next.map(i => ({...i, photos:[], foto:""}))
+            : {...next, fotoArtesa:""};
+          localStorage.setItem(K, JSON.stringify(sem));
         } catch {}
       }
-      // 2. Salva na nuvem em background
+      // Salva Firebase em background
       fbSave(key, next);
       return next;
     });
@@ -418,7 +404,7 @@ const PhotoUp = ({photos=[],onChange,label}) => {
 
 const ProdPhoto = ({photos,emoji,size=120}) => (
   <div style={{width:"100%",height:size,background:`linear-gradient(135deg,${C.linho},${C.areia})`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative",flexShrink:0}}>
-    {photos?.[0]?<img src={photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:size*0.36}}>{emoji||"🧶"}</span>}
+    {photos?.[0]?<img src={photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"contain",background:C.linho}}/>:<span style={{fontSize:size*0.36}}>{emoji||"🧶"}</span>}
     {photos?.length>1&&<div style={{position:"absolute",bottom:4,right:6,background:"rgba(92,64,51,0.7)",color:"#fff",fontSize:10,padding:"2px 6px",borderRadius:10}}>+{photos.length-1}</div>}
   </div>
 );
@@ -1234,31 +1220,66 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
   const [per,setPer]=useState("mes");
   const [mes,setMes]=useState(today.slice(0,7));
   const [ano,setAno]=useState(today.slice(0,4));
-  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:true,fixa:false,contaId:"",clientName:"",orderId:""});
+  const [filtStatus,setFiltStatus]=useState("todos");
+  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:false,fixa:false,contaId:"",clientName:"",orderId:""});
   const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
   const MESES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
+  const isVencido=f=>!f.pago&&f.dataVencimento&&f.dataVencimento<today;
+  const getStatus=f=>{if(f.pago)return "pago";if(isVencido(f))return "vencido";return "pendente";};
+
   const inPer=f=>{if(per==="dia")return f.date===today;if(per==="mes")return f.date?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano);return true;};
-  const filt=finance.filter(inPer);
-  const rec=filt.filter(f=>f.type==="receita").reduce((a,f)=>a+f.value,0);
-  const desp=filt.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
+  const filtPer=finance.filter(inPer);
+  const filt=filtStatus==="todos"?filtPer:filtPer.filter(f=>getStatus(f)===filtStatus);
+
+  const rec=filtPer.filter(f=>f.type==="receita").reduce((a,f)=>a+f.value,0);
+  const desp=filtPer.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
+
+  // Resumo do mês atual
+  const mesFmt=today.slice(0,7);
+  const recMes=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
+  const pendMes=finance.filter(f=>f.type==="receita"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
+  const vencidos=finance.filter(f=>isVencido(f)).length;
+
   const aRec=orders.filter(o=>o.status!=="Cancelado").reduce((a,o)=>a+Math.max(0,(o.precoFinal||o.price||0)-(o.valorPago||0)),0);
   const aPag=finance.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
   const recHoje=finance.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
   const balAno=Array.from({length:12},(_,i)=>{const m=`${ano}-${String(i+1).padStart(2,"0")}`;const r=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);const d=finance.filter(f=>f.type==="despesa"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);return{mes:m,label:MESES[i],r,d,lucro:r-d};});
 
+  const marcarPago=(f)=>{
+    setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:true,dataPagamento:today}:x));
+    if(f.contaId){
+      const delta=f.type==="receita"?f.value:-f.value;
+      setContas(prev=>prev.map(c=>c.id===f.contaId?{...c,saldo:(c.saldo||0)+delta}:c));
+    }
+  };
+
   const saveForm=()=>{
-    const e={...form,id:uid(),value:Number(form.value)};
+    const e={...form,id:uid(),value:Number(form.value),pago:false};
     setFinance(prev=>[...prev,e]);
-    if(e.contaId){const delta=e.type==="receita"?e.value:-e.value;setContas(prev=>prev.map(c=>c.id===e.contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
     setFormModal(false);
   };
   const saveConta=()=>{if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?{...cForm,saldo:Number(cForm.saldo)}:c));else setContas(prev=>[...prev,{...cForm,id:uid(),saldo:Number(cForm.saldo)}]);setContaModal(false);};
   const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Despesas",pago:true,contaId:tForm.de},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Investimentos",pago:true,contaId:tForm.para}]);setTransModal(false);};
 
+  const statusBadge=(f)=>{
+    const s=getStatus(f);
+    return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:s==="pago"?"#D4E8D4":s==="vencido"?"#FEE":"#FEF3E9",color:s==="pago"?"#2E6B2E":s==="vencido"?C.vermelho:"#9A6B40"}}>{s==="pago"?"✓ Pago":s==="vencido"?"⚠ Vencido":"⏳ Pendente"}</span>;
+  };
+
   return (
     <div className="fade" style={{padding:24}}>
+      {/* RESUMO DO MÊS — aparece primeiro */}
+      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"14px 18px",marginBottom:16}}>
+        <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>Resumo do mês — {new Date().toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+          {[{l:"Total a receber",v:fmtBRL(recMes+pendMes),c:"#FAF8F5"},{l:"Já recebido",v:fmtBRL(recMes),c:C.areia},{l:"Pendente",v:fmtBRL(pendMes),c:C.dourado},{l:"Vencidos",v:`${vencidos} lançamento${vencidos!==1?"s":""}`,c:vencidos>0?C.vermelho:C.areia}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:"rgba(250,248,245,0.6)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
+          ))}
+        </div>
+      </div>
+
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
         <Tabs tabs={[{k:"lanc",l:"Lançamentos"},{k:"rec",l:"A Receber"},{k:"pag",l:"A Pagar"},{k:"bal",l:"Balanço"},{k:"cx",l:"Fluxo de Caixa"},{k:"div",l:"Divisão do Dia"}]} active={tab} set={setTab}/>
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
@@ -1278,10 +1299,14 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
       </div>}
 
       {tab==="lanc"&&<>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
           {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"todos",l:"Todos"}].map(p=><button key={p.k} onClick={()=>setPer(p.k)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${per===p.k?C.cafe:C.areia}`,background:per===p.k?C.cafe:"transparent",color:per===p.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{p.l}</button>)}
           {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
           {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
+        </div>
+        {/* FILTROS DE STATUS */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          {[{k:"todos",l:"Todos"},{k:"pendente",l:"⏳ Pendentes"},{k:"pago",l:"✓ Pagos"},{k:"vencido",l:"⚠ Vencidos"}].map(s=><button key={s.k} onClick={()=>setFiltStatus(s.k)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtStatus===s.k?C.cafe:C.areia}`,background:filtStatus===s.k?C.cafe:"transparent",color:filtStatus===s.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s.l}</button>)}
         </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
           {[{l:"Receitas",v:fmtBRL(rec),c:C.oliva},{l:"Despesas",v:fmtBRL(desp),c:C.vermelho},{l:"Lucro",v:fmtBRL(rec-desp),c:rec-desp>=0?C.dourado:C.vermelho},{l:"Margem",v:`${rec>0?Math.round(((rec-desp)/rec)*100):0}%`,c:C.cafe}].map(k=><Card key={k.l} style={{flex:"1 1 100px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:3,fontWeight:700}}>{k.l}</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div></Card>)}
@@ -1292,14 +1317,19 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
             <thead><tr style={{background:C.linho}}>{["Data","Tipo","Descrição","Centro","Valor","Vencimento","Status",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
             <tbody>
               {[...filt].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(f=>(
-                <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
+                <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.04)":"transparent"}}>
                   <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
                   <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.type==="receita"?"#D4E8D4":"#FEE",color:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
                   <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:C.d20,color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
                   <td style={{padding:"8px 10px",fontSize:11,color:C.oliva}}>{f.centrocusto}</td>
                   <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
-                  <td style={{padding:"8px 10px",fontSize:11,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.dataVencimento)}</td>
-                  <td style={{padding:"8px 10px"}}>{f.type==="despesa"&&<button onClick={()=>{setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:!x.pago}:x));if(!f.pago&&f.contaId)setContas(prev=>prev.map(c=>c.id===f.contaId?{...c,saldo:(c.saldo||0)-f.value}:c));}} style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,border:"none",cursor:"pointer",background:f.pago?"#D4E8D4":"#FEF3E9",color:f.pago?"#2E6B2E":"#9A6B40"}}>{f.pago?"✓ Pago":"Pendente"}</button>}</td>
+                  <td style={{padding:"8px 10px",fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,whiteSpace:"nowrap",fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}</td>
+                  <td style={{padding:"8px 10px"}}>
+                    {f.pago?<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:"#D4E8D4",color:"#2E6B2E"}}>✓ Pago</span>:
+                    <button onClick={()=>marcarPago(f)} style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,border:`1px solid ${isVencido(f)?C.vermelho:C.areia}`,cursor:"pointer",background:isVencido(f)?"rgba(192,57,43,0.1)":"#FEF3E9",color:isVencido(f)?C.vermelho:"#9A6B40"}}>
+                      {isVencido(f)?"⚠ Vencido — Marcar pago":"Marcar pago"}
+                    </button>}
+                  </td>
                   <td style={{padding:"8px 10px"}}><Btn sm v="danger" onClick={()=>setFinance(prev=>prev.filter(x=>x.id!==f.id))}>✕</Btn></td>
                 </tr>
               ))}
