@@ -227,7 +227,7 @@ const verificarEspaco = () => {
   } catch { return 0; }
 };
 
-// ─── FIREBASE STORAGE — salva na nuvem + cache local ─────────────────────────
+// ─── FIREBASE — FONTE PRINCIPAL DE DADOS ─────────────────────────────────────
 const fbSave = (key, value) => {
   try {
     const forCloud = Array.isArray(value)
@@ -236,67 +236,62 @@ const fbSave = (key, value) => {
           const c = {...item};
           if (c.photos?.length > 1) c.photos = [c.photos[0]];
           if (c.foto && c.foto.length > 50000) c.foto = "[foto]";
+          if (c.fotoArtesa && c.fotoArtesa.length > 50000) c.fotoArtesa = "[foto]";
           return c;
         })
-      : (typeof value === "object" && value
-          ? {...value, fotoArtesa: value.fotoArtesa ? "[foto]" : ""}
+      : (typeof value === "object" && value !== null
+          ? {...value, fotoArtesa: value.fotoArtesa && value.fotoArtesa.length > 50000 ? "[foto]" : (value.fotoArtesa||"")}
           : value);
+    // Salva no Firebase
     db.collection("atelie").doc(key).set({
       value: JSON.stringify(forCloud),
       updated: Date.now()
     });
+    // Salva local como backup
+    try { localStorage.setItem("atelie_"+key, JSON.stringify(value)); } catch {}
   } catch(e) { console.warn("Firebase save:", e.message); }
+};
+
+// Indicador global de salvamento
+let _setSavedGlobal = null;
+const showSavedGlobal = (msg="✓ Salvo com sucesso!") => {
+  if (_setSavedGlobal) _setSavedGlobal(msg);
 };
 
 const useStorage = (key, initial) => {
   const K = "atelie_" + key;
-  const synced = useRef(false);
+  const loaded = useRef(false);
 
   const [val, setVal] = useState(() => {
+    // Começa com localStorage enquanto Firebase carrega
     try {
       const s = localStorage.getItem(K);
       if (s) return JSON.parse(s);
-      return initial;
-    } catch { return initial; }
+    } catch {}
+    return initial;
   });
 
-  // Carrega Firebase UMA vez — só se localStorage estiver vazio
+  // Carrega Firebase como fonte principal — sobrescreve local
   useEffect(() => {
-    if (synced.current) return;
-    synced.current = true;
-    const local = localStorage.getItem(K);
-    if (!local) {
-      // Sem dados locais — busca da nuvem
-      db.collection("atelie").doc(key).get().then(doc => {
-        if (doc.exists) {
-          try {
-            const v = JSON.parse(doc.data().value);
-            setVal(v);
-            localStorage.setItem(K, JSON.stringify(v));
-          } catch {}
-        }
-      }).catch(() => {});
-    }
+    if (loaded.current) return;
+    loaded.current = true;
+    db.collection("atelie").doc(key).get().then(doc => {
+      if (doc.exists) {
+        try {
+          const cloudVal = JSON.parse(doc.data().value);
+          // Firebase tem prioridade — é a fonte de verdade
+          setVal(cloudVal);
+          try { localStorage.setItem(K, JSON.stringify(cloudVal)); } catch {}
+        } catch {}
+      }
+    }).catch(() => {});
   }, []);
 
   const set = useCallback(u => {
     setVal(prev => {
       const next = typeof u === "function" ? u(prev) : u;
-      // Salva local SEMPRE primeiro
-      try {
-        const str = JSON.stringify(next);
-        localStorage.setItem(K, str);
-        localStorage.setItem(K + "_bk", str);
-      } catch(e) {
-        try {
-          const sem = Array.isArray(next)
-            ? next.map(i => ({...i, photos:[], foto:""}))
-            : {...next, fotoArtesa:""};
-          localStorage.setItem(K, JSON.stringify(sem));
-        } catch {}
-      }
-      // Salva Firebase em background
       fbSave(key, next);
+      showSavedGlobal();
       return next;
     });
   }, [K, key]);
@@ -765,7 +760,7 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
   const [modal,setModal]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
   const [detail,setDetail]=useState(null);
-  const EF={client:"",phone:"",origem:"WhatsApp",product:"",color:"",size:"",measures:"",price:0,desconto:0,tipoDesc:"valor",precoFinal:0,dataCompra:today,delivery:"",status:"Pedido recebido",valorPago:0,note:"",tracking:"",payment:"PIX",condicao:"À vista",entrada:0,dataEntradaPag:today,dataSaldo:"",parcelas:[],qtdParcelas:2,position:1};
+  const EF={client:"",phone:"",origem:"WhatsApp",itens:[{product:"",color:"",size:"",qty:1,price:0}],measures:"",price:0,desconto:0,tipoDesc:"valor",precoFinal:0,dataCompra:today,delivery:"",status:"Pedido recebido",valorPago:0,note:"",tracking:"",payment:"PIX",condicao:"À vista",entrada:0,dataEntradaPag:today,dataSaldo:"",parcelas:[],qtdParcelas:2,position:1};
   const [form,setForm]=useState(EF);
 
   const filtered=filter==="Ativos"?orders.filter(o=>!["Concluído","Cancelado","Enviado"].includes(o.status)):filter==="Todos"?orders:orders.filter(o=>o.status===filter);
@@ -783,39 +778,101 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
   };
   const openEdit=o=>{setForm({...EF,...o,parcelas:o.parcelas||[],desconto:o.desconto||0,tipoDesc:o.tipoDesc||"valor"});setModal("edit");};
 
+  const gerarLancamentos=(o,newId,itens,pF,prodDesc)=>{
+    const cat=products.find(p=>p.name===itens[0]?.product)?.category||"Moda";
+    const base={type:"receita",category:cat,centrocusto:"Vendas",
+      orderId:newId,clientName:o.client,payment:o.payment,
+      dataLancamento:o.dataCompra,pago:false}; // SEMPRE pendente
+
+    const novos=[];
+    if(o.condicao==="À vista"){
+      novos.push({...base,id:uid(),
+        desc:`${newId} – ${prodDesc} – À vista`,
+        value:pF,date:o.dataCompra,
+        dataVencimento:o.dataCompra,pago:false});
+
+    } else if(o.condicao==="Com entrada"){
+      if(Number(o.entrada)>0){
+        novos.push({...base,id:uid(),
+          desc:`${newId} – Entrada – ${o.client}`,
+          value:Number(o.entrada),date:o.dataEntradaPag||o.dataCompra,
+          dataVencimento:o.dataEntradaPag||o.dataCompra,pago:false});
+      }
+      const saldo=pF-Number(o.entrada||0);
+      if(saldo>0){
+        novos.push({...base,id:uid(),
+          desc:`${newId} – Saldo – ${o.client}`,
+          value:saldo,date:o.dataCompra,
+          dataVencimento:o.dataSaldo||o.delivery||o.dataCompra,
+          pago:false});
+      }
+    } else if(o.condicao==="Parcelado"&&o.parcelas?.length){
+      // Uma linha por parcela
+      o.parcelas.forEach(p=>{
+        novos.push({...base,id:uid(),
+          desc:`${newId} – ${p.n}ª parcela de ${o.parcelas.length} – ${o.client}`,
+          value:p.valor,date:o.dataCompra,
+          dataVencimento:p.data,pago:false,parcela:p.n});
+      });
+    }
+    return novos;
+  };
+
   const save=()=>{
-    const pF=precoComDesc(form.price,form.desconto,form.tipoDesc);
-    let o={...form,price:Number(form.price),precoFinal:pF};
+    const itens=form.itens||[{product:form.product,color:form.color,size:form.size,qty:1,price:Number(form.price)}];
+    const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0);
+    const precoBase=totalItens||Number(form.price)||0;
+    const pF=precoComDesc(precoBase,form.desconto,form.tipoDesc);
+    const prodDesc=itens.length===1?itens[0].product:`${itens.length} produtos`;
+
+    let o={...form,itens,price:precoBase,precoFinal:pF,
+      product:prodDesc,
+      color:itens.length===1?itens[0].color:"",
+      size:itens.length===1?itens[0].size:""};
+
     if(o.condicao==="Parcelado"&&(!o.parcelas||!o.parcelas.length)){
       o.parcelas=calcParcs(o.dataCompra||today,Number(o.qtdParcelas)||2,pF);
     }
-    if(o.condicao==="À vista"){o.entrada=pF;o.valorPago=pF;}
 
     if(modal==="new"){
-      setOrders(prev=>reorderQ([...prev,{...o,read:true,historicoPagamentos:[],valorPago:o.condicao==="À vista"?pF:Number(o.entrada||0)}]));
+      const newId=`EN-${String(orders.length+1).padStart(3,"0")}`;
+      const novoOrder={...o,id:newId,read:true,historicoPagamentos:[],valorPago:0};
+      setOrders(prev=>reorderQ([...prev,novoOrder]));
+
       // Auto-cadastra cliente
       if(o.client&&!clients.find(c=>c.name===o.client)){
-        setClients(prev=>[...prev,{id:uid(),name:o.client,phone:o.phone,email:"",city:"",orders:1,total:pF,vip:false,joined:today,origem:o.origem}]);
+        setClients(prev=>[...prev,{id:uid(),name:o.client,phone:o.phone,
+          email:"",city:"",orders:1,total:pF,vip:false,joined:today,origem:o.origem}]);
       }
-      // Auto-lança no financeiro
-      const prod=products.find(p=>p.name===o.product);
-      const cat=prod?.category||"Moda";
-      if(o.condicao==="À vista"){
-        setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${o.id} – ${o.product}`,value:pF,date:o.dataCompra,category:cat,centrocusto:"Vendas",pago:true,contaId:contas[0]?.id||"",orderId:o.id,clientName:o.client,dataLancamento:o.dataCompra,dataVencimento:o.dataCompra,payment:o.payment}]);
-        if(contas[0]?.id&&setContas)setContas(prev=>prev.map(c=>c.id===contas[0].id?{...c,saldo:(c.saldo||0)+pF}:c));
-      } else {
-        if(Number(o.entrada)>0){
-          setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${o.id} – Entrada – ${o.client}`,value:Number(o.entrada),date:o.dataEntradaPag||o.dataCompra,category:cat,centrocusto:"Vendas",pago:true,contaId:"",orderId:o.id,clientName:o.client,dataLancamento:o.dataCompra,dataVencimento:o.dataEntradaPag||o.dataCompra,payment:o.payment}]);
-        }
-        const saldoPend=pF-Number(o.entrada||0);
-        if(saldoPend>0){
-          setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${o.id} – Saldo – ${o.client}`,value:saldoPend,date:o.dataCompra,category:cat,centrocusto:"Vendas",pago:false,contaId:"",orderId:o.id,clientName:o.client,dataLancamento:o.dataCompra,dataVencimento:o.dataSaldo||o.delivery||o.dataCompra,payment:o.payment}]);
-        }
-      }
+
+      // Lança no financeiro — todos pendentes
+      const novos=gerarLancamentos(o,newId,itens,pF,prodDesc);
+      if(novos.length>0) setFinance(prev=>[...prev,...novos]);
+
     } else {
-      setOrders(prev=>reorderQ(prev.map(x=>x.id===o.id?o:x)));
+      // EDIÇÃO — pergunta o que fazer com os lançamentos existentes
+      setOrders(prev=>reorderQ(prev.map(x=>x.id===o.id?{...o,valorPago:x.valorPago,historicoPagamentos:x.historicoPagamentos}:x)));
+      const lancExist=finance.filter(f=>f.orderId===o.id);
+      if(lancExist.length>0){
+        const resp=window.confirm(
+          `Este pedido já tem ${lancExist.length} lançamento(s) no financeiro.\n\nOK = Substituir pelos novos lançamentos\nCancelar = Manter os existentes e adicionar novos`
+        );
+        const novos=gerarLancamentos(o,o.id,itens,pF,prodDesc);
+        if(resp){
+          // Substitui — remove antigos e adiciona novos
+          setFinance(prev=>[...prev.filter(f=>f.orderId!==o.id),...novos]);
+        } else {
+          // Adiciona sem remover
+          setFinance(prev=>[...prev,...novos]);
+        }
+      } else {
+        // Sem lançamentos — cria novos
+        const novos=gerarLancamentos(o,o.id,itens,pF,prodDesc);
+        if(novos.length>0) setFinance(prev=>[...prev,...novos]);
+      }
     }
     setModal(null);
+    showSavedGlobal("Pedido salvo com sucesso!");
   };
 
   const doBaixa=(order,valor,data,contaId)=>{
@@ -961,8 +1018,35 @@ const BaixaForm = ({order,contas,onConfirm}) => {
 };
 
 const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
-  const selProd=products.find(p=>p.name===form.product);
-  const pcd=()=>{const p=Number(form.price||0),d=Number(form.desconto||0);return form.tipoDesc==="pct"?p*(1-d/100):Math.max(0,p-d);};
+  const pcd=()=>{
+    const itens=form.itens||[];
+    const total=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0)||Number(form.price||0);
+    const d=Number(form.desconto||0);
+    return form.tipoDesc==="pct"?total*(1-d/100):Math.max(0,total-d);
+  };
+
+  const addItem=()=>setForm(f=>({...f,itens:[...(f.itens||[]),{product:"",color:"",size:"",qty:1,price:0}]}));
+  const updItem=(idx,field,val)=>setForm(f=>{
+    const itens=[...(f.itens||[])];
+    itens[idx]={...itens[idx],[field]:val};
+    if(field==="product"){
+      const p=products.find(x=>x.name===val);
+      itens[idx].price=p?.price||0;
+      itens[idx].color="";itens[idx].size="";
+    }
+    if(field==="size"){
+      const p=products.find(x=>x.name===itens[idx].product);
+      const vt=p?.valorPorTamanho?.find(v=>v.tamanho===val);
+      if(vt)itens[idx].price=vt.preco;
+    }
+    const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0);
+    return{...f,itens,price:totalItens};
+  });
+  const rmItem=(idx)=>setForm(f=>({...f,itens:(f.itens||[]).filter((_,i)=>i!==idx)}));
+
+  const itens=form.itens||[{product:form.product||"",color:form.color||"",size:form.size||"",qty:1,price:Number(form.price||0)}];
+  const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0);
+
   return (
     <Modal title="Encomenda" onClose={onClose} wide>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -971,44 +1055,88 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
         </div>
         <Inp label="WhatsApp" value={form.phone} onChange={v=>setForm(f=>({...f,phone:v}))}/>
         <Sel label="Como chegou até você" value={form.origem} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
-        <div>
-          <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:4}}>Produto</label>
-          <select value={form.product} onChange={e=>{const p=products.find(x=>x.name===e.target.value);setForm(f=>({...f,product:e.target.value,price:p?.price||f.price,color:"",size:""}));}} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
-            <option value="">Selecionar...</option>
-            {products.map(p=><option key={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-        {selProd?.cores?.length>0?<Sel label="Cor" value={form.color} onChange={v=>setForm(f=>({...f,color:v}))} options={["—",...selProd.cores.map(c=>c.nome)]}/>:<Inp label="Cor" value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>}
-        {selProd?.tamanhos?.length>0
-          ?<Sel label="Tamanho" value={form.size} onChange={v=>{const vt=selProd.valorPorTamanho?.find(x=>x.tamanho===v);setForm(f=>({...f,size:v,price:vt?.preco||f.price}));}} options={["—",...selProd.tamanhos]}/>
-          :<Inp label="Tamanho" value={form.size} onChange={v=>setForm(f=>({...f,size:v}))}/>}
+      </div>
+
+      {/* MÚLTIPLOS PRODUTOS */}
+      <Divider label="Produtos do pedido"/>
+      {itens.map((item,idx)=>{
+        const selProd=products.find(p=>p.name===item.product);
+        return(
+          <div key={idx} style={{background:C.linho,borderRadius:6,padding:"12px",marginBottom:8,position:"relative"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+              <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>Item {idx+1}</span>
+              {itens.length>1&&<Btn sm v="danger" onClick={()=>rmItem(idx)}>✕ Remover</Btn>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Produto</label>
+                <select value={item.product} onChange={e=>updItem(idx,"product",e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
+                  <option value="">Selecionar...</option>
+                  {products.map(p=><option key={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Qtd</label>
+                <input type="number" min="1" value={item.qty} onChange={e=>updItem(idx,"qty",e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Preço unit.</label>
+                <input type="number" value={item.price} onChange={e=>updItem(idx,"price",e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {selProd?.cores?.length>0
+                ?<Sel label="Cor" value={item.color} onChange={v=>updItem(idx,"color",v)} options={["—",...selProd.cores.map(c=>c.nome)]}/>
+                :<Inp label="Cor" value={item.color} onChange={v=>updItem(idx,"color",v)}/>}
+              {selProd?.tamanhos?.length>0
+                ?<Sel label="Tamanho" value={item.size} onChange={v=>updItem(idx,"size",v)} options={["—",...selProd.tamanhos]}/>
+                :<Inp label="Tamanho" value={item.size} onChange={v=>updItem(idx,"size",v)}/>}
+            </div>
+            <div style={{textAlign:"right",marginTop:6,fontSize:12,fontWeight:700,color:C.dourado}}>Subtotal: {fmtBRL(Number(item.price)*Number(item.qty||1))}</div>
+          </div>
+        );
+      })}
+      <Btn sm v="ghost" onClick={addItem}>+ Adicionar produto</Btn>
+      {itens.length>1&&<div style={{background:C.cafe,color:"#fff",borderRadius:6,padding:"8px 12px",marginTop:8,display:"flex",justifyContent:"space-between"}}>
+        <span style={{fontSize:13,fontWeight:700}}>Total dos itens</span>
+        <span style={{fontSize:15,fontFamily:"'Playfair Display',serif",fontWeight:700}}>{fmtBRL(totalItens)}</span>
+      </div>}
+
+      <Divider label="Detalhes do pedido"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
         <div style={{gridColumn:"1/-1"}}><Inp label="Medidas" value={form.measures} onChange={v=>setForm(f=>({...f,measures:v}))} placeholder="Ex: Busto 90cm / Comprimento 60cm"/></div>
-        <Inp label="Valor (R$)" type="number" value={form.price} onChange={v=>setForm(f=>({...f,price:v}))}/>
+
+        {/* DESCONTO */}
         <div>
           <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:4}}>Desconto</label>
           <div style={{display:"flex",gap:6}}>
             <input type="number" value={form.desconto||0} onChange={e=>setForm(f=>({...f,desconto:e.target.value}))} style={{flex:1,padding:"9px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
             <button onClick={()=>setForm(f=>({...f,tipoDesc:f.tipoDesc==="pct"?"valor":"pct"}))} style={{padding:"0 12px",border:`1.5px solid ${C.areia}`,borderRadius:3,background:C.linho,fontSize:13,fontWeight:700,color:C.cafe}}>{form.tipoDesc==="pct"?"%":"R$"}</button>
           </div>
-          {Number(form.desconto)>0&&<div style={{fontSize:11,color:C.dourado,marginTop:2}}>Final: <b>{fmtBRL(pcd())}</b></div>}
+          {Number(form.desconto)>0&&<div style={{fontSize:11,color:C.dourado,marginTop:2}}>Total c/ desconto: <b>{fmtBRL(pcd())}</b></div>}
         </div>
+
+        <Sel label="Forma de pagamento" value={form.payment} onChange={v=>setForm(f=>({...f,payment:v}))} options={config.pagamentos||["PIX","Mercado Pago","Cartão"]}/>
         <Inp label="Data da compra" type="date" value={form.dataCompra} onChange={v=>setForm(f=>({...f,dataCompra:v}))}/>
         <Inp label="Previsão de entrega" type="date" value={form.delivery} onChange={v=>setForm(f=>({...f,delivery:v}))}/>
         <Inp label="Posição na fila" type="number" value={form.position} onChange={v=>setForm(f=>({...f,position:v}))}/>
-        <Sel label="Forma de pagamento" value={form.payment} onChange={v=>setForm(f=>({...f,payment:v}))} options={config.pagamentos||["PIX","Mercado Pago","Cartão"]}/>
         <Inp label="Código de rastreio" value={form.tracking||""} onChange={v=>setForm(f=>({...f,tracking:v}))}/>
+
+        {/* CONDIÇÃO DE PAGAMENTO */}
         <div style={{gridColumn:"1/-1"}}>
           <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Condição de pagamento</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {["À vista","Com entrada","Parcelado"].map(c=><button key={c} onClick={()=>setForm(f=>({...f,condicao:c,parcelas:[]}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${form.condicao===c?C.cafe:C.areia}`,background:form.condicao===c?C.cafe:"transparent",color:form.condicao===c?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer",minWidth:80}}>{c==="À vista"?"💰 À vista":c==="Com entrada"?"🤝 Com entrada":"📅 Parcelado"}</button>)}
           </div>
         </div>
+
         {form.condicao==="Com entrada"&&<div style={{gridColumn:"1/-1",background:C.linho,borderRadius:6,padding:"12px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Valor da entrada (R$)" type="number" value={form.entrada||0} onChange={v=>setForm(f=>({...f,entrada:Number(v)}))}/>
           <Inp label="Data da entrada" type="date" value={form.dataEntradaPag||today} onChange={v=>setForm(f=>({...f,dataEntradaPag:v}))}/>
           <Inp label="Data limite para o saldo" type="date" value={form.dataSaldo||form.delivery||""} onChange={v=>setForm(f=>({...f,dataSaldo:v}))}/>
           <div style={{display:"flex",alignItems:"center",background:"#FEF3E9",borderRadius:4,padding:"8px 10px",fontSize:11,color:"#9A6B40",gap:4}}>⚠ Saldo: <b>{fmtBRL(Math.max(0,pcd()-Number(form.entrada||0)))}</b> até 1 dia antes do envio</div>
         </div>}
+
         {form.condicao==="Parcelado"&&<div style={{gridColumn:"1/-1"}}>
           <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}}>
             <div style={{flex:1,minWidth:120}}><Inp label="Nº de parcelas" type="number" value={form.qtdParcelas||2} onChange={v=>setForm(f=>({...f,qtdParcelas:Number(v),parcelas:[]}))}/></div>
@@ -1022,12 +1150,20 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
             </div>)}
           </div>}
         </div>}
+
         <div style={{gridColumn:"1/-1"}}><Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={Object.keys(STATUS).filter(s=>s!=="Cancelado")}/></div>
         <div style={{gridColumn:"1/-1"}}><Inp label="Observações" value={form.note} onChange={v=>setForm(f=>({...f,note:v}))} rows={2}/></div>
       </div>
+
+      {/* RESUMO FINAL */}
+      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:6,padding:"12px 16px",marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:13,color:"#FAF8F5",fontWeight:600}}>Total do pedido</span>
+        <span style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(pcd())}</span>
+      </div>
+
       <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
         <Btn v="ghost" onClick={onClose}>Cancelar</Btn>
-        <Btn onClick={onSave}>Salvar</Btn>
+        <Btn onClick={onSave}>Salvar pedido</Btn>
       </div>
     </Modal>
   );
@@ -2322,38 +2458,26 @@ function App() {
   const [view,setView]=useState("dashboard");
   const [menuOpen,setMenuOpen]=useState(false);
   const [fichaModal,setFichaModal]=useState(null);
-  const [saved,setSaved]=useState(false);
-  const showSaved=useCallback(()=>{setSaved(true);setTimeout(()=>setSaved(false),1500);},[]);
+  const [savedMsg,setSavedMsg]=useState("");
 
-  // Todos os dados com persistência garantida
-  const [products,  setProductsRaw  ]=useStorage("products",   INIT.products);
-  const [orders,    setOrdersRaw    ]=useStorage("orders",      INIT.orders);
-  const [clients,   setClientsRaw   ]=useStorage("clients",     INIT.clients);
-  const [stockSup,  setStockSupRaw  ]=useStorage("stockSup",    INIT.stockSup);
-  const [finance,   setFinanceRaw   ]=useStorage("finance",     INIT.finance);
-  const [contas,    setContasRaw    ]=useStorage("contas",      INIT.contas);
-  const [frases,    setFrasesRaw    ]=useStorage("frases",      INIT.frases);
-  const [banners,   setBannersRaw   ]=useStorage("banners",     INIT.banners);
-  const [depoimentos,setDeposRaw   ]=useStorage("depoimentos", INIT.depoimentos);
-  const [categories,setCatsRaw     ]=useStorage("categories",  INIT.categories);
-  const [projects,  setProjectsRaw  ]=useStorage("projects",    INIT.projects);
-  const [metas,     setMetasRaw     ]=useStorage("metas",       INIT.metas);
-  const [config,    setConfigRaw    ]=useStorage("config",      INIT.config);
+  // Registra o setter global para o indicador de salvo
+  useEffect(()=>{ _setSavedGlobal=(msg)=>{setSavedMsg(msg);setTimeout(()=>setSavedMsg(""),2500);}; },[]);
 
-  // Usar os setters diretos do useStorage — sem camadas intermediárias
-  const setProducts    = setProductsRaw;
-  const setOrders      = setOrdersRaw;
-  const setClients     = setClientsRaw;
-  const setStockSup    = setStockSupRaw;
-  const setFinance     = setFinanceRaw;
-  const setContas      = setContasRaw;
-  const setFrases      = setFrasesRaw;
-  const setBanners     = setBannersRaw;
-  const setDepoimentos = setDeposRaw;
-  const setCategories  = setCatsRaw;
-  const setProjects    = setProjectsRaw;
-  const setMetas       = setMetasRaw;
-  const setConfig      = setConfigRaw;
+  // Todos os dados — Firebase é a fonte principal
+  const [products,  setProducts  ]=useStorage("products",   INIT.products);
+  const [orders,    setOrders    ]=useStorage("orders",      INIT.orders);
+  const [clients,   setClients   ]=useStorage("clients",     INIT.clients);
+  const [stockSup,  setStockSup  ]=useStorage("stockSup",    INIT.stockSup);
+  const [finance,   setFinance   ]=useStorage("finance",     INIT.finance);
+  const [contas,    setContas    ]=useStorage("contas",      INIT.contas);
+  const [frases,    setFrases    ]=useStorage("frases",      INIT.frases);
+  const [banners,   setBanners   ]=useStorage("banners",     INIT.banners);
+  const [depoimentos,setDepoimentos]=useStorage("depoimentos",INIT.depoimentos);
+  const [categories,setCategories]=useStorage("categories",  INIT.categories);
+  const [projects,  setProjects  ]=useStorage("projects",    INIT.projects);
+  const [metas,     setMetas     ]=useStorage("metas",       INIT.metas);
+  const [config,    setConfig    ]=useStorage("config",      INIT.config);
+  // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
 
@@ -2410,7 +2534,7 @@ function App() {
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {saved&&<span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>✓ Salvo!</span>}
+            {savedMsg&&<span style={{fontSize:11,color:C.verde,fontWeight:700,background:"#D4E8D4",padding:"3px 10px",borderRadius:20}}>✓ {savedMsg}</span>}
             <Btn sm v="ghost" onClick={copyLink} style={{fontSize:11}}>🔗 Link da loja</Btn>
             <div style={{width:28,height:28,borderRadius:"50%",background:C.dourado,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>S</div>
           </div>
