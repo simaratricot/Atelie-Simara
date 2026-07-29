@@ -495,7 +495,7 @@ const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
 };
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-const Dashboard = ({orders,finance,stockSup,frases}) => {
+const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
   const ativos=orders.filter(o=>!["Concluído","Enviado","Cancelado"].includes(o.status));
   const agenda=orders.filter(o=>o.delivery&&o.delivery>=today&&!["Concluído","Cancelado"].includes(o.status)).sort((a,b)=>a.delivery.localeCompare(b.delivery));
   const frasesAtivas=frases.filter(f=>f.ativa);
@@ -507,6 +507,20 @@ const Dashboard = ({orders,finance,stockSup,frases}) => {
   const hHoje=Object.entries(WEEK_HRS).find(([d])=>diasMap[d]===new Date().getDay())?.[1]??0;
   const statusAtivos=Object.keys(STATUS).filter(s=>!["Concluído","Enviado","Cancelado"].includes(s));
 
+  // Aniversariantes do dia
+  const todayMMDD=today.slice(5); // MM-DD
+  const aniversariantes=(clients||[]).filter(c=>c.nascimento&&c.nascimento.slice(5)===todayMMDD);
+
+  // Resumo financeiro
+  const mesFmt=today.slice(0,7);
+  const anoFmt=today.slice(0,4);
+  const recHoje=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const pagHoje=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const recMes=finance.filter(f=>f.type==="receita"&&f.dataVencimento?.startsWith(mesFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const pagMes=finance.filter(f=>f.type==="despesa"&&f.dataVencimento?.startsWith(mesFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const recAno=finance.filter(f=>f.type==="receita"&&f.dataVencimento?.startsWith(anoFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const pagAno=finance.filter(f=>f.type==="despesa"&&f.dataVencimento?.startsWith(anoFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
+
   return (
     <div className="fade" style={{padding:24,display:"flex",flexDirection:"column",gap:18}}>
       {frase&&(
@@ -517,6 +531,47 @@ const Dashboard = ({orders,finance,stockSup,frases}) => {
           <div style={{fontSize:10,color:C.areia,marginTop:6,fontFamily:"'Cormorant Garamond',serif"}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</div>
         </div>
       )}
+
+      {/* PAINEL FINANCEIRO */}
+      <Card style={{padding:"14px 18px"}}>
+        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.oliva,fontWeight:700,marginBottom:10}}>Painel financeiro</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+          {[
+            {l:"Receber hoje",v:fmtBRL(recHoje),c:recHoje>0?C.dourado:C.oliva},
+            {l:"Receber no mês",v:fmtBRL(recMes),c:C.cafe},
+            {l:"Receber no ano",v:fmtBRL(recAno),c:C.cafe},
+            {l:"Pagar hoje",v:fmtBRL(pagHoje),c:pagHoje>0?C.vermelho:C.oliva},
+            {l:"Pagar no mês",v:fmtBRL(pagMes),c:C.vermelho},
+            {l:"Pagar no ano",v:fmtBRL(pagAno),c:C.vermelho},
+          ].map(k=>(
+            <div key={k.l} style={{background:C.linho,borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
+              <div style={{fontSize:8,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{k.l}</div>
+              <div style={{fontSize:13,fontFamily:"'Playfair Display',serif",fontWeight:700,color:k.c}}>{k.v}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* ANIVERSARIANTES DO DIA */}
+      {aniversariantes.length>0&&(
+        <Card style={{borderLeft:`4px solid ${C.dourado}`,background:"#FFFDF5"}}>
+          <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:10}}>🎂 Aniversariantes hoje</div>
+          {aniversariantes.map(c=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
+              <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700}}>{c.name}</div>
+                <div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div>
+              </div>
+              {c.phone&&<Btn sm v="oliva" onClick={()=>{
+                const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
+                window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
+              }}>💬 Parabéns</Btn>}
+            </div>
+          ))}
+        </Card>
+      )}
+
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         <Card style={{flex:2,minWidth:260}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -549,7 +604,7 @@ const Dashboard = ({orders,finance,stockSup,frases}) => {
           <Card style={{textAlign:"center"}}><div style={{fontSize:32,fontFamily:"'Playfair Display',serif",color:C.dourado}}>{hHoje}h</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:2}}>disponíveis hoje</div></Card>
           <Card style={{textAlign:"center"}}><div style={{fontSize:32,fontFamily:"'Playfair Display',serif",color:C.cafe}}>{ativos.length}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:2}}>pedidos ativos</div></Card>
           <Card>
-            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8,fontWeight:700}}>Resumo financeiro</div>
+            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8,fontWeight:700}}>Saldo a receber</div>
             <div style={{marginBottom:6}}><div style={{fontSize:10,color:C.oliva}}>A receber</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(aReceber)}</div></div>
             <div style={{borderTop:`1px solid ${C.linho}`,paddingTop:6}}><div style={{fontSize:10,color:C.oliva}}>A pagar</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(aPagar)}</div></div>
           </Card>
@@ -593,11 +648,42 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   const precoSug=calcPreco(custoFinal,Number(form.hours||0),config.valorHora,Number(form.margem||40));
   const SUBS={Moda:["Blusas","Coletes","Toucas","Cachecóis","Acessórios"],Casa:["Jogos de banheiro","Panos de prato","Decoração"],Amigurumi:["Bichinhos","Personagens"]};
 
-  const save=()=>{
-    const p={...form,price:Number(form.price)>0?Number(form.price):precoSug,cost:custoFinal,hours:Number(form.hours||0),stock:Number(form.stock||0),buffer:Number(form.buffer||2),margem:Number(form.margem||40)};
-    if(modal==="new")setProducts(prev=>[...prev,{...p,id:uid(),sales:0}]);
-    else setProducts(prev=>prev.map(x=>x.id===p.id?p:x));
+  const comprimirFoto = async (dataUrl) => {
+    if(!dataUrl || !dataUrl.startsWith("data:image")) return dataUrl;
+    if(dataUrl.length < 200000) return dataUrl; // já pequena
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const max = 800;
+        const ratio = Math.min(max/img.width, max/img.height, 1);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        res(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => res(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  const save = async () => {
+    // Comprime fotos antes de salvar
+    const photosComp = await Promise.all((form.photos||[]).map(comprimirFoto));
+    const coresComp = await Promise.all((form.cores||[]).map(async c => ({
+      ...c, foto: c.foto ? await comprimirFoto(c.foto) : c.foto
+    })));
+    const p={...form,
+      photos: photosComp,
+      cores: coresComp,
+      price:Number(form.price)>0?Number(form.price):precoSug,
+      cost:custoFinal,hours:Number(form.hours||0),
+      stock:Number(form.stock||0),buffer:Number(form.buffer||2),
+      margem:Number(form.margem||40)};
+    if(modal==="new") setProducts(prev=>[...prev,{...p,id:uid(),sales:0}].sort((a,b)=>a.name.localeCompare(b.name)));
+    else setProducts(prev=>prev.map(x=>x.id===p.id?p:x).sort((a,b)=>a.name.localeCompare(b.name)));
     setModal(null);
+    showSavedGlobal("Produto salvo!");
   };
 
   return (
@@ -1171,7 +1257,8 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
 
 // ─── PRODUÇÃO ─────────────────────────────────────────────────────────────────
 const Production = ({orders,products}) => {
-  const active=orders.filter(o=>!["Concluído","Enviado","Cancelado"].includes(o.status)).sort((a,b)=>(a.position||999)-(b.position||999));
+  const active=orders.filter(o=>!["Concluído","Enviado","Cancelado","Pronto para envio"].includes(o.status)).sort((a,b)=>(a.position||999)-(b.position||999));
+  const prontos=orders.filter(o=>o.status==="Pronto para envio");
   const totalH=active.reduce((a,o)=>{const p=products.find(x=>x.name===o.product);return a+(p?.hours||0);},0);
   return (
     <div className="fade" style={{padding:24}}>
@@ -1348,70 +1435,154 @@ const Stock = ({stockSup,setStockSup,products,setProducts}) => {
 };
 
 // ─── FINANCEIRO ───────────────────────────────────────────────────────────────
+const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
+  const [valorPago,setValorPago]=useState(lancamento.value);
+  const [dataPag,setDataPag]=useState(today);
+  const [contaId,setContaId]=useState(contas[0]?.id||"");
+  const parcial=Number(valorPago)<lancamento.value&&Number(valorPago)>0;
+  return(
+    <Modal title={`Baixar — ${lancamento.desc}`} onClose={onClose}>
+      <div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+          <span style={{color:C.oliva}}>Valor previsto</span>
+          <span style={{fontWeight:700}}>{fmtBRL(lancamento.value)}</span>
+        </div>
+        {lancamento.clientName&&<div style={{fontSize:11,color:C.oliva}}>Cliente: {lancamento.clientName}</div>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Inp label="Valor recebido (R$)" type="number" value={valorPago} onChange={setValorPago}/>
+        <Inp label="Data do recebimento" type="date" value={dataPag} onChange={setDataPag}/>
+        <Sel label="Banco/Conta que recebeu" value={contaId} onChange={setContaId}
+          options={[{v:"",l:"Selecionar conta..."},...contas.map(c=>({v:c.id,l:`${c.nome} (${fmtBRL(c.saldo||0)})`}))]}/>
+      </div>
+      {parcial&&<div style={{background:"#FEF3E9",borderRadius:6,padding:"10px",marginTop:10,fontSize:12,color:"#9A6B40"}}>
+        ⚠ Pagamento parcial: será gerado um novo lançamento de <b>{fmtBRL(lancamento.value-Number(valorPago))}</b> como pendente.
+      </div>}
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={()=>onConfirm(lancamento,Number(valorPago),dataPag,contaId)}>✓ Confirmar baixa</Btn>
+      </div>
+    </Modal>
+  );
+};
+
 const Finance = ({finance,setFinance,orders,contas,setContas}) => {
   const [tab,setTab]=useState("lanc");
   const [formModal,setFormModal]=useState(false);
   const [contaModal,setContaModal]=useState(false);
   const [transModal,setTransModal]=useState(false);
+  const [baixaModal,setBaixaModal]=useState(null);
   const [per,setPer]=useState("mes");
   const [mes,setMes]=useState(today.slice(0,7));
   const [ano,setAno]=useState(today.slice(0,4));
   const [filtStatus,setFiltStatus]=useState("todos");
-  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:false,fixa:false,contaId:"",clientName:"",orderId:""});
+  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
   const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
   const MESES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
   const isVencido=f=>!f.pago&&f.dataVencimento&&f.dataVencimento<today;
-  const getStatus=f=>{if(f.pago)return "pago";if(isVencido(f))return "vencido";return "pendente";};
+  const getStatus=f=>{if(f.pago)return "pago";if(f.pagoParcial)return "parcial";if(isVencido(f))return "vencido";return "pendente";};
 
-  const inPer=f=>{if(per==="dia")return f.date===today;if(per==="mes")return f.date?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano);return true;};
+  const inPer=f=>{if(per==="dia")return f.date===today||f.dataVencimento===today;if(per==="mes")return f.date?.startsWith(mes)||f.dataVencimento?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano)||f.dataVencimento?.startsWith(ano);return true;};
   const filtPer=finance.filter(inPer);
-  const filt=filtStatus==="todos"?filtPer:filtPer.filter(f=>getStatus(f)===filtStatus);
+  const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
 
-  const rec=filtPer.filter(f=>f.type==="receita").reduce((a,f)=>a+f.value,0);
+  const rec=filtPer.filter(f=>f.type==="receita"&&!f.pagoParcial).reduce((a,f)=>a+f.value,0);
   const desp=filtPer.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
 
-  // Resumo do mês atual
+  // Resumos
   const mesFmt=today.slice(0,7);
-  const recMes=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
+  const recHojeVal=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const pagHojeVal=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const recMes=finance.filter(f=>f.type==="receita"&&f.pago&&f.dataPagamento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const pendMes=finance.filter(f=>f.type==="receita"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const vencidos=finance.filter(f=>isVencido(f)).length;
-
-  const aRec=orders.filter(o=>o.status!=="Cancelado").reduce((a,o)=>a+Math.max(0,(o.precoFinal||o.price||0)-(o.valorPago||0)),0);
-  const aPag=finance.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const recHoje=finance.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
   const balAno=Array.from({length:12},(_,i)=>{const m=`${ano}-${String(i+1).padStart(2,"0")}`;const r=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);const d=finance.filter(f=>f.type==="despesa"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);return{mes:m,label:MESES[i],r,d,lucro:r-d};});
+  const recHoje=finance.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
 
-  const marcarPago=(f)=>{
-    setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:true,dataPagamento:today}:x));
-    if(f.contaId){
-      const delta=f.type==="receita"?f.value:-f.value;
-      setContas(prev=>prev.map(c=>c.id===f.contaId?{...c,saldo:(c.saldo||0)+delta}:c));
+  // BAIXA com pagamento parcial
+  const doBaixa=(lanc,valorPago,dataPag,contaId)=>{
+    if(valorPago>=lanc.value){
+      // Pago total
+      setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:true,pagoParcial:false,dataPagamento:dataPag,contaId,valorPago:lanc.value}:x));
+      if(contaId){const delta=lanc.type==="receita"?lanc.value:-lanc.value;setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
+    } else {
+      // Pagamento parcial — marca como parcial e gera saldo
+      const saldo=lanc.value-valorPago;
+      setFinance(prev=>[
+        ...prev.map(x=>x.id===lanc.id?{...x,pagoParcial:true,pago:false,dataPagamento:dataPag,contaId,valorPagoParc:valorPago,value:valorPago}:x),
+        {id:uid(),type:lanc.type,desc:`${lanc.desc} – Saldo`,value:saldo,date:lanc.date,dataVencimento:lanc.dataVencimento,category:lanc.category,centrocusto:lanc.centrocusto,pago:false,orderId:lanc.orderId,clientName:lanc.clientName,contaId:""}
+      ]);
+      if(contaId){const delta=lanc.type==="receita"?valorPago:-valorPago;setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
     }
+    setBaixaModal(null);
+    showSavedGlobal("Baixa registrada!");
+  };
+
+  // CANCELAR BAIXA
+  const cancelarBaixa=(lanc)=>{
+    if(!window.confirm("Cancelar esta baixa? O lançamento voltará para pendente e o saldo da conta será revertido."))return;
+    setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:false,pagoParcial:false,dataPagamento:null,valorPago:0}:x));
+    if(lanc.contaId){const delta=lanc.type==="receita"?-lanc.value:lanc.value;setContas(prev=>prev.map(c=>c.id===lanc.contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
+    showSavedGlobal("Baixa cancelada!");
   };
 
   const saveForm=()=>{
-    const e={...form,id:uid(),value:Number(form.value),pago:false};
-    setFinance(prev=>[...prev,e]);
+    if(form.fixa&&form.type==="despesa"){
+      // Gera lançamentos mensais para conta fixa
+      const lancs=[];
+      for(let i=0;i<Number(form.qtdMeses||12);i++){
+        const m=new Date(Number(form.anoFixo),i,Number(form.diaFixo||10));
+        const dataVenc=m.toISOString().split("T")[0];
+        lancs.push({...form,id:uid(),value:Number(form.value),pago:false,
+          date:dataVenc,dataVencimento:dataVenc,
+          desc:`${form.desc} – ${MESES[i]}/${form.anoFixo}`});
+      }
+      setFinance(prev=>[...prev,...lancs]);
+      showSavedGlobal(`${lancs.length} lançamentos criados!`);
+    } else {
+      setFinance(prev=>[...prev,{...form,id:uid(),value:Number(form.value),pago:false}]);
+      showSavedGlobal("Lançamento salvo!");
+    }
     setFormModal(false);
   };
-  const saveConta=()=>{if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?{...cForm,saldo:Number(cForm.saldo)}:c));else setContas(prev=>[...prev,{...cForm,id:uid(),saldo:Number(cForm.saldo)}]);setContaModal(false);};
+  const saveConta=()=>{if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?{...cForm,saldo:Number(cForm.saldo)}:c));else setContas(prev=>[...prev,{...cForm,id:uid(),saldo:Number(cForm.saldo)}]);setContaModal(false);showSavedGlobal("Conta salva!");};
   const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Despesas",pago:true,contaId:tForm.de},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Investimentos",pago:true,contaId:tForm.para}]);setTransModal(false);};
 
-  const statusBadge=(f)=>{
+  const StatusBtn=({f})=>{
     const s=getStatus(f);
-    return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:s==="pago"?"#D4E8D4":s==="vencido"?"#FEE":"#FEF3E9",color:s==="pago"?"#2E6B2E":s==="vencido"?C.vermelho:"#9A6B40"}}>{s==="pago"?"✓ Pago":s==="vencido"?"⚠ Vencido":"⏳ Pendente"}</span>;
+    if(s==="pago"||s==="parcial") return(
+      <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:s==="parcial"?"#FEF3E9":"#D4E8D4",color:s==="parcial"?"#9A6B40":"#2E6B2E"}}>{s==="parcial"?`Parcial ${fmtBRL(f.valorPagoParc||0)}`:"✓ Pago"}{f.dataPagamento?` · ${fmtDate(f.dataPagamento)}`:""}</span>
+        <button onClick={()=>cancelarBaixa(f)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Cancelar</button>
+      </div>
+    );
+    return(
+      <button onClick={()=>setBaixaModal(f)} style={{fontSize:10,padding:"3px 10px",borderRadius:10,fontWeight:700,border:`1px solid ${isVencido(f)?C.vermelho:C.dourado}`,cursor:"pointer",background:isVencido(f)?"rgba(192,57,43,0.08)":"rgba(176,141,87,0.08)",color:isVencido(f)?C.vermelho:C.dourado}}>
+        {isVencido(f)?"⚠ Vencido":"💰 Baixar"}
+      </button>
+    );
   };
 
   return (
     <div className="fade" style={{padding:24}}>
-      {/* RESUMO DO MÊS — aparece primeiro */}
+      {/* RESUMO — hoje e mês */}
       <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"14px 18px",marginBottom:16}}>
-        <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>Resumo do mês — {new Date().toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
+        <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>Painel financeiro</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+          <div style={{background:"rgba(255,255,255,0.07)",borderRadius:6,padding:"8px 12px"}}>
+            <div style={{fontSize:9,color:"rgba(250,248,245,0.6)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>Receber hoje</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(recHojeVal)}</div>
+          </div>
+          <div style={{background:"rgba(255,255,255,0.07)",borderRadius:6,padding:"8px 12px"}}>
+            <div style={{fontSize:9,color:"rgba(250,248,245,0.6)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>Pagar hoje</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:pagHojeVal>0?C.vermelho:C.areia,fontWeight:700}}>{fmtBRL(pagHojeVal)}</div>
+          </div>
+        </div>
         <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-          {[{l:"Total a receber",v:fmtBRL(recMes+pendMes),c:"#FAF8F5"},{l:"Já recebido",v:fmtBRL(recMes),c:C.areia},{l:"Pendente",v:fmtBRL(pendMes),c:C.dourado},{l:"Vencidos",v:`${vencidos} lançamento${vencidos!==1?"s":""}`,c:vencidos>0?C.vermelho:C.areia}].map(k=>(
-            <div key={k.l}><div style={{fontSize:9,color:"rgba(250,248,245,0.6)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
+          {[{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FAF8F5"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:C.dourado},{l:"Vencidos",v:`${vencidos}`,c:vencidos>0?C.vermelho:C.areia}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:"rgba(250,248,245,0.5)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:1}}>{k.l}</div><div style={{fontSize:14,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
           ))}
         </div>
       </div>
@@ -1440,9 +1611,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
           {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
           {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
         </div>
-        {/* FILTROS DE STATUS */}
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-          {[{k:"todos",l:"Todos"},{k:"pendente",l:"⏳ Pendentes"},{k:"pago",l:"✓ Pagos"},{k:"vencido",l:"⚠ Vencidos"}].map(s=><button key={s.k} onClick={()=>setFiltStatus(s.k)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtStatus===s.k?C.cafe:C.areia}`,background:filtStatus===s.k?C.cafe:"transparent",color:filtStatus===s.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s.l}</button>)}
+          {[{k:"todos",l:"Todos"},{k:"pendente",l:"⏳ Pendentes"},{k:"pago",l:"✓ Pagos"},{k:"parcial",l:"◑ Parciais"},{k:"vencido",l:"⚠ Vencidos"}].map(s=><button key={s.k} onClick={()=>setFiltStatus(s.k)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtStatus===s.k?C.cafe:C.areia}`,background:filtStatus===s.k?C.cafe:"transparent",color:filtStatus===s.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s.l}</button>)}
         </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
           {[{l:"Receitas",v:fmtBRL(rec),c:C.oliva},{l:"Despesas",v:fmtBRL(desp),c:C.vermelho},{l:"Lucro",v:fmtBRL(rec-desp),c:rec-desp>=0?C.dourado:C.vermelho},{l:"Margem",v:`${rec>0?Math.round(((rec-desp)/rec)*100):0}%`,c:C.cafe}].map(k=><Card key={k.l} style={{flex:"1 1 100px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:3,fontWeight:700}}>{k.l}</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div></Card>)}
@@ -1450,23 +1620,17 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
         {filt.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum lançamento nesse período ✦</div>:(
         <Card style={{padding:0,overflow:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:500}}>
-            <thead><tr style={{background:C.linho}}>{["Data","Tipo","Descrição","Centro","Valor","Vencimento","Status",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{background:C.linho}}>{["Data","Tipo","Descrição","Valor","Vencimento","Status",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
             <tbody>
-              {[...filt].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(f=>(
-                <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.04)":"transparent"}}>
+              {[...filt].sort((a,b)=>(b.dataVencimento||b.date||"").localeCompare(a.dataVencimento||a.date||"")).map(f=>(
+                <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.03)":f.pagoParcial?"rgba(176,141,87,0.05)":"transparent"}}>
                   <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
                   <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.type==="receita"?"#D4E8D4":"#FEE",color:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
-                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:C.d20,color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
-                  <td style={{padding:"8px 10px",fontSize:11,color:C.oliva}}>{f.centrocusto}</td>
-                  <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
+                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
+                  <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho,whiteSpace:"nowrap"}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
                   <td style={{padding:"8px 10px",fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,whiteSpace:"nowrap",fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}</td>
-                  <td style={{padding:"8px 10px"}}>
-                    {f.pago?<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:"#D4E8D4",color:"#2E6B2E"}}>✓ Pago</span>:
-                    <button onClick={()=>marcarPago(f)} style={{fontSize:10,padding:"3px 9px",borderRadius:10,fontWeight:700,border:`1px solid ${isVencido(f)?C.vermelho:C.areia}`,cursor:"pointer",background:isVencido(f)?"rgba(192,57,43,0.1)":"#FEF3E9",color:isVencido(f)?C.vermelho:"#9A6B40"}}>
-                      {isVencido(f)?"⚠ Vencido — Marcar pago":"Marcar pago"}
-                    </button>}
-                  </td>
-                  <td style={{padding:"8px 10px"}}><Btn sm v="danger" onClick={()=>setFinance(prev=>prev.filter(x=>x.id!==f.id))}>✕</Btn></td>
+                  <td style={{padding:"8px 10px"}}><StatusBtn f={f}/></td>
+                  <td style={{padding:"8px 10px"}}><Btn sm v="danger" onClick={()=>{if(window.confirm("Excluir lançamento?"))setFinance(prev=>prev.filter(x=>x.id!==f.id));}}>✕</Btn></td>
                 </tr>
               ))}
             </tbody>
@@ -1556,26 +1720,40 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
         </div>}
       </div>}
 
+      {baixaModal&&<BaixaModal lancamento={baixaModal} contas={contas} onConfirm={doBaixa} onClose={()=>setBaixaModal(null)}/>}
+
       {formModal&&<Modal title="Novo Lançamento" onClose={()=>setFormModal(false)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Tipo</label>
-            <div style={{display:"flex",gap:8}}>{["receita","despesa"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,type:t}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${form.type===t?(t==="receita"?C.oliva:C.vermelho):C.areia}`,background:form.type===t?(t==="receita"?"#D4E8D4":"#FEE"):"transparent",fontSize:13,fontWeight:700,color:form.type===t?(t==="receita"?"#2E6B2E":C.vermelho):C.oliva,cursor:"pointer"}}>{t==="receita"?"+ Receita":"- Despesa"}</button>)}
+            <div style={{display:"flex",gap:8}}>{["receita","despesa"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,type:t,fixa:false}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${form.type===t?(t==="receita"?C.oliva:C.vermelho):C.areia}`,background:form.type===t?(t==="receita"?"#D4E8D4":"#FEE"):"transparent",fontSize:13,fontWeight:700,color:form.type===t?(t==="receita"?"#2E6B2E":C.vermelho):C.oliva,cursor:"pointer"}}>{t==="receita"?"+ Receita":"- Despesa"}</button>)}
             </div>
           </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
           {form.type==="receita"&&<Inp label="Cliente (opcional)" value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))}/>}
           <Inp label="Valor (R$)" type="number" value={form.value} onChange={v=>setForm(f=>({...f,value:v}))}/>
-          <Inp label="Data" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
-          <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>
+          {!form.fixa&&<>
+            <Inp label="Data" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
+            <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>
+          </>}
           <Sel label="Centro de custo" value={form.centrocusto} onChange={v=>setForm(f=>({...f,centrocusto:v}))} options={CENTROS}/>
           <Sel label="Categoria" value={form.category} onChange={v=>setForm(f=>({...f,category:v}))} options={CATS_FIN}/>
           <Sel label="Conta" value={form.contaId} onChange={v=>setForm(f=>({...f,contaId:v}))} options={[{v:"",l:"Nenhuma"},...contas.map(c=>({v:c.id,l:c.nome}))]}/>
-          {form.type==="despesa"&&<div style={{display:"flex",gap:16}}>
-            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.pago} onChange={e=>setForm(f=>({...f,pago:e.target.checked}))} style={{width:16,height:16,accentColor:C.cafe}}/>Já pago</label>
-            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.fixa} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>Conta fixa mensal</label>
-          </div>}
+          {form.type==="despesa"&&<>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={form.fixa||false} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+              <span style={{fontWeight:600}}>📌 Conta fixa (recorrente)</span>
+            </label>
+            {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"12px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <Inp label="Dia de vencimento" type="number" value={form.diaFixo||10} onChange={v=>setForm(f=>({...f,diaFixo:Number(v)}))}/>
+              <Inp label="Nº de meses" type="number" value={form.qtdMeses||12} onChange={v=>setForm(f=>({...f,qtdMeses:Number(v)}))}/>
+              <Inp label="Ano" type="number" value={form.anoFixo||new Date().getFullYear()} onChange={v=>setForm(f=>({...f,anoFixo:Number(v)}))}/>
+              <div style={{gridColumn:"1/-1",fontSize:11,color:C.oliva,fontStyle:"italic"}}>
+                Serão criados {form.qtdMeses||12} lançamentos mensais de {fmtBRL(Number(form.value)||0)} com vencimento todo dia {form.diaFixo||10}.
+              </div>
+            </div>}
+          </>}
         </div>
-        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setFormModal(false)}>Cancelar</Btn><Btn onClick={saveForm}>Salvar</Btn></div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setFormModal(false)}>Cancelar</Btn><Btn onClick={saveForm}>{form.fixa?`Criar ${form.qtdMeses||12} lançamentos`:"Salvar"}</Btn></div>
       </Modal>}
 
       {contaModal&&<Modal title={cForm.id?"Editar Conta":"Nova Conta"} onClose={()=>setContaModal(false)}>
@@ -1697,7 +1875,7 @@ const Clients = ({clients,setClients,orders,config}) => {
   const [modal,setModal]=useState(false);
   const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp"});
   const filtered=clients.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));
-  const save=()=>{setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today}]);setModal(false);};
+  const save=()=>{setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today,nascimento:form.nascimento||""}]);setModal(false);showSavedGlobal("Cliente salvo!");};
   return(
     <div className="fade" style={{padding:24}}>
       <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -1728,6 +1906,7 @@ const Clients = ({clients,setClients,orders,config}) => {
           <Inp label="WhatsApp" value={form.phone} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city} onChange={v=>setForm(f=>({...f,city:v}))}/>
+          <Inp label="Data de nascimento" type="date" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))}/>
           <Sel label="Como chegou" value={form.origem} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
           <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>
         </div>
@@ -2541,7 +2720,7 @@ function App() {
         </div>
         {/* CONTEÚDO */}
         <div style={{flex:1,overflowY:"auto"}}>
-          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases}/>}
+          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} config={config} stockSup={stockSup}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
