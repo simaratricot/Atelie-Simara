@@ -398,7 +398,7 @@ const PhotoUp = ({photos=[],onChange,label}) => {
 };
 
 const ProdPhoto = ({photos,emoji,size=120}) => (
-  <div style={{width:"100%",height:size,background:`linear-gradient(135deg,${C.linho},${C.areia})`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative",flexShrink:0}}>
+  <div style={{width:size,height:size,background:`linear-gradient(135deg,${C.linho},${C.areia})`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative",flexShrink:0,borderRadius:6}}>
     {photos?.[0]?<img src={photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"contain",background:C.linho}}/>:<span style={{fontSize:size*0.36}}>{emoji||"🧶"}</span>}
     {photos?.length>1&&<div style={{position:"absolute",bottom:4,right:6,background:"rgba(92,64,51,0.7)",color:"#fff",fontSize:10,padding:"2px 6px",borderRadius:10}}>+{photos.length-1}</div>}
   </div>
@@ -908,7 +908,10 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
     const itens=form.itens||[{product:form.product,color:form.color,size:form.size,qty:1,price:Number(form.price)}];
     const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0);
     const precoBase=totalItens||Number(form.price)||0;
-    const pF=precoComDesc(precoBase,form.desconto,form.tipoDesc);
+    const taxaEnvio=Number(form.taxaEnvio||0);
+    const d=Number(form.desconto||0);
+    const comDesc=form.tipoDesc==="pct"?precoBase*(1-d/100):Math.max(0,precoBase-d);
+    const pF=comDesc+taxaEnvio;
     const prodDesc=itens.length===1?itens[0].product:`${itens.length} produtos`;
 
     let o={...form,itens,price:precoBase,precoFinal:pF,
@@ -1106,9 +1109,10 @@ const BaixaForm = ({order,contas,onConfirm}) => {
 const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
   const pcd=()=>{
     const itens=form.itens||[];
-    const total=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0)||Number(form.price||0);
+    const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0)||Number(form.price||0);
     const d=Number(form.desconto||0);
-    return form.tipoDesc==="pct"?total*(1-d/100):Math.max(0,total-d);
+    const comDesc=form.tipoDesc==="pct"?totalItens*(1-d/100):Math.max(0,totalItens-d);
+    return comDesc+Number(form.taxaEnvio||0);
   };
 
   const addItem=()=>setForm(f=>({...f,itens:[...(f.itens||[]),{product:"",color:"",size:"",qty:1,price:0}]}));
@@ -1207,6 +1211,13 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
         <Inp label="Previsão de entrega" type="date" value={form.delivery} onChange={v=>setForm(f=>({...f,delivery:v}))}/>
         <Inp label="Posição na fila" type="number" value={form.position} onChange={v=>setForm(f=>({...f,position:v}))}/>
         <Inp label="Código de rastreio" value={form.tracking||""} onChange={v=>setForm(f=>({...f,tracking:v}))}/>
+        <div>
+          <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:4}}>Taxa de envio (R$)</label>
+          <input type="number" min="0" step="0.01" value={form.taxaEnvio||0}
+            onChange={e=>{const t=Number(e.target.value)||0;setForm(f=>({...f,taxaEnvio:t}));}}
+            style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+          {Number(form.taxaEnvio)>0&&<div style={{fontSize:11,color:C.oliva,marginTop:2}}>Será somada ao total do pedido</div>}
+        </div>
 
         {/* CONDIÇÃO DE PAGAMENTO */}
         <div style={{gridColumn:"1/-1"}}>
@@ -1225,15 +1236,22 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
 
         {form.condicao==="Parcelado"&&<div style={{gridColumn:"1/-1"}}>
           <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-            <div style={{flex:1,minWidth:120}}><Inp label="Nº de parcelas" type="number" value={form.qtdParcelas||2} onChange={v=>setForm(f=>({...f,qtdParcelas:Number(v),parcelas:[]}))}/></div>
-            <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,parcelas:calcParcs(f.dataCompra||today,Number(f.qtdParcelas)||2,pcd())}))}>↻ Gerar automaticamente</Btn>
+            <div style={{flex:1,minWidth:120}}>
+              <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Nº de parcelas</label>
+              <input type="number" min="1" max="48" value={form.qtdParcelas||2}
+                onChange={e=>{const n=Number(e.target.value)||2;setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));}}
+                style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.cafe}`,borderRadius:3,fontSize:15,fontWeight:700,color:C.cafe}}/>
+            </div>
+            <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,parcelas:calcParcs(f.dataCompra||today,Number(f.qtdParcelas)||2,pcd())}))}>↻ Regerar</Btn>
           </div>
           {form.parcelas?.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5}}>
             {form.parcelas.map((p,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center",background:C.linho,borderRadius:4,padding:"6px 10px"}}>
-              <span style={{fontSize:12,fontWeight:700,width:45}}>{p.n}ª</span>
+              <span style={{fontSize:12,fontWeight:700,width:45,color:C.cafe}}>{p.n}ª</span>
               <input type="date" value={p.data} onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],data:e.target.value};return{...f,parcelas:n};})} style={{flex:1,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
-              <input type="number" value={p.valor} onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],valor:Number(e.target.value)};return{...f,parcelas:n};})} style={{width:85,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+              <input type="number" value={p.valor} onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],valor:Number(e.target.value)};return{...f,parcelas:n};})} style={{width:90,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+              <span style={{fontSize:11,color:C.dourado,fontWeight:700,minWidth:60}}>{fmtBRL(p.valor)}</span>
             </div>)}
+            <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:C.dourado,paddingTop:4}}>Total: {fmtBRL(form.parcelas.reduce((a,p)=>a+p.valor,0))}</div>
           </div>}
         </div>}
 
@@ -1530,14 +1548,14 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
 
   const saveForm=()=>{
     if(form.fixa&&form.type==="despesa"){
-      // Gera lançamentos mensais para conta fixa
+      const inicio=new Date(form.dataInicio||today);
       const lancs=[];
       for(let i=0;i<Number(form.qtdMeses||12);i++){
-        const m=new Date(Number(form.anoFixo),i,Number(form.diaFixo||10));
+        const m=new Date(inicio.getFullYear(),inicio.getMonth()+i,Number(form.diaFixo||inicio.getDate()));
         const dataVenc=m.toISOString().split("T")[0];
-        lancs.push({...form,id:uid(),value:Number(form.value),pago:false,
+        lancs.push({...form,id:uid(),value:Number(form.value),pago:false,fixa:true,
           date:dataVenc,dataVencimento:dataVenc,
-          desc:`${form.desc} – ${MESES[i]}/${form.anoFixo}`});
+          desc:`${form.desc} (${i+1}/${form.qtdMeses||12})`});
       }
       setFinance(prev=>[...prev,...lancs]);
       showSavedGlobal(`${lancs.length} lançamentos criados!`);
@@ -1729,10 +1747,14 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
             </div>
           </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
-          {form.type==="receita"&&<Inp label="Cliente (opcional)" value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))}/>}
+          {form.type==="receita"&&(
+            <div style={{position:"relative"}}>
+              <Inp label="Cliente (opcional)" value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))}/>
+            </div>
+          )}
           <Inp label="Valor (R$)" type="number" value={form.value} onChange={v=>setForm(f=>({...f,value:v}))}/>
           {!form.fixa&&<>
-            <Inp label="Data" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
+            <Inp label="Data do lançamento" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
             <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>
           </>}
           <Sel label="Centro de custo" value={form.centrocusto} onChange={v=>setForm(f=>({...f,centrocusto:v}))} options={CENTROS}/>
@@ -1743,12 +1765,14 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
               <input type="checkbox" checked={form.fixa||false} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
               <span style={{fontWeight:600}}>📌 Conta fixa (recorrente)</span>
             </label>
-            {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"12px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              <Inp label="Dia de vencimento" type="number" value={form.diaFixo||10} onChange={v=>setForm(f=>({...f,diaFixo:Number(v)}))}/>
-              <Inp label="Nº de meses" type="number" value={form.qtdMeses||12} onChange={v=>setForm(f=>({...f,qtdMeses:Number(v)}))}/>
-              <Inp label="Ano" type="number" value={form.anoFixo||new Date().getFullYear()} onChange={v=>setForm(f=>({...f,anoFixo:Number(v)}))}/>
-              <div style={{gridColumn:"1/-1",fontSize:11,color:C.oliva,fontStyle:"italic"}}>
-                Serão criados {form.qtdMeses||12} lançamentos mensais de {fmtBRL(Number(form.value)||0)} com vencimento todo dia {form.diaFixo||10}.
+            {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
+              <Inp label="Data de início (primeiro vencimento)" type="date" value={form.dataInicio||today} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <Inp label="Dia de vencimento" type="number" value={form.diaFixo||10} onChange={v=>setForm(f=>({...f,diaFixo:Number(v)}))}/>
+                <Inp label="Nº de meses/parcelas" type="number" value={form.qtdMeses||12} onChange={v=>setForm(f=>({...f,qtdMeses:Number(v)}))}/>
+              </div>
+              <div style={{background:"#fff",borderRadius:4,padding:"8px 10px",fontSize:11,color:C.oliva}}>
+                Serão criados <b>{form.qtdMeses||12} lançamentos</b> mensais de <b>{fmtBRL(Number(form.value)||0)}</b>, com vencimento todo dia <b>{form.diaFixo||10}</b>, a partir de <b>{fmtDate(form.dataInicio||today)}</b>.
               </div>
             </div>}
           </>}
@@ -1872,26 +1896,42 @@ const Metas = ({finance,orders,metas,setMetas}) => {
 // ─── CLIENTES ─────────────────────────────────────────────────────────────────
 const Clients = ({clients,setClients,orders,config}) => {
   const [search,setSearch]=useState("");
-  const [modal,setModal]=useState(false);
-  const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp"});
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:""});
   const filtered=clients.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));
-  const save=()=>{setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today,nascimento:form.nascimento||""}]);setModal(false);showSavedGlobal("Cliente salvo!");};
+  const EF={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:""};
+  const save=()=>{
+    if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x));
+    else setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today}]);
+    setModal(null);showSavedGlobal("Cliente salvo!");
+  };
   return(
     <div className="fade" style={{padding:24}}>
       <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
         <div style={{flex:1,minWidth:160}}><Inp value={search} onChange={setSearch} placeholder="Buscar cliente..."/></div>
-        <Btn onClick={()=>{setForm({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp"});setModal(true);}}>+ Nova Cliente</Btn>
+        <Btn onClick={()=>{setForm(EF);setModal("new");}}>+ Nova Cliente</Btn>
       </div>
+      {/* Sugestão de cadastrar novo quando busca não acha */}
+      {search.length>2&&filtered.length===0&&(
+        <div style={{background:C.linho,borderRadius:8,padding:"12px 16px",marginBottom:14,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:C.cafe}}>"{search}" não encontrado.</span>
+          <Btn sm onClick={()=>{setForm({...EF,name:search});setModal("new");}}>+ Cadastrar "{search}"</Btn>
+        </div>
+      )}
       {clients.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Clientes são cadastradas automaticamente ao criar encomendas ✦</div>}
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         {filtered.map(c=>{const ord=orders.filter(o=>o.client===c.name);return(
           <Card key={c.id} hover style={{flex:"1 1 220px",minWidth:200}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
               <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.cafe}}>{c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}</div>
-              {c.vip&&<span style={{fontSize:9,background:C.d20,color:C.dourado,padding:"2px 8px",borderRadius:10,fontWeight:700}}>✦ VIP</span>}
+              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                {c.vip&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"2px 8px",borderRadius:10,fontWeight:700}}>✦ VIP</span>}
+                <Btn sm v="ghost" onClick={()=>{setForm({...EF,...c});setModal("edit");}}>✎</Btn>
+              </div>
             </div>
             <h4 style={{fontSize:15,fontWeight:700,marginBottom:1}}>{c.name}</h4>
-            <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>{c.origem||""}</div>
+            {c.nascimento&&<div style={{fontSize:11,color:C.dourado,marginBottom:2}}>🎂 {new Date(c.nascimento+"T00:00").toLocaleDateString("pt-BR",{day:"numeric",month:"long"})}</div>}
+            <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>{c.origem||""}{c.city?` · ${c.city}`:""}</div>
             <div style={{display:"flex",gap:8,marginBottom:10}}>
               <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:15,fontWeight:700,fontFamily:"'Playfair Display',serif"}}>{ord.length}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>PEDIDOS</div></div>
               <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:12,fontWeight:700,color:C.dourado}}>{fmtBRL(ord.reduce((a,o)=>a+(o.precoFinal||o.price||0),0))}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>TOTAL</div></div>
@@ -1900,17 +1940,21 @@ const Clients = ({clients,setClients,orders,config}) => {
           </Card>
         );})}
       </div>
-      {modal&&<Modal title="Nova Cliente" onClose={()=>setModal(false)}>
+      {modal&&<Modal title={modal==="edit"?"Editar Cliente":"Nova Cliente"} onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Inp label="Nome completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))}/>
-          <Inp label="WhatsApp" value={form.phone} onChange={v=>setForm(f=>({...f,phone:v}))}/>
-          <Inp label="E-mail" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))}/>
-          <Inp label="Cidade" value={form.city} onChange={v=>setForm(f=>({...f,city:v}))}/>
+          <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
+          <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
+          <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
           <Inp label="Data de nascimento" type="date" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))}/>
-          <Sel label="Como chegou" value={form.origem} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
-          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>
+          <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>
         </div>
-        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(false)}>Cancelar</Btn><Btn onClick={save}>Salvar</Btn></div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          {modal==="edit"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir cliente?"))setClients(prev=>prev.filter(x=>x.id!==form.id));setModal(null);}}>Excluir</Btn>}
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={save}>Salvar</Btn>
+        </div>
       </Modal>}
     </div>
   );
@@ -1965,40 +2009,65 @@ const Projects = ({projects,setProjects}) => {
 
 // ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
 const Reports = ({orders,products,finance,clients}) => {
-  const fatTotal=orders.filter(o=>o.status!=="Cancelado").reduce((a,o)=>a+(o.precoFinal||o.price||0),0);
-  const recTotal=orders.reduce((a,o)=>a+(o.valorPago||0),0);
-  const avgTicket=orders.filter(o=>o.status!=="Cancelado").length>0?fatTotal/orders.filter(o=>o.status!=="Cancelado").length:0;
+  const anoAtual=today.slice(0,4);
+  const mesAtual=today.slice(0,7);
+  const ordAtivos=orders.filter(o=>o.status!=="Cancelado");
+  const fatTotal=ordAtivos.reduce((a,o)=>a+(o.precoFinal||o.price||0),0);
+  const recTotal=finance.filter(f=>f.type==="receita"&&f.pago).reduce((a,f)=>a+f.value,0);
+  const recPend=finance.filter(f=>f.type==="receita"&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const avgTicket=ordAtivos.length>0?fatTotal/ordAtivos.length:0;
   const despTotal=finance.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
   const invTotal=finance.filter(f=>f.centrocusto==="Investimentos").reduce((a,f)=>a+f.value,0);
+  const lucro=recTotal-despTotal;
   const origens=clients.reduce((acc,c)=>{if(c.origem)acc[c.origem]=(acc[c.origem]||0)+1;return acc;},{});
-  const hasData=orders.length>0||finance.length>0;
+  // Produtos mais vendidos
+  const prodVendas=orders.filter(o=>o.status!=="Cancelado").reduce((acc,o)=>{
+    const nome=o.product||"Sem nome";
+    if(!acc[nome])acc[nome]={nome,qtd:0,total:0};
+    acc[nome].qtd+=(o.itens?.length||1);
+    acc[nome].total+=(o.precoFinal||o.price||0);
+    return acc;
+  },{});
+  const topProd=Object.values(prodVendas).sort((a,b)=>b.total-a.total).slice(0,5);
   return(
     <div className="fade" style={{padding:24}}>
-      {!hasData?<div style={{textAlign:"center",padding:"60px 20px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:15}}>Os relatórios serão preenchidos conforme você lançar pedidos e vendas ✦</div>:(
-      <>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-          {[{l:"Ticket médio",v:fmtBRL(avgTicket),c:C.dourado},{l:"Total pedidos",v:orders.filter(o=>o.status!=="Cancelado").length,c:C.cafe},{l:"Clientes VIP",v:clients.filter(c=>c.vip).length,c:C.oliva},{l:"Margem",v:`${fatTotal>0?Math.round(((fatTotal-despTotal)/fatTotal)*100):0}%`,c:C.cafe}].map(k=>(
-            <Card key={k.l} style={{flex:"1 1 110px",textAlign:"center"}}><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginTop:2}}>{k.l}</div></Card>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
+        {[{l:"Ticket médio",v:fmtBRL(avgTicket),c:C.dourado},{l:"Total pedidos",v:ordAtivos.length,c:C.cafe},{l:"Clientes",v:clients.length,c:C.oliva},{l:"Margem",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
+          <Card key={k.l} style={{flex:"1 1 110px",textAlign:"center"}}><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginTop:2}}>{k.l}</div></Card>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
+        <Card style={{flex:1,minWidth:200}}>
+          <h3 style={{fontSize:14,marginBottom:12}}>Resumo financeiro</h3>
+          {[["Faturamento total",fmtBRL(fatTotal)],["Já recebido",fmtBRL(recTotal)],["A receber",fmtBRL(recPend)],["Total despesas",fmtBRL(despTotal)],["Lucro líquido",fmtBRL(lucro)],["Investimentos",fmtBRL(invTotal)]].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}><span style={{fontSize:12,color:C.oliva}}>{l}</span><span style={{fontSize:13,fontWeight:700}}>{v}</span></div>
+          ))}
+        </Card>
+        {topProd.length>0&&<Card style={{flex:1,minWidth:180}}>
+          <h3 style={{fontSize:14,marginBottom:12}}>Produtos mais vendidos</h3>
+          {topProd.map((p,i)=>(
+            <div key={p.nome} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:12,fontWeight:600}}>{i+1}. {p.nome}</span>
+                <span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{fmtBRL(p.total)}</span>
+              </div>
+              <PBar pct={topProd[0].total>0?(p.total/topProd[0].total)*100:0} h={4}/>
+            </div>
+          ))}
+        </Card>}
+      </div>
+      {Object.keys(origens).length>0&&<Card>
+        <h3 style={{fontSize:14,marginBottom:12}}>Como as clientes chegaram</h3>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {Object.entries(origens).sort((a,b)=>b[1]-a[1]).map(([o,n])=>(
+            <div key={o} style={{flex:"1 1 130px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:600}}>{o}</span><span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{n} ({Math.round((n/clients.length)*100)}%)</span></div>
+              <PBar pct={(n/clients.length)*100} h={5}/>
+            </div>
           ))}
         </div>
-        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-          <Card style={{flex:1,minWidth:200}}>
-            <h3 style={{fontSize:14,marginBottom:12}}>Resumo financeiro</h3>
-            {[["Total faturado",fmtBRL(fatTotal)],["Total recebido",fmtBRL(recTotal)],["A receber",fmtBRL(Math.max(0,fatTotal-recTotal))],["Total despesas",fmtBRL(despTotal)],["Lucro estimado",fmtBRL(fatTotal-despTotal)],["Investimentos",fmtBRL(invTotal)]].map(([l,v])=>(
-              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.linho}`}}><span style={{fontSize:12,color:C.oliva}}>{l}</span><span style={{fontSize:13,fontWeight:700}}>{v}</span></div>
-            ))}
-          </Card>
-          {Object.keys(origens).length>0&&<Card style={{flex:1,minWidth:180}}>
-            <h3 style={{fontSize:14,marginBottom:12}}>Como as clientes chegaram</h3>
-            {Object.entries(origens).sort((a,b)=>b[1]-a[1]).map(([o,n])=>(
-              <div key={o} style={{marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:600}}>{o}</span><span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{n}</span></div>
-                <PBar pct={(n/clients.length)*100} h={5}/>
-              </div>
-            ))}
-          </Card>}
-        </div>
-      </>)}
+      </Card>}
+      {orders.length===0&&finance.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Os relatórios serão preenchidos conforme você lançar pedidos e vendas ✦</div>}
     </div>
   );
 };
@@ -2366,7 +2435,8 @@ const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config
         <div className="cg">
           {filtered.map(p=>(
             <div key={p.id} className="ch" style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
-              <div style={{height:130,background:p.photos?.[0]?`url(${p.photos[0]}) center/cover`:`linear-gradient(135deg,${C.linho},${C.areia})`,backgroundSize:"cover",backgroundPosition:"center",display:"flex",alignItems:"center",justifyContent:"center",fontSize:48}}>{!p.photos?.[0]&&(p.img||"🧶")}</div>
+              <div style={{height:130,width:"100%",background:p.photos?.[0]?undefined:`linear-gradient(135deg,${C.linho},${C.areia})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:48,overflow:"hidden"}}>
+                {p.photos?.[0]?<img src={p.photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"contain",background:C.linho}}/>:(p.img||"🧶")}</div>
               <div style={{padding:"9px 10px"}}>
                 <div style={{fontSize:12,fontWeight:700,marginBottom:1}}>{p.name}</div>
                 <div style={{fontSize:10,color:C.oliva,marginBottom:4}}>{p.subcategory||p.category}</div>
@@ -2473,6 +2543,7 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
   const [sel,setSel]=useState({tamanho:"",cor:""});
   const [dados,setDados]=useState({nome:"",phone:"",endereco:"",cep:"",nascimento:"",origem:"Instagram"});
   const [pag,setPag]=useState({tipo:"PIX",parcelas:1});
+  const [pag,setPag]=useState({tipo:"PIX",parcelas:1});
   const [entrega,setEntrega]=useState({tipo:"Correios",frete:0,prazo:""});
   const [cepLoad,setCepLoad]=useState(false);
   const [done,setDone]=useState(null);
@@ -2481,8 +2552,10 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
     if(produto.valorPorTamanho?.length>0&&sel.tamanho){const vt=produto.valorPorTamanho.find(v=>v.tamanho===sel.tamanho);if(vt)return vt.preco;}
     return produto.price||0;
   })();
-  const total=preco+(entrega.frete||0);
   const taxa=0.0499;
+  const totalSemTaxa=preco+(entrega.frete||0);
+  const totalComTaxa=pag.tipo==="Cartao"?totalSemTaxa*(1+taxa):totalSemTaxa;
+  const total=totalComTaxa;
 
   const buscarCEP=async cep=>{
     const c=cep.replace(/\D/g,"");
@@ -2492,9 +2565,23 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
       const r=await fetch(`https://viacep.com.br/ws/${c}/json/`);
       const d=await r.json();
       if(!d.erro)setDados(p=>({...p,endereco:`${d.logradouro}, ${d.bairro}, ${d.localidade} - ${d.uf}`}));
-      const fr=c.startsWith("13465")||c.startsWith("13464")?15:c.startsWith("13")?12:c.startsWith("01")||c.startsWith("02")?18:22;
-      setEntrega(e=>({...e,frete:fr,prazo:fr===15?"Entrega em Americana":"5 a 10 dias úteis (Correios)"}));
-    }catch{}
+      // Calcula frete por região
+      const prefix=c.slice(0,5);
+      let fr=22; let prazo="7 a 15 dias úteis (Correios)";
+      if(["13464","13465","13466","13467","13468","13469","13470","13471","13472","13473","13474","13475"].some(p=>c.startsWith(p))){fr=15;prazo="Entrega em Americana";}
+      else if(c.startsWith("13")){fr=12;prazo="3 a 5 dias úteis (Correios)";}
+      else if(c.startsWith("01")||c.startsWith("02")||c.startsWith("03")||c.startsWith("04")||c.startsWith("05")||c.startsWith("08")||c.startsWith("09")){fr=18;prazo="2 a 4 dias úteis (Correios)";}
+      else if(c.startsWith("0")||c.startsWith("1")){fr=20;prazo="3 a 7 dias úteis (Correios)";}
+      else if(c.startsWith("2")){fr=28;prazo="5 a 10 dias úteis (Correios)";}
+      else if(c.startsWith("3")){fr=25;prazo="4 a 8 dias úteis (Correios)";}
+      else if(c.startsWith("4")){fr=28;prazo="5 a 10 dias úteis (Correios)";}
+      else if(c.startsWith("5")){fr=25;prazo="4 a 8 dias úteis (Correios)";}
+      else if(c.startsWith("6")){fr=32;prazo="7 a 12 dias úteis (Correios)";}
+      else if(c.startsWith("7")){fr=35;prazo="8 a 15 dias úteis (Correios)";}
+      else if(c.startsWith("8")){fr=28;prazo="5 a 10 dias úteis (Correios)";}
+      else if(c.startsWith("9")){fr=38;prazo="10 a 20 dias úteis (Correios)";}
+      setEntrega(e=>({...e,frete:fr,prazo}));
+    }catch(err){console.warn("CEP error:",err);}
     setCepLoad(false);
   };
 
@@ -2571,19 +2658,23 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
               <div style={{fontSize:13,color:C.cafe,marginBottom:3}}>{NOME_PIX}</div>
               <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>Banco: Mercado Pago</div>
               <div style={{background:"#FEF3E9",borderRadius:6,padding:"9px 12px",fontSize:12,color:"#9A6B40",textAlign:"left"}}>⚠ Envie o comprovante junto com o pedido para facilitar a identificação.</div>
+              <div style={{marginTop:10,fontSize:15,fontWeight:700,color:C.cafe}}>Total: {fmtBRL(totalSemTaxa)}</div>
             </div>}
             {pag.tipo==="Boleto"&&<div style={{background:C.linho,borderRadius:8,padding:"14px",textAlign:"center"}}>
               <div style={{fontSize:26,marginBottom:6}}>🧾</div>
               <div style={{fontSize:13,color:C.cafe}}>O boleto será enviado após a confirmação do pedido.</div>
+              <div style={{marginTop:10,fontSize:15,fontWeight:700,color:C.cafe}}>Total: {fmtBRL(totalSemTaxa)}</div>
             </div>}
             {pag.tipo==="Cartao"&&<div style={{background:C.linho,borderRadius:8,padding:"14px"}}>
               <div style={{fontSize:13,fontWeight:600,color:C.cafe,marginBottom:10}}>Número de parcelas:</div>
-              <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+              <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:12}}>
                 {[1,2,3,4,5,6].map(n=><button key={n} onClick={()=>setPag(p=>({...p,parcelas:n}))} style={{padding:"7px 12px",borderRadius:4,border:`2px solid ${pag.parcelas===n?C.cafe:C.areia}`,background:pag.parcelas===n?C.cafe:"transparent",color:pag.parcelas===n?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{n}x</button>)}
               </div>
-              <div style={{background:"#fff",borderRadius:6,padding:"9px 12px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Total c/ taxa (4,99%)</span><span style={{fontWeight:700}}>{fmtBRL(total*(1+taxa))}</span></div>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}><span>{pag.parcelas}x de</span><span style={{color:C.dourado}}>{fmtBRL(total*(1+taxa)/pag.parcelas)}</span></div>
+              <div style={{background:"#fff",borderRadius:6,padding:"10px 12px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,color:C.oliva}}><span>Subtotal</span><span>{fmtBRL(totalSemTaxa)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6,color:C.oliva}}><span>Taxa cartão (4,99%)</span><span>+ {fmtBRL(totalSemTaxa*taxa)}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,borderTop:`1px solid ${C.areia}`,paddingTop:6,marginBottom:6}}><span>Total c/ taxa</span><span>{fmtBRL(totalSemTaxa*(1+taxa))}</span></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:700,color:C.dourado}}><span>{pag.parcelas}x de</span><span>{fmtBRL((totalSemTaxa*(1+taxa))/pag.parcelas)}</span></div>
               </div>
             </div>}
             <div style={{display:"flex",gap:8,marginTop:14}}>
@@ -2605,8 +2696,10 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
             </div>}
             <div style={{background:C.linho,borderRadius:6,padding:"12px",marginBottom:12}}>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Produto</span><span>{fmtBRL(preco)}</span></div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Frete</span><span>{fmtBRL(entrega.frete)}</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Frete</span><span>{fmtBRL(entrega.frete||0)}</span></div>
+              {pag.tipo==="Cartao"&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Taxa cartão (4,99%)</span><span>{fmtBRL(totalSemTaxa*taxa)}</span></div>}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:700,paddingTop:6,borderTop:`1px solid ${C.areia}`}}><span>Total</span><span style={{color:C.dourado}}>{fmtBRL(total)}</span></div>
+              {pag.tipo==="Cartao"&&pag.parcelas>1&&<div style={{fontSize:12,color:C.oliva,marginTop:4,textAlign:"right"}}>{pag.parcelas}x de {fmtBRL(total/pag.parcelas)}</div>}
             </div>
             <div style={{display:"flex",gap:8}}>
               <Btn v="ghost" onClick={()=>setStep("pag")}>← Voltar</Btn>
