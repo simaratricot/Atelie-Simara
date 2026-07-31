@@ -465,6 +465,7 @@ const NAV = [
   {k:"finance",i:"◉",l:"Financeiro"},
   {k:"metas",i:"🎯",l:"Metas"},
   {k:"clients",i:"◈",l:"Clientes"},
+  {k:"orcamento",i:"✦",l:"Calculadora"},
   {k:"projects",i:"✧",l:"Projetos & Sonhos"},
   {k:"reports",i:"▦",l:"Relatórios"},
   {k:"config",i:"⊙",l:"Configurações"},
@@ -500,26 +501,13 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
   const agenda=orders.filter(o=>o.delivery&&o.delivery>=today&&!["Concluído","Cancelado"].includes(o.status)).sort((a,b)=>a.delivery.localeCompare(b.delivery));
   const frasesAtivas=frases.filter(f=>f.ativa);
   const frase=frasesAtivas.length>0?frasesAtivas[dayOfYear()%frasesAtivas.length]:null;
-  const aReceber=orders.filter(o=>o.status!=="Cancelado").reduce((a,o)=>a+Math.max(0,(o.precoFinal||o.price||0)-(o.valorPago||0)),0);
-  const aPagar=finance.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
   const lowStock=stockSup.filter(s=>s.qty<=s.min);
-  const diasMap={"Seg":1,"Ter":2,"Qua":3,"Qui":4,"Sex":5,"Sáb":6,"Dom":0};
-  const hHoje=Object.entries(WEEK_HRS).find(([d])=>diasMap[d]===new Date().getDay())?.[1]??0;
   const statusAtivos=Object.keys(STATUS).filter(s=>!["Concluído","Enviado","Cancelado"].includes(s));
-
-  // Aniversariantes do dia
-  const todayMMDD=today.slice(5); // MM-DD
+  const todayMMDD=today.slice(5);
   const aniversariantes=(clients||[]).filter(c=>c.nascimento&&c.nascimento.slice(5)===todayMMDD);
-
-  // Resumo financeiro
-  const mesFmt=today.slice(0,7);
-  const anoFmt=today.slice(0,4);
   const recHoje=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
   const pagHoje=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const recMes=finance.filter(f=>f.type==="receita"&&f.dataVencimento?.startsWith(mesFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const pagMes=finance.filter(f=>f.type==="despesa"&&f.dataVencimento?.startsWith(mesFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const recAno=finance.filter(f=>f.type==="receita"&&f.dataVencimento?.startsWith(anoFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const pagAno=finance.filter(f=>f.type==="despesa"&&f.dataVencimento?.startsWith(anoFmt)&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const proximaEntrega=agenda[0];
 
   return (
     <div className="fade" style={{padding:24,display:"flex",flexDirection:"column",gap:18}}>
@@ -532,37 +520,35 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
         </div>
       )}
 
-      {/* PAINEL FINANCEIRO */}
-      <Card style={{padding:"14px 18px"}}>
-        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.oliva,fontWeight:700,marginBottom:10}}>Painel financeiro</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-          {[
-            {l:"Receber hoje",v:fmtBRL(recHoje),c:recHoje>0?C.dourado:C.oliva},
-            {l:"Receber no mês",v:fmtBRL(recMes),c:C.cafe},
-            {l:"Receber no ano",v:fmtBRL(recAno),c:C.cafe},
-            {l:"Pagar hoje",v:fmtBRL(pagHoje),c:pagHoje>0?C.vermelho:C.oliva},
-            {l:"Pagar no mês",v:fmtBRL(pagMes),c:C.vermelho},
-            {l:"Pagar no ano",v:fmtBRL(pagAno),c:C.vermelho},
-          ].map(k=>(
-            <div key={k.l} style={{background:C.linho,borderRadius:6,padding:"8px 10px",textAlign:"center"}}>
-              <div style={{fontSize:8,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{k.l}</div>
-              <div style={{fontSize:13,fontFamily:"'Playfair Display',serif",fontWeight:700,color:k.c}}>{k.v}</div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      {/* RESUMO DO DIA */}
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        {recHoje>0&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.dourado}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Receber hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(recHoje)}</div>
+        </Card>}
+        {pagHoje>0&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.vermelho}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Pagar hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
+        </Card>}
+        <Card style={{flex:"1 1 140px"}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Pedidos ativos</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{ativos.length}</div>
+        </Card>
+        {proximaEntrega&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.cafe}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Próxima entrega</div>
+          <div style={{fontSize:14,fontWeight:700,color:C.cafe}}>{proximaEntrega.client.split(" ")[0]}</div>
+          <div style={{fontSize:11,color:C.oliva}}>{fmtDate(proximaEntrega.delivery)}</div>
+        </Card>}
+      </div>
 
-      {/* ANIVERSARIANTES DO DIA */}
+      {/* ANIVERSARIANTES */}
       {aniversariantes.length>0&&(
         <Card style={{borderLeft:`4px solid ${C.dourado}`,background:"#FFFDF5"}}>
           <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:10}}>🎂 Aniversariantes hoje</div>
           {aniversariantes.map(c=>(
             <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
               <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700}}>{c.name}</div>
-                <div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div>
-              </div>
+              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div></div>
               {c.phone&&<Btn sm v="oliva" onClick={()=>{
                 const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
                 window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
@@ -582,7 +568,7 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
           {agenda.slice(0,5).map(o=>{
             const dias=Math.ceil((new Date(o.delivery+"T00:00")-new Date())/864e5);
             const urg=dias<=2;
-            return (
+            return(
               <div key={o.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.linho}`}}>
                 <div style={{width:38,textAlign:"center",flexShrink:0}}>
                   <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700,color:urg?C.vermelho:C.cafe}}>{new Date(o.delivery+"T00:00").getDate()}</div>
@@ -601,28 +587,23 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
           })}
         </Card>
         <div style={{flex:1,minWidth:180,display:"flex",flexDirection:"column",gap:12}}>
-          <Card style={{textAlign:"center"}}><div style={{fontSize:32,fontFamily:"'Playfair Display',serif",color:C.dourado}}>{hHoje}h</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:2}}>disponíveis hoje</div></Card>
-          <Card style={{textAlign:"center"}}><div style={{fontSize:32,fontFamily:"'Playfair Display',serif",color:C.cafe}}>{ativos.length}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:2}}>pedidos ativos</div></Card>
           <Card>
-            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8,fontWeight:700}}>Saldo a receber</div>
-            <div style={{marginBottom:6}}><div style={{fontSize:10,color:C.oliva}}>A receber</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(aReceber)}</div></div>
-            <div style={{borderTop:`1px solid ${C.linho}`,paddingTop:6}}><div style={{fontSize:10,color:C.oliva}}>A pagar</div><div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(aPagar)}</div></div>
+            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:10,fontWeight:700}}>Status dos pedidos</div>
+            {ativos.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum pedido ativo.</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {statusAtivos.map(s=>{const c=orders.filter(o=>o.status===s).length;if(!c)return null;return(
+                <div key={s} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:`1px solid ${C.linho}`}}>
+                  <span style={{fontSize:11,color:C.oliva}}>{s}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:C.cafe}}>{c}</span>
+                </div>
+              );})}
+            </div>}
           </Card>
+          {lowStock.length>0&&<Card>
+            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8,fontWeight:700}}>⚠ Estoque baixo</div>
+            {lowStock.map(s=><div key={s.id} style={{padding:"5px 8px",background:"#FEF3E9",borderLeft:`3px solid ${C.dourado}`,marginBottom:5,borderRadius:2}}><div style={{fontSize:12,fontWeight:600}}>{s.nome}</div><div style={{fontSize:10,color:"#9A6B40"}}>{s.qty} {s.unidade} · mín {s.min}</div></div>)}
+          </Card>}
         </div>
-      </div>
-      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        <Card style={{flex:2,minWidth:240}}>
-          <h3 style={{fontSize:14,marginBottom:10}}>Status dos pedidos ativos</h3>
-          {ativos.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum pedido ativo no momento.</div>
-          :<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            {statusAtivos.map(s=>{const c=orders.filter(o=>o.status===s).length;if(!c)return null;return <div key={s} style={{textAlign:"center",padding:"6px 10px",background:C.linho,borderRadius:4,minWidth:70}}><div style={{fontSize:16,fontWeight:700,color:C.cafe}}>{c}</div><div style={{fontSize:9,color:C.oliva,marginTop:1}}>{s}</div></div>;})}
-          </div>}
-        </Card>
-        <Card style={{flex:1,minWidth:180}}>
-          <h3 style={{fontSize:14,marginBottom:10}}>Alertas de estoque</h3>
-          {lowStock.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Estoque em dia ✓</div>
-          :lowStock.map(s=><div key={s.id} style={{padding:"5px 8px",background:"#FEF3E9",borderLeft:`3px solid ${C.dourado}`,marginBottom:5,borderRadius:2}}><div style={{fontSize:12,fontWeight:600}}>{s.nome}</div><div style={{fontSize:10,color:"#9A6B40"}}>{s.qty} {s.unidade} · mín {s.min}</div></div>)}
-        </Card>
       </div>
     </div>
   );
@@ -1961,6 +1942,75 @@ const Clients = ({clients,setClients,orders,config}) => {
 };
 
 // ─── PROJETOS & SONHOS ────────────────────────────────────────────────────────
+// ─── CALCULADORA DE ORÇAMENTO ─────────────────────────────────────────────────
+const Orcamento = ({config,stockSup}) => {
+  const [form,setForm]=useState({nome:"",custo:0,horas:0,margem:40,frete:0,desconto:0});
+  const [resultado,setResultado]=useState(null);
+  const valorHora=config.valorHora||25;
+  const calcular=()=>{
+    const custo=Number(form.custo||0);
+    const mo=Number(form.horas||0)*valorHora;
+    const sub=custo+mo;
+    const comMargem=sub*(1+Number(form.margem||40)/100);
+    const comFrete=comMargem+Number(form.frete||0);
+    const comDesc=comFrete*(1-Number(form.desconto||0)/100);
+    const arredondado=Math.ceil(comDesc/5)*5;
+    setResultado({custo,mo,sub,comMargem,comFrete,arredondado,margem:Number(form.margem||40)});
+  };
+  return(
+    <div className="fade" style={{padding:24,maxWidth:520}}>
+      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"16px 20px",marginBottom:20}}>
+        <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",marginBottom:4,fontWeight:700}}>Calculadora de Orçamento</div>
+        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.areia}}>Calcule o preço justo de qualquer peça sem cadastrar produto.</p>
+      </div>
+      <Card style={{marginBottom:14}}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Nome da peça (opcional)" value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))} placeholder="Ex: Touca 3 em 1, Colete..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Custo dos materiais (R$)" type="number" value={form.custo} onChange={v=>setForm(f=>({...f,custo:v}))}/>
+            <Inp label="Horas de produção" type="number" value={form.horas} onChange={v=>setForm(f=>({...f,horas:v}))}/>
+            <Inp label="Margem de lucro (%)" type="number" value={form.margem} onChange={v=>setForm(f=>({...f,margem:v}))}/>
+            <Inp label="Frete (R$)" type="number" value={form.frete} onChange={v=>setForm(f=>({...f,frete:v}))}/>
+            <Inp label="Desconto (%)" type="number" value={form.desconto} onChange={v=>setForm(f=>({...f,desconto:v}))}/>
+            <div style={{display:"flex",alignItems:"flex-end"}}>
+              <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Valor/hora: <b>{fmtBRL(valorHora)}</b><br/>(configurado em Configurações)</div>
+            </div>
+          </div>
+          <Btn full onClick={calcular}>✦ Calcular preço</Btn>
+        </div>
+      </Card>
+      {resultado&&<Card style={{background:`linear-gradient(135deg,${C.linho},#fff)`}}>
+        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.oliva,fontWeight:700,marginBottom:12}}>
+          {form.nome?`Orçamento — ${form.nome}`:"Resultado do orçamento"}
+        </div>
+        {[
+          ["Custo dos materiais",fmtBRL(resultado.custo)],
+          [`Mão de obra (${Number(form.horas)}h × ${fmtBRL(valorHora)})`,fmtBRL(resultado.mo)],
+          ["Subtotal",fmtBRL(resultado.sub)],
+          [`Margem de lucro (${resultado.margem}%)`,fmtBRL(resultado.comMargem-resultado.sub)],
+          ...(Number(form.frete)>0?[["Frete",fmtBRL(Number(form.frete))]]:[] ),
+          ...(Number(form.desconto)>0?[[`Desconto (${form.desconto}%)`,`-${fmtBRL(resultado.comFrete-resultado.arredondado)}`]]:[] ),
+        ].map(([l,v])=>(
+          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.linho}`}}>
+            <span style={{fontSize:12,color:C.oliva}}>{l}</span>
+            <span style={{fontSize:12,fontWeight:600}}>{v}</span>
+          </div>
+        ))}
+        <div style={{marginTop:12,padding:"12px",background:C.cafe,borderRadius:6,textAlign:"center"}}>
+          <div style={{fontSize:10,color:C.areia,letterSpacing:"2px",textTransform:"uppercase",marginBottom:4}}>Preço sugerido</div>
+          <div style={{fontSize:32,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(resultado.arredondado)}</div>
+          <div style={{fontSize:11,color:C.areia,marginTop:2}}>Arredondado para R$5 mais próximo</div>
+        </div>
+        <div style={{marginTop:10,display:"flex",gap:8}}>          <Btn full v="ghost" onClick={()=>{
+            const msg=`✦ Orçamento — ${form.nome||"Peça artesanal"}\n\nMateriais: ${fmtBRL(resultado.custo)}\nMão de obra: ${fmtBRL(resultado.mo)}\nMargem ${resultado.margem}%\n${Number(form.frete)>0?`Frete: ${fmtBRL(Number(form.frete))}\n`:""}\n*Valor: ${fmtBRL(resultado.arredondado)}*\n\n${BRAND}`;
+            navigator.clipboard?.writeText(msg).then(()=>alert("Orçamento copiado!")).catch(()=>alert(msg));
+          }}>📋 Copiar orçamento</Btn>
+        </div>
+      </Card>}
+    </div>
+  );
+};
+
 const Projects = ({projects,setProjects}) => {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({nome:"",status:"Em andamento",nota:"",link:"",fotos:[]});
@@ -2400,18 +2450,19 @@ const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config
   return(
     <div style={{minHeight:"100vh",background:C.branco}}>
       {/* HERO */}
-      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,minHeight:260,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",padding:"32px 20px",textAlign:"center",position:"relative",overflow:"hidden"}}>
-        {b.foto&&<div style={{position:"absolute",inset:0,background:`url(${b.foto}) center/cover`,opacity:0.28}}/>}
+      <div style={{background:`linear-gradient(180deg,#2A1B15 0%,${C.cafe} 100%)`,minHeight:220,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",padding:"40px 20px 32px",textAlign:"center",position:"relative",overflow:"hidden"}}>
+        {b.foto&&<div style={{position:"absolute",inset:0,background:`url(${b.foto}) center/cover`,opacity:0.18}}/>}
         <div style={{position:"relative",zIndex:1}}>
-          <div style={{fontSize:9,color:C.dourado,letterSpacing:"4px",textTransform:"uppercase",marginBottom:5,fontWeight:700}}>Tricot, Amor & Arte</div>
-          <h1 style={{fontSize:"clamp(20px,4vw,38px)",color:"#FAF8F5",lineHeight:1.25,marginBottom:8,fontFamily:"'Playfair Display',serif"}}>{b.title||BRAND_SHORT}</h1>
-          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:C.areia,fontStyle:"italic",marginBottom:20,maxWidth:400}}>{b.sub||"Peças feitas à mão com amor."}</p>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
-            <button onClick={()=>document.getElementById("cat-pub")?.scrollIntoView({behavior:"smooth"})} style={{background:C.dourado,color:"#fff",border:"none",borderRadius:3,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>✦ Ver Catálogo</button>
-            <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:"transparent",color:C.areia,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>💬 Falar comigo</button>
+          <div style={{fontSize:8,color:C.dourado,letterSpacing:"6px",textTransform:"uppercase",marginBottom:12,fontWeight:400}}>Tricot · Amor · Arte</div>
+          <h1 style={{fontSize:"clamp(22px,5vw,42px)",color:"#FAF8F5",lineHeight:1.15,marginBottom:6,fontFamily:"'Cormorant Garamond',serif",fontWeight:400,letterSpacing:"1px"}}>{b.title||BRAND_SHORT}</h1>
+          {b.sub&&<p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,color:"rgba(216,195,165,0.8)",fontStyle:"italic",marginBottom:20,letterSpacing:"0.5px"}}>{b.sub}</p>}
+          <div style={{width:32,height:1,background:C.dourado,margin:"0 auto 20px"}}/>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+            <button onClick={()=>document.getElementById("cat-pub")?.scrollIntoView({behavior:"smooth"})} style={{background:"transparent",color:"#FAF8F5",border:`1px solid rgba(250,248,245,0.4)`,padding:"9px 24px",fontSize:10,fontWeight:400,cursor:"pointer",letterSpacing:"3px",textTransform:"uppercase"}}>Ver Coleção</button>
+            <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:C.dourado,color:"#fff",border:"none",padding:"9px 24px",fontSize:10,fontWeight:600,cursor:"pointer",letterSpacing:"2px",textTransform:"uppercase"}}>Falar Comigo</button>
           </div>
         </div>
-        {ativos.length>1&&<div style={{position:"relative",zIndex:1,display:"flex",gap:5,marginTop:14}}>{ativos.map((_,i)=><div key={i} onClick={()=>setBIdx(i)} style={{width:i===bIdx?18:6,height:6,borderRadius:3,background:i===bIdx?C.dourado:"rgba(255,255,255,0.3)",cursor:"pointer",transition:"all 0.3s"}}/>)}</div>}
+        {ativos.length>1&&<div style={{position:"relative",zIndex:1,display:"flex",gap:5,marginTop:16}}>{ativos.map((_,i)=><div key={i} onClick={()=>setBIdx(i)} style={{width:i===bIdx?20:5,height:2,background:i===bIdx?C.dourado:"rgba(255,255,255,0.25)",cursor:"pointer",transition:"all 0.4s"}}/>)}</div>}
       </div>
 
       {/* ATALHOS */}
@@ -2422,31 +2473,36 @@ const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config
       </div>
 
       {/* CATÁLOGO */}
-      <div style={{padding:"22px 20px 0"}}>
-        <h2 style={{fontSize:22,textAlign:"center",marginBottom:3}}>Catálogo</h2>
-        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva,textAlign:"center",marginBottom:14}}>Explore o que foi feito com amor para você</p>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap",justifyContent:"center",marginBottom:14}}>
-          {allCats.map(c=><button key={c} onClick={()=>setCat(c)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${cat===c?C.cafe:C.areia}`,background:cat===c?C.cafe:"transparent",color:cat===c?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{c}</button>)}
+      <div style={{padding:"28px 20px 0",background:"#fff"}}>
+        <h2 style={{fontSize:28,textAlign:"center",marginBottom:6,fontFamily:"'Cormorant Garamond',serif",fontWeight:400,letterSpacing:"2px",color:C.cafe}}>Coleção</h2>
+        <div style={{width:40,height:1,background:C.dourado,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",justifyContent:"center",marginBottom:20}}>
+          {allCats.map(c=><button key={c} onClick={()=>setCat(c)} style={{padding:"4px 16px",border:`1px solid ${cat===c?C.cafe:C.areia}`,background:"transparent",color:cat===c?C.cafe:C.oliva,fontSize:10,fontWeight:cat===c?700:400,cursor:"pointer",letterSpacing:"1.5px",textTransform:"uppercase"}}>{c}</button>)}
         </div>
       </div>
-      <div id="cat-pub" style={{padding:"0 20px 24px"}}>
-        <style>{`.cg{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}@media(max-width:600px){.cg{grid-template-columns:repeat(2,1fr);gap:8px;}}`}</style>
+      <div id="cat-pub" style={{padding:"0 16px 32px",background:"#fff"}}>
+        <style>{`.cg{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;}@media(max-width:600px){.cg{grid-template-columns:repeat(2,1fr);gap:1px;}}`}</style>
         {filtered.length===0&&<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum produto disponível no momento ✦</div>}
         <div className="cg">
           {filtered.map(p=>(
-            <div key={p.id} className="ch" style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
-              <div style={{height:130,width:"100%",background:p.photos?.[0]?undefined:`linear-gradient(135deg,${C.linho},${C.areia})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:48,overflow:"hidden"}}>
-                {p.photos?.[0]?<img src={p.photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"contain",background:C.linho}}/>:(p.img||"🧶")}</div>
-              <div style={{padding:"9px 10px"}}>
-                <div style={{fontSize:12,fontWeight:700,marginBottom:1}}>{p.name}</div>
-                <div style={{fontSize:10,color:C.oliva,marginBottom:4}}>{p.subcategory||p.category}</div>
-                {p.type==="pronta"&&<div style={{fontSize:10,color:C.verde,marginBottom:3}}>🟢 Pronta · {p.stock} disp.</div>}
-                {p.type==="encomenda"&&<div style={{fontSize:10,color:C.dourado,marginBottom:3}}>🧶 Sob encomenda</div>}
-                {p.cores?.length>0&&<div style={{display:"flex",gap:3,marginBottom:5,flexWrap:"wrap"}}>{p.cores.slice(0,5).map(c=><div key={c.id} title={c.nome} style={{width:12,height:12,borderRadius:"50%",overflow:"hidden",border:`1px solid ${C.areia}`,background:C.areia}}>{c.foto&&<img src={c.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>)}</div>}
-                <div style={{fontSize:15,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700,marginBottom:6}}>
+            <div key={p.id} onClick={()=>{setCompraModal(p);setRecovery(false);}} style={{background:"#fff",cursor:"pointer",transition:"all 0.3s"}}>
+              {/* Foto quadrada luxo */}
+              <div style={{width:"100%",paddingBottom:"100%",position:"relative",background:C.linho,overflow:"hidden"}}>
+                {p.photos?.[0]
+                  ?<img src={p.photos[0]} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain",background:C.linho}}/>
+                  :<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:52}}>{p.img||"🧶"}</div>}
+                {p.type==="pronta"&&p.stock>0&&<div style={{position:"absolute",top:8,left:8,background:"#fff",color:C.oliva,fontSize:9,fontWeight:700,letterSpacing:"1.5px",padding:"3px 8px",borderRadius:2,textTransform:"uppercase"}}>Disponível</div>}
+                {p.type==="encomenda"&&<div style={{position:"absolute",top:8,left:8,background:"rgba(92,64,51,0.85)",color:"#FAF8F5",fontSize:9,fontWeight:700,letterSpacing:"1.5px",padding:"3px 8px",borderRadius:2,textTransform:"uppercase"}}>Encomenda</div>}
+              </div>
+              <div style={{padding:"10px 4px 16px"}}>
+                <div style={{fontSize:11,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{p.subcategory||p.category}</div>
+                <div style={{fontSize:13,fontWeight:600,color:C.cafe,marginBottom:4,lineHeight:1.3}}>{p.name}</div>
+                {p.cores?.length>0&&<div style={{display:"flex",gap:4,marginBottom:6}}>
+                  {p.cores.slice(0,6).map(c=><div key={c.id} title={c.nome} style={{width:10,height:10,borderRadius:"50%",overflow:"hidden",border:`1px solid ${C.areia}`,background:C.areia,flexShrink:0}}>{c.foto&&<img src={c.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>)}
+                </div>}
+                <div style={{fontSize:14,fontFamily:"'Cormorant Garamond',serif",color:C.cafe,fontWeight:600}}>
                   {p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price)}
                 </div>
-                <button onClick={()=>{setCompraModal(p);setRecovery(false);}} style={{width:"100%",background:C.cafe,color:"#fff",border:"none",borderRadius:3,padding:"7px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🛒 Comprar</button>
               </div>
             </div>
           ))}
@@ -2542,7 +2598,6 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
   const [step,setStep]=useState("opcoes");
   const [sel,setSel]=useState({tamanho:"",cor:""});
   const [dados,setDados]=useState({nome:"",phone:"",endereco:"",cep:"",nascimento:"",origem:"Instagram"});
-  const [pag,setPag]=useState({tipo:"PIX",parcelas:1});
   const [pag,setPag]=useState({tipo:"PIX",parcelas:1});
   const [entrega,setEntrega]=useState({tipo:"Correios",frete:0,prazo:""});
   const [cepLoad,setCepLoad]=useState(false);
@@ -2822,6 +2877,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
+          {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients}/>}
           {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} allData={allData}/>}
