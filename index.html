@@ -1217,23 +1217,32 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
 
         {form.condicao==="Parcelado"&&<div style={{gridColumn:"1/-1"}}>
           <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-            <div style={{flex:1,minWidth:120}}>
-              <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Nº de parcelas</label>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Nº de parcelas</label>
               <input type="number" min="1" max="48" value={form.qtdParcelas||2}
-                onChange={e=>{const n=Number(e.target.value)||2;setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));}}
-                style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.cafe}`,borderRadius:3,fontSize:15,fontWeight:700,color:C.cafe}}/>
+                onChange={e=>{const n=Math.max(1,Number(e.target.value)||2);setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));}}
+                style={{width:"100%",padding:"10px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:18,fontWeight:700,color:C.cafe,background:"#fff",textAlign:"center"}}/>
             </div>
-            <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,parcelas:calcParcs(f.dataCompra||today,Number(f.qtdParcelas)||2,pcd())}))}>↻ Regerar</Btn>
+            <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,parcelas:calcParcs(f.dataCompra||today,Number(f.qtdParcelas)||2,pcd())}))}>↻ Regerar datas</Btn>
           </div>
-          {form.parcelas?.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5}}>
-            {form.parcelas.map((p,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"center",background:C.linho,borderRadius:4,padding:"6px 10px"}}>
-              <span style={{fontSize:12,fontWeight:700,width:45,color:C.cafe}}>{p.n}ª</span>
-              <input type="date" value={p.data} onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],data:e.target.value};return{...f,parcelas:n};})} style={{flex:1,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
-              <input type="number" value={p.valor} onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],valor:Number(e.target.value)};return{...f,parcelas:n};})} style={{width:90,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
-              <span style={{fontSize:11,color:C.dourado,fontWeight:700,minWidth:60}}>{fmtBRL(p.valor)}</span>
-            </div>)}
-            <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:C.dourado,paddingTop:4}}>Total: {fmtBRL(form.parcelas.reduce((a,p)=>a+p.valor,0))}</div>
-          </div>}
+          {form.parcelas?.length>0&&<>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {form.parcelas.map((p,i)=>(
+                <div key={i} style={{display:"flex",gap:8,alignItems:"center",background:C.linho,borderRadius:4,padding:"8px 10px"}}>
+                  <span style={{fontSize:12,fontWeight:700,width:40,color:C.cafe,flexShrink:0}}>{p.n}ª</span>
+                  <input type="date" value={p.data}
+                    onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],data:e.target.value};return{...f,parcelas:n};})}
+                    style={{flex:1,padding:"6px 8px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:"#fff"}}/>
+                  <input type="number" value={p.valor}
+                    onChange={e=>setForm(f=>{const n=[...f.parcelas];n[i]={...n[i],valor:Number(e.target.value)};return{...f,parcelas:n};})}
+                    style={{width:90,padding:"6px 8px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{textAlign:"right",marginTop:6,fontSize:12,color:C.dourado,fontWeight:700}}>
+              Total: {fmtBRL(form.parcelas.reduce((a,p)=>a+(p.valor||0),0))}
+            </div>
+          </>}
         </div>}
 
         <div style={{gridColumn:"1/-1"}}><Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={Object.keys(STATUS).filter(s=>s!=="Cancelado")}/></div>
@@ -1728,11 +1737,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
             </div>
           </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
-          {form.type==="receita"&&(
-            <div style={{position:"relative"}}>
-              <Inp label="Cliente (opcional)" value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))}/>
-            </div>
-          )}
+          <Inp label={form.type==="receita"?"Cliente (opcional)":"Fornecedor (opcional)"} value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))} placeholder={form.type==="receita"?"Nome da cliente...":"Nome do fornecedor..."}/>
           <Inp label="Valor (R$)" type="number" value={form.value} onChange={v=>setForm(f=>({...f,value:v}))}/>
           {!form.fixa&&<>
             <Inp label="Data do lançamento" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
@@ -1746,19 +1751,31 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
               <input type="checkbox" checked={form.fixa||false} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
               <span style={{fontWeight:600}}>📌 Conta fixa (recorrente)</span>
             </label>
-            {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
-              <Inp label="Data de início (primeiro vencimento)" type="date" value={form.dataInicio||today} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <Inp label="Dia de vencimento" type="number" value={form.diaFixo||10} onChange={v=>setForm(f=>({...f,diaFixo:Number(v)}))}/>
-                <Inp label="Nº de meses/parcelas" type="number" value={form.qtdMeses||12} onChange={v=>setForm(f=>({...f,qtdMeses:Number(v)}))}/>
+            {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Data de início</label>
+                <input type="date" value={form.dataInicio||today} onChange={e=>setForm(f=>({...f,dataInicio:e.target.value}))} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:"#fff"}}/>
               </div>
-              <div style={{background:"#fff",borderRadius:4,padding:"8px 10px",fontSize:11,color:C.oliva}}>
-                Serão criados <b>{form.qtdMeses||12} lançamentos</b> mensais de <b>{fmtBRL(Number(form.value)||0)}</b>, com vencimento todo dia <b>{form.diaFixo||10}</b>, a partir de <b>{fmtDate(form.dataInicio||today)}</b>.
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Dia de vencimento</label>
+                  <input type="number" min="1" max="31" value={form.diaFixo||10} onChange={e=>setForm(f=>({...f,diaFixo:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Nº de meses</label>
+                  <input type="number" min="1" max="120" value={form.qtdMeses||12} onChange={e=>setForm(f=>({...f,qtdMeses:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+                </div>
+              </div>
+              <div style={{background:"#fff",borderRadius:4,padding:"10px 12px",fontSize:12,color:C.cafe,borderLeft:`3px solid ${C.dourado}`}}>
+                📅 Serão criados <b style={{color:C.cafe}}>{form.qtdMeses||12} lançamentos</b> de <b style={{color:C.dourado}}>{fmtBRL(Number(form.value)||0)}</b>, todo dia <b style={{color:C.cafe}}>{form.diaFixo||10}</b>, a partir de <b style={{color:C.cafe}}>{fmtDate(form.dataInicio||today)}</b>.
               </div>
             </div>}
           </>}
         </div>
-        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setFormModal(false)}>Cancelar</Btn><Btn onClick={saveForm}>{form.fixa?`Criar ${form.qtdMeses||12} lançamentos`:"Salvar"}</Btn></div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setFormModal(false)}>Cancelar</Btn>
+          <Btn onClick={saveForm}>{form.fixa?`Criar ${form.qtdMeses||12} lançamentos`:"Salvar"}</Btn>
+        </div>
       </Modal>}
 
       {contaModal&&<Modal title={cForm.id?"Editar Conta":"Nova Conta"} onClose={()=>setContaModal(false)}>
@@ -1879,60 +1896,75 @@ const Clients = ({clients,setClients,orders,config}) => {
   const [search,setSearch]=useState("");
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:""});
-  const filtered=clients.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));
-  const EF={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:""};
-  const save=()=>{
-    if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x));
-    else setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today}]);
-    setModal(null);showSavedGlobal("Cliente salvo!");
-  };
+  const [filtroTipo,setFiltroTipo]=useState("todos");
+  const filtered=clients.filter(c=>{
+    const matchSearch=c.name.toLowerCase().includes(search.toLowerCase());
+    const matchTipo=filtroTipo==="todos"||(c.tipo||"cliente")===filtroTipo;
+    return matchSearch&&matchTipo;
+  });
+  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"};
   return(
     <div className="fade" style={{padding:24}}>
-      <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        <div style={{flex:1,minWidth:160}}><Inp value={search} onChange={setSearch} placeholder="Buscar cliente..."/></div>
-        <Btn onClick={()=>{setForm(EF);setModal("new");}}>+ Nova Cliente</Btn>
+      <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{flex:1,minWidth:160}}><Inp value={search} onChange={setSearch} placeholder="Buscar..."/></div>
+        <Btn onClick={()=>{setForm(EF2);setModal("new");}}>+ Novo</Btn>
       </div>
-      {/* Sugestão de cadastrar novo quando busca não acha */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {[{k:"todos",l:"Todos"},{k:"cliente",l:"👤 Clientes"},{k:"fornecedor",l:"🏪 Fornecedores"}].map(t=>(
+          <button key={t.k} onClick={()=>setFiltroTipo(t.k)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${filtroTipo===t.k?C.cafe:C.areia}`,background:filtroTipo===t.k?C.cafe:"transparent",color:filtroTipo===t.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t.l}</button>
+        ))}
+      </div>
       {search.length>2&&filtered.length===0&&(
         <div style={{background:C.linho,borderRadius:8,padding:"12px 16px",marginBottom:14,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{fontSize:13,color:C.cafe}}>"{search}" não encontrado.</span>
-          <Btn sm onClick={()=>{setForm({...EF,name:search});setModal("new");}}>+ Cadastrar "{search}"</Btn>
+          <Btn sm onClick={()=>{setForm({...EF2,name:search});setModal("new");}}>+ Cadastrar "{search}"</Btn>
         </div>
       )}
-      {clients.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Clientes são cadastradas automaticamente ao criar encomendas ✦</div>}
+      {clients.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Cadastre clientes e fornecedores aqui ✦</div>}
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        {filtered.map(c=>{const ord=orders.filter(o=>o.client===c.name);return(
+        {filtered.map(c=>{const ord=orders.filter(o=>o.client===c.name);const isForn=(c.tipo||"cliente")==="fornecedor";return(
           <Card key={c.id} hover style={{flex:"1 1 220px",minWidth:200}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-              <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:C.cafe}}>{c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}</div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{width:36,height:36,borderRadius:"50%",background:isForn?`linear-gradient(135deg,#6B7152,#4A5E32)`:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff"}}>{c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}</div>
+                <span style={{fontSize:9,background:isForn?"#E3E8D4":"#FEF3E9",color:isForn?"#4A5E32":C.dourado,padding:"2px 7px",borderRadius:10,fontWeight:700}}>{isForn?"🏪 Fornecedor":"👤 Cliente"}</span>
+              </div>
               <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                {c.vip&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"2px 8px",borderRadius:10,fontWeight:700}}>✦ VIP</span>}
-                <Btn sm v="ghost" onClick={()=>{setForm({...EF,...c});setModal("edit");}}>✎</Btn>
+                {c.vip&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"2px 6px",borderRadius:10,fontWeight:700}}>✦ VIP</span>}
+                <Btn sm v="ghost" onClick={()=>{setForm({...EF2,...c});setModal("edit");}}>✎</Btn>
               </div>
             </div>
             <h4 style={{fontSize:15,fontWeight:700,marginBottom:1}}>{c.name}</h4>
-            {c.nascimento&&<div style={{fontSize:11,color:C.dourado,marginBottom:2}}>🎂 {new Date(c.nascimento+"T00:00").toLocaleDateString("pt-BR",{day:"numeric",month:"long"})}</div>}
+            {c.nascimento&&!isForn&&<div style={{fontSize:11,color:C.dourado,marginBottom:2}}>🎂 {new Date(c.nascimento+"T00:00").toLocaleDateString("pt-BR",{day:"numeric",month:"long"})}</div>}
             <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>{c.origem||""}{c.city?` · ${c.city}`:""}</div>
-            <div style={{display:"flex",gap:8,marginBottom:10}}>
+            {!isForn&&<div style={{display:"flex",gap:8,marginBottom:10}}>
               <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:15,fontWeight:700,fontFamily:"'Playfair Display',serif"}}>{ord.length}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>PEDIDOS</div></div>
               <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:12,fontWeight:700,color:C.dourado}}>{fmtBRL(ord.reduce((a,o)=>a+(o.precoFinal||o.price||0),0))}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>TOTAL</div></div>
-            </div>
+            </div>}
             {c.phone&&<Btn sm v="ghost" full onClick={()=>window.open(`https://wa.me/${c.phone?.replace(/\D/g,"")}`)}>💬 WhatsApp</Btn>}
           </Card>
         );})}
       </div>
-      {modal&&<Modal title={modal==="edit"?"Editar Cliente":"Nova Cliente"} onClose={()=>setModal(null)}>
+      {modal&&<Modal title={modal==="edit"?"Editar Cadastro":"Novo Cadastro"} onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Nome completo" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))}/>
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Tipo de cadastro</label>
+            <div style={{display:"flex",gap:8}}>
+              {[{v:"cliente",l:"👤 Cliente"},{v:"fornecedor",l:"🏪 Fornecedor"}].map(t=>(
+                <button key={t.v} onClick={()=>setForm(f=>({...f,tipo:t.v}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${(form.tipo||"cliente")===t.v?C.cafe:C.areia}`,background:(form.tipo||"cliente")===t.v?C.cafe:"transparent",color:(form.tipo||"cliente")===t.v?"#fff":C.cafe,fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.l}</button>
+              ))}
+            </div>
+          </div>
+          <Inp label="Nome completo" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))}/>
           <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
-          <Inp label="Data de nascimento" type="date" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))}/>
+          {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento" type="date" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))}/>}
           <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
-          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>
+          {(form.tipo||"cliente")==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>}
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
-          {modal==="edit"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir cliente?"))setClients(prev=>prev.filter(x=>x.id!==form.id));setModal(null);}}>Excluir</Btn>}
+          {modal==="edit"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir?"))setClients(prev=>prev.filter(x=>x.id!==form.id));setModal(null);}}>Excluir</Btn>}
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn onClick={save}>Salvar</Btn>
         </div>
