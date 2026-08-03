@@ -520,16 +520,18 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
         </div>
       )}
 
-      {/* RESUMO DO DIA */}
+      {/* RESUMO DO DIA — sempre visível */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        {recHoje>0&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.dourado}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Receber hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(recHoje)}</div>
-        </Card>}
-        {pagHoje>0&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.vermelho}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Pagar hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
-        </Card>}
+        <Card style={{flex:"1 1 140px",borderLeft:`3px solid ${recHoje>0?C.dourado:C.areia}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>A receber hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:recHoje>0?C.dourado:C.oliva,fontWeight:700}}>{fmtBRL(recHoje)}</div>
+          {recHoje===0&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>Nenhum vencimento</div>}
+        </Card>
+        <Card style={{flex:"1 1 140px",borderLeft:`3px solid ${pagHoje>0?C.vermelho:C.areia}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>A pagar hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHoje>0?C.vermelho:C.oliva,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
+          {pagHoje===0&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>Nenhum vencimento</div>}
+        </Card>
         <Card style={{flex:"1 1 140px"}}>
           <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Pedidos ativos</div>
           <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{ativos.length}</div>
@@ -541,22 +543,21 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
         </Card>}
       </div>
 
-      {/* ANIVERSARIANTES */}
-      {aniversariantes.length>0&&(
-        <Card style={{borderLeft:`4px solid ${C.dourado}`,background:"#FFFDF5"}}>
-          <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:10}}>🎂 Aniversariantes hoje</div>
-          {aniversariantes.map(c=>(
-            <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
-              <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
-              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div></div>
-              {c.phone&&<Btn sm v="oliva" onClick={()=>{
-                const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
-                window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
-              }}>💬 Parabéns</Btn>}
-            </div>
-          ))}
-        </Card>
-      )}
+      {/* ANIVERSARIANTES — sempre visível */}
+      <Card style={{borderLeft:`4px solid ${aniversariantes.length>0?C.dourado:C.areia}`,background:aniversariantes.length>0?"#FFFDF5":C.branco}}>
+        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:aniversariantes.length>0?10:0}}>🎂 Aniversariantes hoje</div>
+        {aniversariantes.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum aniversariante hoje.</div>}
+        {aniversariantes.map(c=>(
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
+            <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div></div>
+            {c.phone&&<Btn sm v="oliva" onClick={()=>{
+              const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
+              window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
+            }}>💬 Parabéns</Btn>}
+          </div>
+        ))}
+      </Card>
 
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         <Card style={{flex:2,minWidth:260}}>
@@ -1216,14 +1217,26 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
         </div>}
 
         {form.condicao==="Parcelado"&&<div style={{gridColumn:"1/-1"}}>
-          <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <div style={{flex:1}}>
               <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Nº de parcelas</label>
-              <input type="number" min="1" max="48" value={form.qtdParcelas||2}
-                onChange={e=>{const n=Math.max(1,Number(e.target.value)||2);setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));}}
-                style={{width:"100%",padding:"10px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:18,fontWeight:700,color:C.cafe,background:"#fff",textAlign:"center"}}/>
+              <input
+                type="number" min="1" max="48"
+                value={form.qtdParcelas||""}
+                onChange={e=>{
+                  const raw=e.target.value;
+                  const n=parseInt(raw,10);
+                  setForm(f=>({...f,qtdParcelas:raw}));
+                  if(n>=1&&n<=48){
+                    setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));
+                  }
+                }}
+                style={{width:"100%",padding:"12px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:20,fontWeight:700,color:C.cafe,background:"#fff",textAlign:"center"}}/>
             </div>
-            <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,parcelas:calcParcs(f.dataCompra||today,Number(f.qtdParcelas)||2,pcd())}))}>↻ Regerar datas</Btn>
+            <Btn sm v="ghost" onClick={()=>{
+              const n=parseInt(form.qtdParcelas,10)||2;
+              setForm(f=>({...f,qtdParcelas:n,parcelas:calcParcs(f.dataCompra||today,n,pcd())}));
+            }}>↻ Regerar</Btn>
           </div>
           {form.parcelas?.length>0&&<>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -1895,14 +1908,23 @@ const Metas = ({finance,orders,metas,setMetas}) => {
 const Clients = ({clients,setClients,orders,config}) => {
   const [search,setSearch]=useState("");
   const [modal,setModal]=useState(null);
-  const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:""});
+  const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"});
   const [filtroTipo,setFiltroTipo]=useState("todos");
-  const filtered=clients.filter(c=>{
-    const matchSearch=c.name.toLowerCase().includes(search.toLowerCase());
-    const matchTipo=filtroTipo==="todos"||(c.tipo||"cliente")===filtroTipo;
-    return matchSearch&&matchTipo;
-  });
   const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"};
+
+  const save=()=>{
+    if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x).sort((a,b)=>a.name.localeCompare(b.name,"pt")));
+    else setClients(prev=>[...prev,{...form,id:uid(),orders:0,total:0,joined:today}].sort((a,b)=>a.name.localeCompare(b.name,"pt")));
+    setModal(null);showSavedGlobal("Salvo!");
+  };
+
+  const filtered=clients
+    .filter(c=>{
+      const matchSearch=c.name.toLowerCase().includes(search.toLowerCase());
+      const matchTipo=filtroTipo==="todos"||(c.tipo||"cliente")===filtroTipo;
+      return matchSearch&&matchTipo;
+    })
+    .sort((a,b)=>a.name.localeCompare(b.name,"pt"));
   return(
     <div className="fade" style={{padding:24}}>
       <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
