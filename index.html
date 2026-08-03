@@ -464,7 +464,7 @@ const NAV = [
   {k:"stock",i:"◇",l:"Estoque"},
   {k:"finance",i:"◉",l:"Financeiro"},
   {k:"metas",i:"🎯",l:"Metas"},
-  {k:"clients",i:"◈",l:"Clientes"},
+  {k:"clients",i:"◈",l:"Cadastros"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
   {k:"projects",i:"✧",l:"Projetos & Sonhos"},
   {k:"reports",i:"▦",l:"Relatórios"},
@@ -504,7 +504,13 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
   const lowStock=stockSup.filter(s=>s.qty<=s.min);
   const statusAtivos=Object.keys(STATUS).filter(s=>!["Concluído","Enviado","Cancelado"].includes(s));
   const todayMMDD=today.slice(5);
-  const aniversariantes=(clients||[]).filter(c=>c.nascimento&&c.nascimento.slice(5)===todayMMDD);
+  const aniversariantes=(clients||[]).filter(c=>{
+    if(!c.nascimento)return false;
+    // Suporta formato DD/MM/AAAA e YYYY-MM-DD
+    const n=c.nascimento;
+    if(n.includes("/"))return n.slice(0,5)===new Date().toLocaleDateString("pt-BR").slice(0,5);
+    return n.slice(5)===todayMMDD;
+  });
   const recHoje=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
   const pagHoje=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
   const proximaEntrega=agenda[0];
@@ -512,15 +518,53 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
   return (
     <div className="fade" style={{padding:24,display:"flex",flexDirection:"column",gap:18}}>
       {frase&&(
-        <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"18px 22px",position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-20,right:16,fontSize:90,opacity:0.06,fontFamily:"serif"}}>✦</div>
-          <div style={{fontSize:9,letterSpacing:"3px",textTransform:"uppercase",color:C.dourado,marginBottom:5,fontWeight:700}}>{frase.categoria} · Frase do dia</div>
-          <blockquote style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(14px,2vw,20px)",fontStyle:"italic",color:"#FAF8F5",lineHeight:1.55,margin:0}}>"{frase.texto}"</blockquote>
-          <div style={{fontSize:10,color:C.areia,marginTop:6,fontFamily:"'Cormorant Garamond',serif"}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</div>
-        </div>
+        <FraseCard frase={frase}/>
       )}
 
-      {/* RESUMO DO DIA — sempre visível */}
+      {/* 1. AGENDA DE ENTREGAS */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <h3 style={{fontSize:15}}>📅 Agenda de entregas</h3>
+          <span style={{fontSize:11,color:C.oliva}}>{agenda.length} pendente{agenda.length!==1?"s":""}</span>
+        </div>
+        {agenda.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhuma entrega agendada ✦</div>}
+        {agenda.slice(0,6).map(o=>{
+          const dias=Math.ceil((new Date(o.delivery+"T00:00")-new Date())/864e5);
+          const urg=dias<=2;
+          return(
+            <div key={o.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.linho}`}}>
+              <div style={{width:38,textAlign:"center",flexShrink:0}}>
+                <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700,color:urg?C.vermelho:C.cafe}}>{new Date(o.delivery+"T00:00").getDate()}</div>
+                <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase"}}>{new Date(o.delivery+"T00:00").toLocaleDateString("pt-BR",{month:"short"})}</div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:700}}>{o.client}</div>
+                <div style={{fontSize:11,color:C.oliva}}>{o.product}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <Badge label={o.status} sm/>
+                <div style={{fontSize:10,marginTop:2,color:urg?C.vermelho:C.oliva,fontWeight:urg?700:400}}>{dias===0?"Hoje!":dias===1?"Amanhã":`em ${dias}d`}</div>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+
+      {/* 2. STATUS DOS PEDIDOS */}
+      <Card>
+        <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:10,fontWeight:700}}>Status dos pedidos ativos</div>
+        {ativos.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum pedido ativo.</div>
+        :<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {statusAtivos.map(s=>{const c=orders.filter(o=>o.status===s).length;if(!c)return null;return(
+            <div key={s} style={{textAlign:"center",padding:"6px 12px",background:C.linho,borderRadius:4}}>
+              <div style={{fontSize:18,fontWeight:700,color:C.cafe}}>{c}</div>
+              <div style={{fontSize:9,color:C.oliva,marginTop:1}}>{s}</div>
+            </div>
+          );})}
+        </div>}
+      </Card>
+
+      {/* 3. RECEBER E PAGAR */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         <Card style={{flex:"1 1 140px",borderLeft:`3px solid ${recHoje>0?C.dourado:C.areia}`}}>
           <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>A receber hoje</div>
@@ -532,25 +576,20 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
           <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHoje>0?C.vermelho:C.oliva,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
           {pagHoje===0&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>Nenhum vencimento</div>}
         </Card>
-        <Card style={{flex:"1 1 140px"}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Pedidos ativos</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{ativos.length}</div>
-        </Card>
-        {proximaEntrega&&<Card style={{flex:"1 1 140px",borderLeft:`3px solid ${C.cafe}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Próxima entrega</div>
-          <div style={{fontSize:14,fontWeight:700,color:C.cafe}}>{proximaEntrega.client.split(" ")[0]}</div>
-          <div style={{fontSize:11,color:C.oliva}}>{fmtDate(proximaEntrega.delivery)}</div>
+        {lowStock.length>0&&<Card style={{flex:"1 1 140px"}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>⚠ Estoque baixo</div>
+          {lowStock.map(s=><div key={s.id} style={{padding:"3px 0",fontSize:11,color:C.cafe}}>{s.nome} — {s.qty} {s.unidade}</div>)}
         </Card>}
       </div>
 
-      {/* ANIVERSARIANTES — sempre visível */}
+      {/* 4. ANIVERSARIANTES */}
       <Card style={{borderLeft:`4px solid ${aniversariantes.length>0?C.dourado:C.areia}`,background:aniversariantes.length>0?"#FFFDF5":C.branco}}>
-        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:aniversariantes.length>0?10:0}}>🎂 Aniversariantes hoje</div>
+        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:aniversariantes.length>0?10:4}}>🎂 Aniversariantes hoje</div>
         {aniversariantes.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum aniversariante hoje.</div>}
         {aniversariantes.map(c=>(
           <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
-            <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:C.oliva}}>🎉 Parabéns!</div></div>
+            <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div></div>
             {c.phone&&<Btn sm v="oliva" onClick={()=>{
               const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
               window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
@@ -558,54 +597,6 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
           </div>
         ))}
       </Card>
-
-      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        <Card style={{flex:2,minWidth:260}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <h3 style={{fontSize:15}}>📅 Agenda de entregas</h3>
-            <span style={{fontSize:11,color:C.oliva}}>{agenda.length} pendente{agenda.length!==1?"s":""}</span>
-          </div>
-          {agenda.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhuma entrega agendada ✦</div>}
-          {agenda.slice(0,5).map(o=>{
-            const dias=Math.ceil((new Date(o.delivery+"T00:00")-new Date())/864e5);
-            const urg=dias<=2;
-            return(
-              <div key={o.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.linho}`}}>
-                <div style={{width:38,textAlign:"center",flexShrink:0}}>
-                  <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700,color:urg?C.vermelho:C.cafe}}>{new Date(o.delivery+"T00:00").getDate()}</div>
-                  <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase"}}>{new Date(o.delivery+"T00:00").toLocaleDateString("pt-BR",{month:"short"})}</div>
-                </div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:12,fontWeight:700}}>{o.client}</div>
-                  <div style={{fontSize:11,color:C.oliva}}>{o.product}</div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <Badge label={o.status} sm/>
-                  <div style={{fontSize:10,marginTop:2,color:urg?C.vermelho:C.oliva,fontWeight:urg?700:400}}>{dias===0?"Hoje!":dias===1?"Amanhã":`em ${dias}d`}</div>
-                </div>
-              </div>
-            );
-          })}
-        </Card>
-        <div style={{flex:1,minWidth:180,display:"flex",flexDirection:"column",gap:12}}>
-          <Card>
-            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:10,fontWeight:700}}>Status dos pedidos</div>
-            {ativos.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum pedido ativo.</div>
-            :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {statusAtivos.map(s=>{const c=orders.filter(o=>o.status===s).length;if(!c)return null;return(
-                <div key={s} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:`1px solid ${C.linho}`}}>
-                  <span style={{fontSize:11,color:C.oliva}}>{s}</span>
-                  <span style={{fontSize:13,fontWeight:700,color:C.cafe}}>{c}</span>
-                </div>
-              );})}
-            </div>}
-          </Card>
-          {lowStock.length>0&&<Card>
-            <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8,fontWeight:700}}>⚠ Estoque baixo</div>
-            {lowStock.map(s=><div key={s.id} style={{padding:"5px 8px",background:"#FEF3E9",borderLeft:`3px solid ${C.dourado}`,marginBottom:5,borderRadius:2}}><div style={{fontSize:12,fontWeight:600}}>{s.nome}</div><div style={{fontSize:10,color:"#9A6B40"}}>{s.qty} {s.unidade} · mín {s.min}</div></div>)}
-          </Card>}
-        </div>
-      </div>
     </div>
   );
 };
@@ -1497,6 +1488,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
   const [mes,setMes]=useState(today.slice(0,7));
   const [ano,setAno]=useState(today.slice(0,4));
   const [filtStatus,setFiltStatus]=useState("todos");
+  const [buscaFin,setBuscaFin]=useState("");
   const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
   const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
@@ -1506,7 +1498,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
   const getStatus=f=>{if(f.pago)return "pago";if(f.pagoParcial)return "parcial";if(isVencido(f))return "vencido";return "pendente";};
 
   const inPer=f=>{if(per==="dia")return f.date===today||f.dataVencimento===today;if(per==="mes")return f.date?.startsWith(mes)||f.dataVencimento?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano)||f.dataVencimento?.startsWith(ano);return true;};
-  const filtPer=finance.filter(inPer);
+  const filtraBusca=f=>!buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase());
+  const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f));
   const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
 
   const rec=filtPer.filter(f=>f.type==="receita"&&!f.pagoParcial).reduce((a,f)=>a+f.value,0);
@@ -1677,16 +1670,25 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
       </div>}
 
       {tab==="pag"&&<div>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+        <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
           <Card style={{flex:"1 1 140px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:4,fontWeight:700}}>A pagar</div><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:C.vermelho}}>{fmtBRL(aPag)}</div></Card>
+          <div style={{flex:1,minWidth:180}}><Inp value={buscaFin} onChange={setBuscaFin} placeholder="Buscar por fornecedor ou descrição..."/></div>
         </div>
-        {finance.filter(f=>f.type==="despesa"&&!f.pago).length===0?<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>Nenhuma despesa pendente ✓</div>:null}
-        {finance.filter(f=>f.type==="despesa"&&!f.pago).map(f=>(
-          <Card key={f.id} style={{marginBottom:10,padding:"12px 16px"}}>
+        {finance.filter(f=>f.type==="despesa"&&!f.pago&&(
+          !buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase())
+        )).length===0?<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>Nenhuma despesa pendente ✓</div>:null}
+        {finance.filter(f=>f.type==="despesa"&&!f.pago&&(
+          !buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase())
+        )).sort((a,b)=>(a.dataVencimento||"").localeCompare(b.dataVencimento||"")).map(f=>(
+          <Card key={f.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:isVencido(f)?`3px solid ${C.vermelho}`:"none"}}>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
-              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:C.d20,color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div><div style={{fontSize:11,color:C.oliva}}>{f.centrocusto} · Venc: {fmtDate(f.dataVencimento)}</div></div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>
+                {f.clientName&&<div style={{fontSize:11,color:C.dourado,fontWeight:600,marginTop:1}}>🏪 {f.clientName}</div>}
+                <div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,marginTop:1}}>{f.centrocusto} · Venc: <b>{fmtDate(f.dataVencimento)}</b>{isVencido(f)&&" ⚠ Vencido"}</div>
+              </div>
               <div style={{fontSize:17,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(f.value)}</div>
-              <Btn sm onClick={()=>{setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:true}:x));if(f.contaId)setContas(prev=>prev.map(c=>c.id===f.contaId?{...c,saldo:(c.saldo||0)-f.value}:c));}}>✓ Pago</Btn>
+              <Btn sm onClick={()=>setBaixaModal(f)}>💰 Baixar</Btn>
             </div>
           </Card>
         ))}
@@ -1981,7 +1983,7 @@ const Clients = ({clients,setClients,orders,config}) => {
           <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
-          {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento" type="date" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))}/>}
+          {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento (DD/MM/AAAA)" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))} placeholder="Ex: 15/03/1990"/>}
           <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
           {(form.tipo||"cliente")==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>}
         </div>
