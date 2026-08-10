@@ -466,6 +466,8 @@ const NAV = [
   {k:"metas",i:"🎯",l:"Metas"},
   {k:"clients",i:"◈",l:"Cadastros"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
+  {k:"agenda",i:"📅",l:"Agenda"},
+  {k:"diario",i:"✍🏻",l:"Diário da Simara"},
   {k:"projects",i:"✧",l:"Projetos & Sonhos"},
   {k:"reports",i:"▦",l:"Relatórios"},
   {k:"config",i:"⊙",l:"Configurações"},
@@ -2081,6 +2083,473 @@ const Orcamento = ({config,stockSup}) => {
   );
 };
 
+// ─── AGENDA ───────────────────────────────────────────────────────────────────
+const PRIORIDADES=["Alta","Normal","Baixa"];
+const STATUS_COMP=["Pendente","Concluído","Cancelado"];
+const TIPOS_PUB=["📸 Foto editorial","🎨 Card com frase","📦 Foto de produto","🤳 Foto minha","🏢 Card institucional","🧶 Foto de peça","💭 Card de reflexão","🎬 Reel","📢 Stories"];
+const SUGESTOES_CONTEUDO=[
+  {cat:"Produto",sugs:["Mostre os detalhes do seu tricô","Antes e depois de uma peça","Processo de criação"]},
+  {cat:"Pessoal",sugs:["Um dia no ateliê","O que me inspira hoje","Bastidores da produção"]},
+  {cat:"Reflexão",sugs:["Uma frase que me marcou","Gratidão do dia","Aprendizado da semana"]},
+  {cat:"Marketing",sugs:["Depoimento de cliente","Como fazer um pedido","Perguntas frequentes"]},
+  {cat:"Fé",sugs:["Versículo do dia","Como a fé guia meu trabalho","Oração de gratidão"]},
+];
+
+const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,ideias,setIdeias}) => {
+  const hoje=new Date();
+  const [anoVis,setAnoVis]=useState(hoje.getFullYear());
+  const [mesVis,setMesVis]=useState(hoje.getMonth());
+  const [diaSel,setDiaSel]=useState(null);
+  const [tab,setTab]=useState("calendario");
+  const [modal,setModal]=useState(null);
+  const [sugestoesModal,setSugestoesModal]=useState(false);
+  const [form,setForm]=useState({desc:"",data:"",hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso"});
+  const [formPub,setFormPub]=useState({data:"",tipo:"",status:"Pendente",obs:""});
+  const [formIdeia,setFormIdeia]=useState({titulo:"",desc:"",categoria:"Artesanato",utilizada:false});
+  const CATS_IDEIA=["Artesanato","Obra","Empreendedorismo","Clientes","Marketing","Vendas","Propósito","Reflexão","Fé","Produtos","Livro","Criatividade"];
+
+  const diasNoMes=new Date(anoVis,mesVis+1,0).getDate();
+  const primeiroDia=new Date(anoVis,mesVis,1).getDay();
+  const mesesNomes=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const diasSem=["D","S","T","Q","Q","S","S"];
+
+  const getDiaStr=(d)=>`${anoVis}-${String(mesVis+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const compDia=(d)=>compromissos.filter(c=>c.data===getDiaStr(d));
+  const pubDia=(d)=>publicacoes.filter(p=>p.data===getDiaStr(d));
+  const encDia=(d)=>orders.filter(o=>o.delivery===getDiaStr(d)&&!["Cancelado","Concluído","Enviado"].includes(o.status));
+
+  const saveComp=()=>{
+    if(modal==="editComp") setCompromissos(prev=>prev.map(x=>x.id===form.id?form:x));
+    else setCompromissos(prev=>[...prev,{...form,id:uid(),data:getDiaStr(diaSel)}]);
+    setModal(null);showSavedGlobal("Compromisso salvo!");
+  };
+  const savePub=()=>{
+    setPublicacoes(prev=>[...prev,{...formPub,id:uid(),data:getDiaStr(diaSel)}]);
+    setModal(null);showSavedGlobal("Publicação salva!");
+  };
+  const saveIdeia=()=>{
+    if(modal==="editIdeia") setIdeias(prev=>prev.map(x=>x.id===formIdeia.id?formIdeia:x));
+    else setIdeias(prev=>[...prev,{...formIdeia,id:uid(),data:today}]);
+    setModal(null);showSavedGlobal("Ideia salva!");
+  };
+
+  return(
+    <div className="fade" style={{padding:24}}>
+      <Tabs tabs={[{k:"calendario",l:"📅 Calendário"},{k:"publicacoes",l:"📱 Publicações"},{k:"ideias",l:"💡 Banco de Ideias"}]} active={tab} set={setTab}/>
+
+      {tab==="calendario"&&<>
+        {/* Navegação do mês */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <button onClick={()=>{if(mesVis===0){setMesVis(11);setAnoVis(a=>a-1);}else setMesVis(m=>m-1);}} style={{background:"none",border:`1px solid ${C.areia}`,borderRadius:4,padding:"4px 12px",cursor:"pointer",fontSize:16}}>‹</button>
+          <h3 style={{fontSize:18,fontFamily:"'Cormorant Garamond',serif"}}>{mesesNomes[mesVis]} {anoVis}</h3>
+          <button onClick={()=>{if(mesVis===11){setMesVis(0);setAnoVis(a=>a+1);}else setMesVis(m=>m+1);}} style={{background:"none",border:`1px solid ${C.areia}`,borderRadius:4,padding:"4px 12px",cursor:"pointer",fontSize:16}}>›</button>
+        </div>
+        {/* Grid calendário */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:16}}>
+          {diasSem.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:C.oliva,padding:"4px 0",letterSpacing:"1px"}}>{d}</div>)}
+          {Array.from({length:primeiroDia}).map((_,i)=><div key={`e${i}`}/>)}
+          {Array.from({length:diasNoMes},(_,i)=>i+1).map(d=>{
+            const dStr=getDiaStr(d);
+            const isHoje=dStr===today;
+            const total=compDia(d).length+pubDia(d).length+encDia(d).length;
+            const temUrg=compDia(d).some(c=>c.prioridade==="Alta");
+            return(
+              <div key={d} onClick={()=>{setDiaSel(d);}} style={{minHeight:52,border:`1px solid ${diaSel===d?C.cafe:isHoje?C.dourado:C.areia}`,borderRadius:4,padding:4,cursor:"pointer",background:diaSel===d?C.linho:isHoje?"#FFFDF5":"#fff",position:"relative"}}>
+                <div style={{fontSize:12,fontWeight:isHoje?700:400,color:isHoje?C.dourado:C.cafe}}>{d}</div>
+                {total>0&&<div style={{display:"flex",gap:2,flexWrap:"wrap",marginTop:2}}>
+                  {compDia(d).length>0&&<div style={{width:6,height:6,borderRadius:"50%",background:temUrg?C.vermelho:C.cafe}}/>}
+                  {pubDia(d).length>0&&<div style={{width:6,height:6,borderRadius:"50%",background:C.dourado}}/>}
+                  {encDia(d).length>0&&<div style={{width:6,height:6,borderRadius:"50%",background:C.oliva}}/>}
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+        {/* Legenda */}
+        <div style={{display:"flex",gap:12,marginBottom:16,fontSize:10,color:C.oliva}}>
+          <span><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:C.cafe,marginRight:4}}/>Compromisso</span>
+          <span><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:C.dourado,marginRight:4}}/>Publicação</span>
+          <span><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:C.oliva,marginRight:4}}/>Encomenda</span>
+        </div>
+
+        {/* Detalhe do dia selecionado */}
+        {diaSel&&<Card style={{borderTop:`3px solid ${C.cafe}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <h3 style={{fontSize:16,fontFamily:"'Cormorant Garamond',serif"}}>{String(diaSel).padStart(2,"0")}/{String(mesVis+1).padStart(2,"0")}/{anoVis}</h3>
+            <div style={{display:"flex",gap:6}}>
+              <Btn sm onClick={()=>{setForm({desc:"",data:getDiaStr(diaSel),hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso"});setModal("comp");}}>+ Compromisso</Btn>
+              <Btn sm v="ghost" onClick={()=>{setFormPub({data:getDiaStr(diaSel),tipo:"",status:"Pendente",obs:""});setModal("pub");}}>+ Publicação</Btn>
+            </div>
+          </div>
+          {/* Encomendas do dia */}
+          {encDia(diaSel).length>0&&<>
+            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>📦 Encomendas</div>
+            {encDia(diaSel).map(o=><div key={o.id} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:"#E8EDE1",borderRadius:4,marginBottom:4}}>
+              <span style={{fontSize:11,color:C.oliva}}>✓</span>
+              <span style={{fontSize:12,fontWeight:600}}>{o.client}</span>
+              <span style={{fontSize:11,color:C.oliva}}>— {o.product}</span>
+              <Badge label={o.status} sm/>
+            </div>)}
+            <div style={{height:1,background:C.areia,margin:"10px 0"}}/>
+          </>}
+          {/* Compromissos do dia */}
+          {compDia(diaSel).length>0&&<>
+            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>📌 Compromissos</div>
+            {compDia(diaSel).sort((a,b)=>(a.hora||"").localeCompare(b.hora||"")).map(c=><div key={c.id} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 10px",background:c.status==="Concluído"?"#E8EDE1":c.prioridade==="Alta"?"rgba(192,57,43,0.06)":C.linho,borderRadius:4,marginBottom:4,borderLeft:`3px solid ${c.prioridade==="Alta"?C.vermelho:c.prioridade==="Normal"?C.cafe:C.areia}`}}>
+              {c.hora&&<span style={{fontSize:11,fontWeight:700,color:C.cafe,minWidth:36}}>{c.hora}</span>}
+              <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}</span>
+              <button onClick={()=>setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x))} style={{fontSize:14,background:"none",border:"none",cursor:"pointer"}}>{c.status==="Concluído"?"✅":"⬜"}</button>
+              <button onClick={()=>{setForm({...c});setModal("editComp");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
+              <button onClick={()=>{if(window.confirm("Excluir?"))setCompromissos(prev=>prev.filter(x=>x.id!==c.id));}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
+            </div>)}
+            <div style={{height:1,background:C.areia,margin:"10px 0"}}/>
+          </>}
+          {/* Publicações do dia */}
+          {pubDia(diaSel).length>0&&<>
+            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>📱 Publicações</div>
+            {pubDia(diaSel).map(p=><div key={p.id} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.linho,borderRadius:4,marginBottom:4}}>
+              <button onClick={()=>setPublicacoes(prev=>prev.map(x=>x.id===p.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x))} style={{fontSize:14,background:"none",border:"none",cursor:"pointer"}}>{p.status==="Concluído"?"✅":"⬜"}</button>
+              <span style={{flex:1,fontSize:12,textDecoration:p.status==="Concluído"?"line-through":"none"}}>{p.tipo}</span>
+              {p.obs&&<span style={{fontSize:10,color:C.oliva}}>{p.obs}</span>}
+              <button onClick={()=>setPublicacoes(prev=>prev.filter(x=>x.id!==p.id))} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
+            </div>)}
+          </>}
+          {encDia(diaSel).length===0&&compDia(diaSel).length===0&&pubDia(diaSel).length===0&&
+            <div style={{textAlign:"center",padding:"20px",color:C.oliva,fontStyle:"italic",fontSize:13}}>Dia livre ✦ Toque em "+ Compromisso" para adicionar.</div>}
+        </Card>}
+      </>}
+
+      {tab==="publicacoes"&&<>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva}}>Planejamento das redes sociais ✦</p>
+          <Btn sm v="ghost" onClick={()=>setSugestoesModal(true)}>💡 Sugerir conteúdo</Btn>
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+          {TIPOS_PUB.map(t=>{const qtd=publicacoes.filter(p=>p.tipo===t).length;const conc=publicacoes.filter(p=>p.tipo===t&&p.status==="Concluído").length;return(
+            <div key={t} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",minWidth:120}}>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:4}}>{t}</div>
+              <div style={{fontSize:11,color:C.oliva}}>{conc}/{qtd} concluídos</div>
+              {qtd>0&&<PBar pct={(conc/qtd)*100} h={3} color={C.oliva}/>}
+            </div>
+          );})}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {publicacoes.sort((a,b)=>(a.data||"").localeCompare(b.data||"")).map(p=>(
+            <div key={p.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6}}>
+              <button onClick={()=>setPublicacoes(prev=>prev.map(x=>x.id===p.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x))} style={{fontSize:16,background:"none",border:"none",cursor:"pointer"}}>{p.status==="Concluído"?"✅":"⬜"}</button>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,textDecoration:p.status==="Concluído"?"line-through":"none"}}>{p.tipo}</div>
+                <div style={{fontSize:10,color:C.oliva}}>{fmtDate(p.data)}{p.obs?` · ${p.obs}`:""}</div>
+              </div>
+              <button onClick={()=>setPublicacoes(prev=>prev.filter(x=>x.id!==p.id))} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
+            </div>
+          ))}
+          {publicacoes.length===0&&<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma publicação planejada ✦</div>}
+        </div>
+      </>}
+
+      {tab==="ideias"&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva}}>Capture suas ideias antes que sumam ✦</p>
+          <Btn onClick={()=>{setFormIdeia({titulo:"",desc:"",categoria:"Artesanato",utilizada:false});setModal("ideia");}}>+ Nova Ideia</Btn>
+        </div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {ideias.sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(idea=>(
+            <Card key={idea.id} style={{flex:"1 1 220px",opacity:idea.utilizada?0.6:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <span style={{fontSize:9,background:C.linho,color:C.oliva,padding:"2px 8px",borderRadius:10,fontWeight:600,letterSpacing:"1px",textTransform:"uppercase"}}>{idea.categoria}</span>
+                <div style={{display:"flex",gap:4}}>
+                  {idea.utilizada&&<span style={{fontSize:9,background:"#D4E8D4",color:"#2E6B2E",padding:"2px 7px",borderRadius:10,fontWeight:700}}>✓ Utilizada</span>}
+                  <button onClick={()=>{setFormIdeia({...idea});setModal("editIdeia");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
+                </div>
+              </div>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{idea.titulo}</div>
+              <p style={{fontSize:12,color:C.oliva,lineHeight:1.5,marginBottom:8}}>{idea.desc}</p>
+              <div style={{display:"flex",gap:6}}>
+                <Btn sm v="ghost" onClick={()=>setIdeias(prev=>prev.map(x=>x.id===idea.id?{...x,utilizada:!x.utilizada}:x))}>{idea.utilizada?"↩ Desfazer":"✓ Utilizada"}</Btn>
+                <Btn sm v="danger" onClick={()=>{if(window.confirm("Excluir ideia?"))setIdeias(prev=>prev.filter(x=>x.id!==idea.id));}}>✕</Btn>
+              </div>
+            </Card>
+          ))}
+          {ideias.length===0&&<div style={{width:"100%",textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma ideia ainda ✦</div>}
+        </div>
+      </>}
+
+      {/* Modal compromisso */}
+      {(modal==="comp"||modal==="editComp")&&<Modal title={modal==="editComp"?"Editar Compromisso":"Novo Compromisso"} onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))} placeholder="Ex: Enviar encomenda, Reunião..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Data" type="date" value={form.data} onChange={v=>setForm(f=>({...f,data:v}))}/>
+            <Inp label="Horário" value={form.hora} onChange={v=>setForm(f=>({...f,hora:v}))} placeholder="Ex: 08:00"/>
+            <Sel label="Prioridade" value={form.prioridade} onChange={v=>setForm(f=>({...f,prioridade:v}))} options={PRIORIDADES}/>
+            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_COMP}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={saveComp}>Salvar</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal publicação */}
+      {modal==="pub"&&<Modal title="Nova Publicação" onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Data" type="date" value={formPub.data} onChange={v=>setFormPub(f=>({...f,data:v}))}/>
+          <Sel label="Tipo de conteúdo" value={formPub.tipo} onChange={v=>setFormPub(f=>({...f,tipo:v}))} options={["",  ...TIPOS_PUB]}/>
+          <Inp label="Observação (opcional)" value={formPub.obs} onChange={v=>setFormPub(f=>({...f,obs:v}))} placeholder="Tema, ideia, referência..."/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={savePub}>Salvar</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal ideia */}
+      {(modal==="ideia"||modal==="editIdeia")&&<Modal title={modal==="editIdeia"?"Editar Ideia":"Nova Ideia"} onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Título" value={formIdeia.titulo} onChange={v=>setFormIdeia(f=>({...f,titulo:v}))}/>
+          <Sel label="Categoria" value={formIdeia.categoria} onChange={v=>setFormIdeia(f=>({...f,categoria:v}))} options={CATS_IDEIA}/>
+          <Inp label="Descrição" value={formIdeia.desc} onChange={v=>setFormIdeia(f=>({...f,desc:v}))} rows={4}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={saveIdeia}>Salvar</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal sugestões */}
+      {sugestoesModal&&<Modal title="💡 Sugestões de Conteúdo" onClose={()=>setSugestoesModal(false)} wide>
+        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva,marginBottom:14}}>Escolha uma sugestão para adicionar ao seu calendário ✦</p>
+        {SUGESTOES_CONTEUDO.map(cat=>(
+          <div key={cat.cat} style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.cafe,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>{cat.cat}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {cat.sugs.map(s=>(
+                <button key={s} onClick={()=>{setFormPub(f=>({...f,tipo:s}));setSugestoesModal(false);setModal("pub");}} style={{padding:"6px 12px",background:C.linho,border:`1px solid ${C.areia}`,borderRadius:20,fontSize:12,cursor:"pointer",color:C.cafe}}>{s}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Modal>}
+    </div>
+  );
+};
+
+// ─── DIÁRIO DA SIMARA ─────────────────────────────────────────────────────────
+const CATS_CARTA=["Reflexões","Arte","Obra","Clientes","Vida","Fé","Empreendedorismo","Aprendizados","Livro","Cartas","Organização"];
+const ORIGENS_CARTA=["Cliente","Obra","Ateliê","Família","Bíblia","Conversa","Dia comum","Reflexão pessoal","Outro"];
+const STATUS_CARTA=["Rascunho","Pronto","Exportado"];
+
+const Diario = ({cartas,setCartas,volumes,setVolumes}) => {
+  const [tab,setTab]=useState("cartas");
+  const [modal,setModal]=useState(null);
+  const [verModal,setVerModal]=useState(null);
+  const [exportModal,setExportModal]=useState(false);
+  const [busca,setBusca]=useState("");
+  const [filtCat,setFiltCat]=useState("Todas");
+  const [filtStatus,setFiltStatus]=useState("Todos");
+  const [selExport,setSelExport]=useState([]);
+  const [tituloLivro,setTituloLivro]=useState("");
+  const [volumeSel,setVolumeSel]=useState("");
+  const [formVol,setFormVol]=useState({titulo:"",subtitulo:""});
+  const EF={titulo:"",subtitulo:"",data:today,categoria:"Reflexões",texto:"",origem:"Dia comum",status:"Rascunho",foto:"",volume:"",assinatura:"Simara Lobui"};
+  const [form,setForm]=useState(EF);
+  const fotoRef=useRef();
+
+  const filtered=cartas.filter(c=>{
+    const matchBusca=!busca||c.titulo?.toLowerCase().includes(busca.toLowerCase())||c.texto?.toLowerCase().includes(busca.toLowerCase())||c.data?.includes(busca);
+    const matchCat=filtCat==="Todas"||c.categoria===filtCat;
+    const matchStatus=filtStatus==="Todos"||c.status===filtStatus;
+    return matchBusca&&matchCat&&matchStatus;
+  }).sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+
+  const save=()=>{
+    if(modal==="edit") setCartas(prev=>prev.map(x=>x.id===form.id?form:x));
+    else setCartas(prev=>[...prev,{...form,id:uid()}]);
+    setModal(null);showSavedGlobal("Carta salva!");
+  };
+
+  const exportarPDF=async()=>{
+    const selecionadas=cartas.filter(c=>selExport.includes(c.id));
+    if(!selecionadas.length){alert("Selecione ao menos uma carta.");return;}
+    // Gera HTML do livro para impressão
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@400;700&display=swap');
+      body{font-family:'Cormorant Garamond',serif;margin:0;padding:0;color:#2A1B15;background:#fff;}
+      .capa{page-break-after:always;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:60px 80px;background:#5C4033;}
+      .capa h1{font-family:'Playfair Display',serif;font-size:42px;color:#FAF8F5;margin-bottom:16px;font-weight:400;}
+      .capa h2{font-size:22px;color:#D8C3A5;font-style:italic;margin-bottom:32px;font-weight:400;}
+      .capa .autor{font-size:18px;color:#B08D57;letter-spacing:3px;text-transform:uppercase;}
+      .carta{page-break-before:always;padding:80px;min-height:100vh;}
+      .carta-titulo{font-family:'Playfair Display',serif;font-size:28px;text-align:center;margin-bottom:8px;color:#5C4033;}
+      .carta-sub{font-size:16px;text-align:center;font-style:italic;color:#6B7152;margin-bottom:12px;}
+      .carta-meta{font-size:12px;text-align:center;color:#9A8A7A;margin-bottom:40px;letter-spacing:1px;}
+      .carta-divider{width:40px;height:1px;background:#B08D57;margin:0 auto 40px;}
+      .carta-texto{font-size:16px;line-height:1.9;text-align:justify;white-space:pre-wrap;}
+      .carta-assinatura{margin-top:48px;text-align:right;font-style:italic;font-size:15px;color:#5C4033;}
+      @media print{body{-webkit-print-color-adjust:exact;}}
+    </style></head><body>
+    <div class="capa">
+      <h1>${tituloLivro||"Sem título"}</h1>
+      <h2>${volumeSel||""}</h2>
+      <div class="autor">Simara Lobui</div>
+    </div>
+    ${selecionadas.map(c=>`
+    <div class="carta">
+      <h2 class="carta-titulo">${c.titulo||""}</h2>
+      ${c.subtitulo?`<div class="carta-sub">${c.subtitulo}</div>`:""}
+      <div class="carta-meta">${fmtDate(c.data)} · ${c.categoria} · ${c.origem}</div>
+      <div class="carta-divider"></div>
+      <div class="carta-texto">${c.texto||""}</div>
+      <div class="carta-assinatura">${c.assinatura||"Simara Lobui"}</div>
+    </div>`).join("")}
+    </body></html>`;
+    const w=window.open("","_blank");
+    w.document.write(html);
+    w.document.close();
+    setTimeout(()=>w.print(),800);
+    // Marca como exportado
+    setCartas(prev=>prev.map(c=>selExport.includes(c.id)?{...c,status:"Exportado"}:c));
+    setExportModal(false);setSelExport([]);
+    showSavedGlobal("Livro gerado!");
+  };
+
+  return(
+    <div className="fade" style={{padding:24}}>
+      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"14px 20px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:3}}>Diário da Simara</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,color:C.areia,fontStyle:"italic"}}>Um espaço só seu · Cartas que virarão livros ✦</div>
+        </div>
+        <Btn v="gold" onClick={()=>setExportModal(true)}>📖 Exportar livro</Btn>
+      </div>
+
+      <Tabs tabs={[{k:"cartas",l:"✍🏻 Cartas"},{k:"volumes",l:"📚 Volumes"}]} active={tab} set={setTab}/>
+
+      {tab==="cartas"&&<>
+        <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{flex:1,minWidth:180}}><Inp value={busca} onChange={setBusca} placeholder="Buscar por título, palavra ou data..."/></div>
+          <Sel value={filtCat} onChange={setFiltCat} options={["Todas",...CATS_CARTA]}/>
+          <Sel value={filtStatus} onChange={setFiltStatus} options={["Todos",...STATUS_CARTA]}/>
+          <Btn onClick={()=>{setForm(EF);setModal("new");}}>+ Nova Carta</Btn>
+        </div>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+          {filtered.map(c=>(
+            <Card key={c.id} hover style={{flex:"1 1 280px",cursor:"pointer"}} onClick={()=>setVerModal(c)}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <span style={{fontSize:9,background:C.linho,color:C.oliva,padding:"2px 8px",borderRadius:10,fontWeight:600,letterSpacing:"1px",textTransform:"uppercase"}}>{c.categoria}</span>
+                <span style={{fontSize:9,background:c.status==="Exportado"?"#D4E8D4":c.status==="Pronto"?"#FEF3E9":C.linho,color:c.status==="Exportado"?"#2E6B2E":c.status==="Pronto"?C.dourado:C.oliva,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{c.status}</span>
+              </div>
+              <h4 style={{fontSize:16,fontFamily:"'Cormorant Garamond',serif",fontWeight:600,marginBottom:3}}>{c.titulo}</h4>
+              {c.subtitulo&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:4}}>{c.subtitulo}</div>}
+              <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>{fmtDate(c.data)} · {c.origem}</div>
+              <p style={{fontSize:12,color:C.cafe,lineHeight:1.6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical"}}>{c.texto?.slice(0,150)}{c.texto?.length>150?"...":""}</p>
+            </Card>
+          ))}
+          {filtered.length===0&&<div style={{width:"100%",textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:15}}>Nenhuma carta ainda. Comece a escrever ✦</div>}
+        </div>
+      </>}
+
+      {tab==="volumes"&&<>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva}}>Organize seus livros por volumes ✦</p>
+          <Btn onClick={()=>{setFormVol({titulo:"",subtitulo:""});setModal("vol");}}>+ Novo Volume</Btn>
+        </div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {volumes.map(v=>{const cartsVol=cartas.filter(c=>c.volume===v.id);return(
+            <Card key={v.id} style={{flex:"1 1 220px"}}>
+              <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",marginBottom:4,fontWeight:700}}>📚 {v.titulo}</div>
+              {v.subtitulo&&<div style={{fontSize:13,fontStyle:"italic",color:C.oliva,marginBottom:6}}>{v.subtitulo}</div>}
+              <div style={{fontSize:12,color:C.cafe,marginBottom:10}}>{cartsVol.length} carta{cartsVol.length!==1?"s":""}</div>
+              <Btn sm v="ghost" onClick={()=>{setFormVol({...v});setModal("editVol");}}>✎ Editar</Btn>
+            </Card>
+          );})}
+          {volumes.length===0&&<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>Nenhum volume criado ainda ✦</div>}
+        </div>
+      </>}
+
+      {/* Modal ver carta */}
+      {verModal&&<Modal title={verModal.titulo} onClose={()=>setVerModal(null)} wide>
+        <div style={{fontFamily:"'Cormorant Garamond',serif"}}>
+          {verModal.subtitulo&&<div style={{fontSize:16,fontStyle:"italic",color:C.oliva,marginBottom:6,textAlign:"center"}}>{verModal.subtitulo}</div>}
+          <div style={{fontSize:12,color:C.oliva,textAlign:"center",marginBottom:16,letterSpacing:"1px"}}>{fmtDate(verModal.data)} · {verModal.categoria} · {verModal.origem}</div>
+          <div style={{width:32,height:1,background:C.dourado,margin:"0 auto 24px"}}/>
+          <div style={{fontSize:15,lineHeight:2,whiteSpace:"pre-wrap",color:C.cafe}}>{verModal.texto}</div>
+          <div style={{marginTop:32,textAlign:"right",fontStyle:"italic",color:C.cafe,fontSize:14}}>— {verModal.assinatura||"Simara Lobui"}</div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>{setForm({...verModal});setVerModal(null);setModal("edit");}}>✎ Editar</Btn>
+          <Btn v="oliva" onClick={()=>setVerModal(null)}>Fechar</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal nova/editar carta */}
+      {(modal==="new"||modal==="edit")&&<Modal title={modal==="edit"?"Editar Carta":"Nova Carta"} onClose={()=>setModal(null)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Título" value={form.titulo} onChange={v=>setForm(f=>({...f,titulo:v}))} placeholder="O título da sua carta..."/>
+          <Inp label="Subtítulo (opcional)" value={form.subtitulo} onChange={v=>setForm(f=>({...f,subtitulo:v}))} placeholder="Uma frase, uma dedicatória..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Data" type="date" value={form.data} onChange={v=>setForm(f=>({...f,data:v}))}/>
+            <Sel label="Categoria" value={form.categoria} onChange={v=>setForm(f=>({...f,categoria:v}))} options={CATS_CARTA}/>
+            <Sel label="Origem da inspiração" value={form.origem} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS_CARTA}/>
+            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_CARTA}/>
+            <Sel label="Volume (opcional)" value={form.volume||""} onChange={v=>setForm(f=>({...f,volume:v}))} options={[{v:"",l:"Nenhum"},...volumes.map(v=>({v:v.id,l:v.titulo}))]}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Texto da carta</label>
+            <textarea value={form.texto} onChange={e=>setForm(f=>({...f,texto:e.target.value}))} rows={14} placeholder="Escreva aqui sua carta, reflexão, pensamento..." style={{width:"100%",padding:"12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",lineHeight:1.8,color:C.cafe,resize:"vertical"}}/>
+          </div>
+          <div style={{textAlign:"right",fontSize:12,fontStyle:"italic",color:C.oliva}}>Assinatura: Simara Lobui</div>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          {modal==="edit"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir esta carta? Esta ação não pode ser desfeita."))setCartas(prev=>prev.filter(x=>x.id!==form.id));setModal(null);}}>Excluir</Btn>}
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={save}>Salvar carta</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal volume */}
+      {(modal==="vol"||modal==="editVol")&&<Modal title={modal==="editVol"?"Editar Volume":"Novo Volume"} onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Título do livro" value={formVol.titulo} onChange={v=>setFormVol(f=>({...f,titulo:v}))} placeholder="Ex: Renascida em Coragem"/>
+          <Inp label="Volume / Subtítulo" value={formVol.subtitulo} onChange={v=>setFormVol(f=>({...f,subtitulo:v}))} placeholder="Ex: Volume 1, Volume 2..."/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          {modal==="editVol"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir volume?"))setVolumes(prev=>prev.filter(x=>x.id!==formVol.id));setModal(null);}}>Excluir</Btn>}
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={()=>{if(modal==="editVol")setVolumes(prev=>prev.map(x=>x.id===formVol.id?formVol:x));else setVolumes(prev=>[...prev,{...formVol,id:uid()}]);setModal(null);showSavedGlobal("Volume salvo!");}}>Salvar</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal exportar livro */}
+      {exportModal&&<Modal title="📖 Exportar Livro" onClose={()=>setExportModal(false)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
+          <Inp label="Título do livro" value={tituloLivro} onChange={setTituloLivro} placeholder="Ex: Renascida em Coragem"/>
+          <Sel label="Volume" value={volumeSel} onChange={setVolumeSel} options={[{v:"",l:"Sem volume"},...volumes.map(v=>({v:v.titulo,l:v.titulo}))]}/>
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>Selecione as cartas ({selExport.length} selecionadas)</div>
+        <div style={{maxHeight:320,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          {cartas.sort((a,b)=>(a.data||"").localeCompare(b.data||"")).map(c=>(
+            <div key={c.id} onClick={()=>setSelExport(prev=>prev.includes(c.id)?prev.filter(x=>x!==c.id):[...prev,c.id])} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 12px",background:selExport.includes(c.id)?C.linho:"#fff",border:`1.5px solid ${selExport.includes(c.id)?C.cafe:C.areia}`,borderRadius:4,cursor:"pointer"}}>
+              <span style={{fontSize:16}}>{selExport.includes(c.id)?"✅":"⬜"}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600}}>{c.titulo}</div>
+                <div style={{fontSize:10,color:C.oliva}}>{fmtDate(c.data)} · {c.categoria} · {c.status}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setExportModal(false)}>Cancelar</Btn>
+          <Btn v="gold" onClick={exportarPDF} disabled={selExport.length===0}>📖 Gerar livro ({selExport.length} cartas)</Btn>
+        </div>
+      </Modal>}
+    </div>
+  );
+};
+
 const Projects = ({projects,setProjects}) => {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({nome:"",status:"Em andamento",nota:"",link:"",fotos:[]});
@@ -2874,6 +3343,11 @@ function App() {
   const [projects,  setProjects  ]=useStorage("projects",    INIT.projects);
   const [metas,     setMetas     ]=useStorage("metas",       INIT.metas);
   const [config,    setConfig    ]=useStorage("config",      INIT.config);
+  const [compromissos,setCompromissos]=useStorage("compromissos",[]);
+  const [publicacoes, setPublicacoes ]=useStorage("publicacoes", []);
+  const [ideias,      setIdeias     ]=useStorage("ideias",      []);
+  const [cartas,      setCartas     ]=useStorage("cartas",      []);
+  const [volumes,     setVolumes    ]=useStorage("volumes",     []);
   // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
@@ -2947,6 +3421,8 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
+          {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
+          {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients}/>}
