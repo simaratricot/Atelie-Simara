@@ -498,7 +498,24 @@ const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
 };
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
+const TEMAS_INSPIRACAO=[
+  {cat:"🧶 Artesanato",temas:["O erro que mais atrasa uma peça artesanal","Quanto tempo realmente leva para produzir uma peça","O que ninguém vê antes da peça ficar pronta","Ferramentas que facilitaram meu trabalho","Um detalhe que faz toda diferença no acabamento"]},
+  {cat:"🏗️ Obra",temas:["O que a construção me ensinou sobre disciplina","Um aprendizado do canteiro que levo para a vida","Bastidores da obra","Organização na prática","Liderança"]},
+  {cat:"💼 Empreendedorismo",temas:["O maior desafio da semana","O que eu faria diferente hoje","Uma decisão que mudou meu negócio","Bastidores da gestão","Como organizo minha rotina"]},
+  {cat:"📱 Marketing",temas:["Como nasce uma postagem","Como escolho meus conteúdos","A importância da constância","Conteúdo que vende sem parecer venda"]},
+  {cat:"📦 Produtos",temas:["Produto favorito","História de uma encomenda","Processo de criação","Inspiração da peça","Curiosidade sobre materiais"]},
+  {cat:"👥 Clientes",temas:["Histórias marcantes","Aprendizados","Feedback recebido","O que mais pedem","Bastidores do atendimento"]},
+  {cat:"💭 Reflexões",temas:["Uma frase do livro","Uma experiência vivida","Algo que aprendi hoje","Uma pergunta para refletir","Um pensamento que merece ser registrado"]},
+  {cat:"🙏 Fé",temas:["Gratidão","Perseverança","Esperança","Recomeços","O cuidado de Deus nos detalhes"]},
+];
+
+const TAREFAS_CONTEUDO=[
+  "Story Bom Dia","Story Bastidores","Story Autoridade","Story Interação",
+  "Publicação Feed","Reel","Compartilhar Canal WhatsApp","Compartilhar WhatsApp",
+  "Responder comentários","Responder Direct","Planejar conteúdo do dia seguinte"
+];
+
+const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,publicacoes,cartas,volumes,setCartas,setFrases,setView}) => {
   const ativos=orders.filter(o=>!["Concluído","Enviado","Cancelado"].includes(o.status));
   const agenda=orders.filter(o=>o.delivery&&o.delivery>=today&&!["Concluído","Cancelado"].includes(o.status)).sort((a,b)=>a.delivery.localeCompare(b.delivery));
   const frasesAtivas=frases.filter(f=>f.ativa);
@@ -508,102 +525,223 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config}) => {
   const todayMMDD=today.slice(5);
   const aniversariantes=(clients||[]).filter(c=>{
     if(!c.nascimento)return false;
-    // Suporta formato DD/MM/AAAA e YYYY-MM-DD
     const n=c.nascimento;
     if(n.includes("/"))return n.slice(0,5)===new Date().toLocaleDateString("pt-BR").slice(0,5);
     return n.slice(5)===todayMMDD;
   });
   const recHoje=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
   const pagHoje=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const proximaEntrega=agenda[0];
+
+  // Publicações do dia
+  const pubHoje=publicacoes.filter(p=>p.data===today);
+  const pubConc=pubHoje.filter(p=>p.status==="Concluído").length;
+  const pubPct=pubHoje.length>0?Math.round((pubConc/pubHoje.length)*100):0;
+
+  // Compromissos do dia
+  const compHoje=compromissos.filter(c=>c.data===today).sort((a,b)=>(a.hora||"").localeCompare(b.hora||""));
+
+  // Livro em andamento
+  const volAtual=volumes.length>0?volumes[volumes.length-1]:null;
+  const cartasVol=volAtual?cartas.filter(c=>c.volume===volAtual.id):[];
+  const paginasApx=Math.round(cartas.length*4.5);
+  const metaPags=200;
+  const pct=Math.min(100,Math.round((paginasApx/metaPags)*100));
+
+  const [inspModal,setInspModal]=useState(false);
+  const [fraseModal,setFraseModal]=useState(false);
+  const [novaFrase,setNovaFrase]=useState("");
+  const [encerrModal,setEncerrModal]=useState(false);
+  const [pensamento,setPensamento]=useState("");
+  const [fraseImg,setFraseImg]=useState(false);
+
+  const hora=new Date().getHours();
+  const saudacao=hora<12?"🌅 Bom dia":"🌿 Boa tarde";
+
+  const compartilharFrase=()=>{
+    if(!frase)return;
+    const canvas=document.createElement("canvas");
+    canvas.width=1080;canvas.height=1920;
+    const ctx=canvas.getContext("2d");
+    // Fundo
+    const grad=ctx.createLinearGradient(0,0,0,1920);
+    grad.addColorStop(0,"#3D2B1F");grad.addColorStop(1,"#5C4033");
+    ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
+    // Ornamento
+    ctx.fillStyle="rgba(176,141,87,0.08)";ctx.font="400px serif";ctx.fillText("✦",640,600);
+    // Categoria
+    ctx.fillStyle="#B08D57";ctx.font="bold 28px Arial";ctx.letterSpacing="6px";
+    ctx.textAlign="center";ctx.fillText(frase.categoria.toUpperCase(),540,480);
+    // Frase
+    ctx.fillStyle="#FAF8F5";ctx.font="italic 52px Georgia";ctx.letterSpacing="0px";
+    const words=`"${frase.texto}"`.split(" ");
+    let line="",y=650,maxW=820;
+    words.forEach(w=>{
+      const test=line+w+" ";
+      if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line.trim(),540,y);line=w+" ";y+=80;}
+      else line=test;
+    });
+    ctx.fillText(line.trim(),540,y);
+    // Assinatura
+    ctx.fillStyle="#B08D57";ctx.font="36px Georgia";ctx.fillText("— Simara Lobui",540,y+120);
+    // Logo
+    ctx.fillStyle="rgba(216,195,165,0.5)";ctx.font="22px Arial";ctx.fillText("Ateliê Digital · Simara Lobui",540,1820);
+    canvas.toBlob(blob=>{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download="frase-simara.png";a.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  const salvarPensamento=()=>{
+    if(!pensamento.trim())return;
+    setCartas(prev=>[...prev,{id:uid(),titulo:"Pensamento do dia",subtitulo:"",data:today,categoria:"Reflexões",texto:pensamento,origem:"Dia comum",status:"Rascunho",assinatura:"Simara Lobui",volume:""}]);
+    setPensamento("");setEncerrModal(false);
+    showSavedGlobal("Pensamento salvo no Diário!");
+  };
 
   return (
     <div className="fade" style={{padding:24,display:"flex",flexDirection:"column",gap:18}}>
-      {frase&&(
-        <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"18px 22px",position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-20,right:16,fontSize:90,opacity:0.06,fontFamily:"serif"}}>✦</div>
-          <div style={{fontSize:9,letterSpacing:"3px",textTransform:"uppercase",color:C.dourado,marginBottom:5,fontWeight:700}}>{frase.categoria} · Frase do dia</div>
-          <blockquote style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(14px,2vw,20px)",fontStyle:"italic",color:"#FAF8F5",lineHeight:1.55,margin:0}}>"{frase.texto}"</blockquote>
-          <div style={{fontSize:10,color:C.areia,marginTop:6,fontFamily:"'Cormorant Garamond',serif"}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</div>
-        </div>
-      )}
 
-      {/* 1. AGENDA DE ENTREGAS */}
-      <Card>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <h3 style={{fontSize:15}}>📅 Agenda de entregas</h3>
-          <span style={{fontSize:11,color:C.oliva}}>{agenda.length} pendente{agenda.length!==1?"s":""}</span>
+      {/* SAUDAÇÃO */}
+      <div style={{background:`linear-gradient(135deg,${C.cafe},#2A1B15)`,borderRadius:8,padding:"20px 24px",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:-30,right:10,fontSize:120,opacity:0.05,fontFamily:"serif"}}>✦</div>
+        <div style={{fontSize:22,color:"#FAF8F5",fontFamily:"'Cormorant Garamond',serif",fontWeight:400,marginBottom:4}}>{saudacao}, Simara!</div>
+        {frase&&<>
+          <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",marginBottom:6,marginTop:8}}>{frase.categoria} · Frase do dia</div>
+          <blockquote style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(13px,2vw,17px)",fontStyle:"italic",color:C.areia,lineHeight:1.6,margin:"0 0 10px"}}> "{frase.texto}"</blockquote>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>{navigator.clipboard?.writeText(`"${frase.texto}" — Simara Lobui`).then(()=>showSavedGlobal("Frase copiada!"));}} style={{fontSize:10,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"#FAF8F5",padding:"4px 12px",borderRadius:20,cursor:"pointer",letterSpacing:"1px"}}>📋 Copiar</button>
+            <button onClick={compartilharFrase} style={{fontSize:10,background:"rgba(176,141,87,0.3)",border:"1px solid rgba(176,141,87,0.5)",color:C.dourado,padding:"4px 12px",borderRadius:20,cursor:"pointer",letterSpacing:"1px"}}>🖼️ Baixar Story</button>
+          </div>
+        </>}
+        {/* Botões rápidos */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:14,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.1)"}}>
+          <button onClick={()=>setView("diario")} style={{fontSize:11,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.15)",color:"#FAF8F5",padding:"6px 14px",borderRadius:20,cursor:"pointer"}}>✍🏻 Nova carta</button>
+          <button onClick={()=>setFraseModal(true)} style={{fontSize:11,background:"rgba(176,141,87,0.25)",border:"1px solid rgba(176,141,87,0.4)",color:C.dourado,padding:"6px 14px",borderRadius:20,cursor:"pointer"}}>✨ Nova frase</button>
+          <button onClick={()=>setInspModal(true)} style={{fontSize:11,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",color:C.areia,padding:"6px 14px",borderRadius:20,cursor:"pointer"}}>💡 Sem inspiração</button>
+          <button onClick={()=>setEncerrModal(true)} style={{fontSize:11,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",color:C.areia,padding:"6px 14px",borderRadius:20,cursor:"pointer",marginLeft:"auto"}}>🌙 Encerrar dia</button>
         </div>
-        {agenda.length===0&&<div style={{textAlign:"center",padding:"16px 0",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhuma entrega agendada ✦</div>}
-        {agenda.slice(0,6).map(o=>{
+      </div>
+
+      {/* AGENDA DE HOJE */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>📅 Agenda de hoje</div>
+          <button onClick={()=>setView("agenda")} style={{fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver agenda completa</button>
+        </div>
+        {compHoje.length===0&&agenda.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Dia livre hoje ✦</div>}
+        {agenda.slice(0,3).map(o=>{
           const dias=Math.ceil((new Date(o.delivery+"T00:00")-new Date())/864e5);
-          const urg=dias<=2;
           return(
-            <div key={o.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.linho}`}}>
-              <div style={{width:38,textAlign:"center",flexShrink:0}}>
-                <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700,color:urg?C.vermelho:C.cafe}}>{new Date(o.delivery+"T00:00").getDate()}</div>
-                <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase"}}>{new Date(o.delivery+"T00:00").toLocaleDateString("pt-BR",{month:"short"})}</div>
-              </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:12,fontWeight:700}}>{o.client}</div>
-                <div style={{fontSize:11,color:C.oliva}}>{o.product}</div>
-              </div>
-              <div style={{textAlign:"right"}}>
-                <Badge label={o.status} sm/>
-                <div style={{fontSize:10,marginTop:2,color:urg?C.vermelho:C.oliva,fontWeight:urg?700:400}}>{dias===0?"Hoje!":dias===1?"Amanhã":`em ${dias}d`}</div>
-              </div>
+            <div key={o.id} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.linho}`}}>
+              <span style={{fontSize:11,color:dias<=1?C.vermelho:C.oliva,minWidth:20}}>📦</span>
+              <span style={{flex:1,fontSize:12,fontWeight:600}}>{o.client}</span>
+              <span style={{fontSize:11,color:dias<=1?C.vermelho:C.oliva}}>{dias===0?"Hoje!":dias===1?"Amanhã":`${dias}d`}</span>
             </div>
           );
         })}
-      </Card>
-
-      {/* 2. STATUS DOS PEDIDOS */}
-      <Card>
-        <div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:10,fontWeight:700}}>Status dos pedidos ativos</div>
-        {ativos.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum pedido ativo.</div>
-        :<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {statusAtivos.map(s=>{const c=orders.filter(o=>o.status===s).length;if(!c)return null;return(
-            <div key={s} style={{textAlign:"center",padding:"6px 12px",background:C.linho,borderRadius:4}}>
-              <div style={{fontSize:18,fontWeight:700,color:C.cafe}}>{c}</div>
-              <div style={{fontSize:9,color:C.oliva,marginTop:1}}>{s}</div>
-            </div>
-          );})}
-        </div>}
-      </Card>
-
-      {/* 3. RECEBER E PAGAR */}
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        <Card style={{flex:"1 1 140px",borderLeft:`3px solid ${recHoje>0?C.dourado:C.areia}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>A receber hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:recHoje>0?C.dourado:C.oliva,fontWeight:700}}>{fmtBRL(recHoje)}</div>
-          {recHoje===0&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>Nenhum vencimento</div>}
-        </Card>
-        <Card style={{flex:"1 1 140px",borderLeft:`3px solid ${pagHoje>0?C.vermelho:C.areia}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>A pagar hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHoje>0?C.vermelho:C.oliva,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
-          {pagHoje===0&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>Nenhum vencimento</div>}
-        </Card>
-        {lowStock.length>0&&<Card style={{flex:"1 1 140px"}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>⚠ Estoque baixo</div>
-          {lowStock.map(s=><div key={s.id} style={{padding:"3px 0",fontSize:11,color:C.cafe}}>{s.nome} — {s.qty} {s.unidade}</div>)}
-        </Card>}
-      </div>
-
-      {/* 4. ANIVERSARIANTES */}
-      <Card style={{borderLeft:`4px solid ${aniversariantes.length>0?C.dourado:C.areia}`,background:aniversariantes.length>0?"#FFFDF5":C.branco}}>
-        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:aniversariantes.length>0?10:4}}>🎂 Aniversariantes hoje</div>
-        {aniversariantes.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum aniversariante hoje.</div>}
-        {aniversariantes.map(c=>(
-          <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}>
-            <div style={{width:32,height:32,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{c.name}</div></div>
-            {c.phone&&<Btn sm v="oliva" onClick={()=>{
-              const msg=`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`;
-              window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(msg)}`);
-            }}>💬 Parabéns</Btn>}
+        {compHoje.map(c=>(
+          <div key={c.id} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.linho}`}}>
+            <span style={{fontSize:11,color:C.oliva,minWidth:36}}>{c.hora||"📌"}</span>
+            <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}</span>
+            <Badge label={c.prioridade==="Alta"?"🔴 Alta":c.status} sm/>
           </div>
         ))}
       </Card>
+
+      {/* ENCOMENDAS + FINANCEIRO */}
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        <Card style={{flex:"1 1 150px"}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>📦 Encomendas ativas</div>
+          <div style={{fontSize:28,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{ativos.length}</div>
+          {agenda[0]&&<div style={{fontSize:11,color:C.oliva,marginTop:4}}>Próx: {agenda[0].client.split(" ")[0]} · {fmtDate(agenda[0].delivery)}</div>}
+        </Card>
+        <Card style={{flex:"1 1 150px",borderLeft:`3px solid ${recHoje>0?C.dourado:C.areia}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>💰 Receber hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:recHoje>0?C.dourado:C.oliva,fontWeight:700}}>{fmtBRL(recHoje)}</div>
+        </Card>
+        <Card style={{flex:"1 1 150px",borderLeft:`3px solid ${pagHoje>0?C.vermelho:C.areia}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>💸 Pagar hoje</div>
+          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHoje>0?C.vermelho:C.oliva,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
+        </Card>
+      </div>
+
+      {/* CONTEÚDO DO DIA */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>📱 Conteúdo de hoje</div>
+          <div style={{fontSize:12,fontWeight:700,color:pubPct===100?C.oliva:C.dourado}}>{pubPct}% concluído</div>
+        </div>
+        {pubHoje.length>0&&<PBar pct={pubPct} color={pubPct===100?C.oliva:C.dourado} h={5}/>}
+        {pubHoje.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginTop:6}}>Nenhuma publicação planejada para hoje.</div>
+        :<div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
+          {pubHoje.map(p=><span key={p.id} style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:p.status==="Concluído"?"#D4E8D4":C.linho,color:p.status==="Concluído"?"#2E6B2E":C.oliva,textDecoration:p.status==="Concluído"?"line-through":"none"}}>{p.tipo}</span>)}
+        </div>}
+        <button onClick={()=>setView("agenda")} style={{marginTop:10,fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Planejar conteúdo →</button>
+      </Card>
+
+      {/* LIVRO EM ANDAMENTO */}
+      <Card style={{background:`linear-gradient(135deg,${C.linho},#fff)`,borderLeft:`4px solid ${C.dourado}`}}>
+        <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📖 Livro em andamento</div>
+        {volAtual?<>
+          <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700,marginBottom:2}}>{volAtual.titulo}</div>
+          {volAtual.subtitulo&&<div style={{fontSize:13,color:C.oliva,fontStyle:"italic",marginBottom:8}}>{volAtual.subtitulo}</div>}
+          <div style={{display:"flex",gap:16,marginBottom:10,flexWrap:"wrap"}}>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:1}}>Cartas</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{cartas.length}</div></div>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:1}}>~Páginas</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{paginasApx}</div></div>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:1}}>Progresso</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.dourado}}>{pct}%</div></div>
+          </div>
+          <PBar pct={pct} color={C.dourado} h={6}/>
+          <div style={{fontSize:11,color:C.oliva,marginTop:6,fontStyle:"italic"}}>Faltam aproximadamente {Math.max(0,metaPags-paginasApx)} páginas para completar este volume.</div>
+        </>:<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum volume criado ainda. <button onClick={()=>setView("diario")} style={{color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline",fontSize:12}}>Criar agora →</button></div>}
+      </Card>
+
+      {/* ANIVERSARIANTES */}
+      {aniversariantes.length>0&&<Card style={{borderLeft:`4px solid ${C.dourado}`,background:"#FFFDF5"}}>
+        <div style={{fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:C.dourado,fontWeight:700,marginBottom:10}}>🎂 Aniversariantes hoje</div>
+        {aniversariantes.map(c=>(
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0"}}>
+            <div style={{width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:C.cafe,flexShrink:0}}>{c.name.slice(0,2)}</div>
+            <div style={{flex:1,fontSize:13,fontWeight:700}}>{c.name}</div>
+            {c.phone&&<Btn sm v="oliva" onClick={()=>window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${waMsg(`Olá ${c.name.split(" ")[0]}! 🎂🤎\n\nDesejo que seu dia seja tão especial quanto você!\n\nCom carinho,\n${BRAND}`)}`)}>💬 Parabéns</Btn>}
+          </div>
+        ))}
+      </Card>}
+
+      {/* MODAL INSPIRAÇÃO */}
+      {inspModal&&<Modal title="💡 Estou sem inspiração" onClose={()=>setInspModal(false)} wide>
+        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva,marginBottom:16}}>Escolha um tema para escrever hoje ✦</p>
+        {TEMAS_INSPIRACAO.map(cat=>(
+          <div key={cat.cat} style={{marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.cafe,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>{cat.cat}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {cat.temas.map(t=>(
+                <button key={t} onClick={()=>{setCartas(prev=>[...prev,{id:uid(),titulo:t,subtitulo:"",data:today,categoria:cat.cat.split(" ")[1]||"Reflexões",texto:"",origem:"Reflexão pessoal",status:"Rascunho",assinatura:"Simara Lobui",volume:""}]);setInspModal(false);setView("diario");showSavedGlobal("Carta criada!");}} style={{padding:"10px 14px",background:C.linho,border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12,cursor:"pointer",color:C.cafe,textAlign:"left",fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic"}}>{t}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Modal>}
+
+      {/* MODAL NOVA FRASE */}
+      {fraseModal&&<Modal title="✨ Registrar nova frase" onClose={()=>setFraseModal(false)}>
+        <Inp label="Frase" value={novaFrase} onChange={setNovaFrase} rows={3} placeholder="Digite a frase que quer guardar..."/>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setFraseModal(false)}>Cancelar</Btn>
+          <Btn onClick={()=>{if(!novaFrase.trim())return;setFrases(prev=>[...prev,{id:uid(),texto:novaFrase,categoria:"Motivação",ativa:true}]);setNovaFrase("");setFraseModal(false);showSavedGlobal("Frase salva!");}}>Salvar frase</Btn>
+        </div>
+      </Modal>}
+
+      {/* MODAL ENCERRAR DIA */}
+      {encerrModal&&<Modal title="🌙 Encerrando o dia" onClose={()=>setEncerrModal(false)}>
+        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontStyle:"italic",color:C.cafe,textAlign:"center",marginBottom:16}}>"O que Deus te ensinou hoje?"</p>
+        <textarea value={pensamento} onChange={e=>setPensamento(e.target.value)} rows={6} placeholder="Escreva livremente... será salvo no seu Diário." style={{width:"100%",padding:"12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",lineHeight:1.8,color:C.cafe,resize:"vertical"}}/>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setEncerrModal(false)}>Agora não</Btn>
+          <Btn onClick={salvarPensamento}>Salvar no Diário</Btn>
+        </div>
+      </Modal>}
     </div>
   );
 };
@@ -2085,8 +2223,8 @@ const Orcamento = ({config,stockSup}) => {
 
 // ─── AGENDA ───────────────────────────────────────────────────────────────────
 const PRIORIDADES=["Alta","Normal","Baixa"];
-const STATUS_COMP=["Pendente","Concluído","Cancelado"];
-const TIPOS_PUB=["📸 Foto editorial","🎨 Card com frase","📦 Foto de produto","🤳 Foto minha","🏢 Card institucional","🧶 Foto de peça","💭 Card de reflexão","🎬 Reel","📢 Stories"];
+const STATUS_COMP=["Pendente","Concluído","Adiado","Cancelado"];
+const TIPOS_PUB=["Story Bom Dia","Story Bastidores","Story Autoridade","Story Interação","Publicação Feed","Reel","Compartilhar Canal WhatsApp","Compartilhar WhatsApp","Responder comentários","Responder Direct","Planejar conteúdo do dia seguinte"];
 const SUGESTOES_CONTEUDO=[
   {cat:"Produto",sugs:["Mostre os detalhes do seu tricô","Antes e depois de uma peça","Processo de criação"]},
   {cat:"Pessoal",sugs:["Um dia no ateliê","O que me inspira hoje","Bastidores da produção"]},
@@ -2195,13 +2333,27 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
           {/* Compromissos do dia */}
           {compDia(diaSel).length>0&&<>
             <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>📌 Compromissos</div>
-            {compDia(diaSel).sort((a,b)=>(a.hora||"").localeCompare(b.hora||"")).map(c=><div key={c.id} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 10px",background:c.status==="Concluído"?"#E8EDE1":c.prioridade==="Alta"?"rgba(192,57,43,0.06)":C.linho,borderRadius:4,marginBottom:4,borderLeft:`3px solid ${c.prioridade==="Alta"?C.vermelho:c.prioridade==="Normal"?C.cafe:C.areia}`}}>
-              {c.hora&&<span style={{fontSize:11,fontWeight:700,color:C.cafe,minWidth:36}}>{c.hora}</span>}
-              <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}</span>
-              <button onClick={()=>setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x))} style={{fontSize:14,background:"none",border:"none",cursor:"pointer"}}>{c.status==="Concluído"?"✅":"⬜"}</button>
-              <button onClick={()=>{setForm({...c});setModal("editComp");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
-              <button onClick={()=>{if(window.confirm("Excluir?"))setCompromissos(prev=>prev.filter(x=>x.id!==c.id));}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
-            </div>)}
+            {compDia(diaSel).sort((a,b)=>(a.hora||"").localeCompare(b.hora||"")).map(c=>(
+              <div key={c.id} style={{padding:"8px 10px",background:c.status==="Concluído"?"#E8EDE1":c.status==="Adiado"?"#FEF3E9":c.prioridade==="Alta"?"rgba(192,57,43,0.06)":C.linho,borderRadius:4,marginBottom:6,borderLeft:`3px solid ${c.status==="Concluído"?C.oliva:c.status==="Adiado"?C.dourado:c.prioridade==="Alta"?C.vermelho:C.cafe}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {c.hora&&<span style={{fontSize:11,fontWeight:700,color:C.cafe,minWidth:36}}>{c.hora}</span>}
+                  <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}</span>
+                  <select value={c.status} onChange={e=>{
+                    const ns=e.target.value;
+                    setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:ns}:x));
+                  }} style={{fontSize:10,padding:"2px 6px",border:`1px solid ${C.areia}`,borderRadius:3,color:C.cafe,background:"#fff"}}>
+                    {STATUS_COMP.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                  <button onClick={()=>{setForm({...c});setModal("editComp");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
+                  <button onClick={()=>{if(window.confirm("Excluir?"))setCompromissos(prev=>prev.filter(x=>x.id!==c.id));}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
+                </div>
+                {c.status==="Adiado"&&<div style={{marginTop:6,display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:10,color:C.dourado,fontWeight:600}}>📅 Adiar para:</span>
+                  <input type="date" defaultValue={c.novaData||""} onChange={e=>setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,novaData:e.target.value}:x))} style={{fontSize:11,padding:"3px 8px",border:`1px solid ${C.areia}`,borderRadius:3,color:C.cafe}}/>
+                  {c.novaData&&<Btn sm v="ghost" onClick={()=>setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,data:c.novaData,status:"Pendente",novaData:""}:x))}>✓ Confirmar</Btn>}
+                </div>}
+              </div>
+            ))}
             <div style={{height:1,background:C.areia,margin:"10px 0"}}/>
           </>}
           {/* Publicações do dia */}
@@ -2498,8 +2650,24 @@ const Diario = ({cartas,setCartas,volumes,setVolumes}) => {
             <Sel label="Volume (opcional)" value={form.volume||""} onChange={v=>setForm(f=>({...f,volume:v}))} options={[{v:"",l:"Nenhum"},...volumes.map(v=>({v:v.id,l:v.titulo}))]}/>
           </div>
           <div>
-            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Texto da carta</label>
-            <textarea value={form.texto} onChange={e=>setForm(f=>({...f,texto:e.target.value}))} rows={14} placeholder="Escreva aqui sua carta, reflexão, pensamento..." style={{width:"100%",padding:"12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",lineHeight:1.8,color:C.cafe,resize:"vertical"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px"}}>Texto da carta</label>
+              <button onClick={()=>{
+                const sel=window.getSelection()?.toString();
+                if(sel&&sel.trim().length>10){
+                  setForm(f=>({...f,fraseDestaque:sel.trim()}));
+                  showSavedGlobal("Trecho destacado como frase!");
+                } else {
+                  alert("Selecione um trecho do texto primeiro (mínimo 10 caracteres).");
+                }
+              }} style={{fontSize:11,padding:"4px 12px",background:C.linho,border:`1px solid ${C.dourado}`,borderRadius:20,cursor:"pointer",color:C.dourado,fontWeight:600}}>✦ Destacar trecho</button>
+            </div>
+            {form.fraseDestaque&&<div style={{background:"#FFFDF5",border:`1px solid ${C.dourado}`,borderRadius:4,padding:"8px 12px",marginBottom:8,fontSize:13,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",color:C.cafe}}>
+              <span style={{fontSize:9,color:C.dourado,fontWeight:700,letterSpacing:"2px",display:"block",marginBottom:3}}>✦ FRASE DESTACADA</span>
+              "{form.fraseDestaque}"
+              <button onClick={()=>setForm(f=>({...f,fraseDestaque:""}))} style={{marginLeft:8,fontSize:10,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✕</button>
+            </div>}
+            <textarea id="carta-textarea" value={form.texto} onChange={e=>setForm(f=>({...f,texto:e.target.value}))} rows={14} placeholder="Escreva aqui sua carta, reflexão, pensamento..." style={{width:"100%",padding:"12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",lineHeight:1.8,color:C.cafe,resize:"vertical"}}/>
           </div>
           <div style={{textAlign:"right",fontSize:12,fontStyle:"italic",color:C.oliva}}>Assinatura: Simara Lobui</div>
         </div>
@@ -3412,7 +3580,7 @@ function App() {
         </div>
         {/* CONTEÚDO */}
         <div style={{flex:1,overflowY:"auto"}}>
-          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config}/>}
+          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} publicacoes={publicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} config={config} stockSup={stockSup}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
