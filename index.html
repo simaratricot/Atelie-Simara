@@ -57,18 +57,23 @@ const NOME_PIX = "Simara Aparecida de Souza Lobui";
 
 // ─── CORES ───────────────────────────────────────────────────────────────────
 const C = {
-  cafe:"#5C4033", oliva:"#6B7152", areia:"#D8C3A5",
-  linho:"#F5F1EA", branco:"#FAF8F5", dourado:"#B08D57",
-  verde:"#2E6B2E", vermelho:"#c0392b",
-  d20:"rgba(176,141,87,0.20)", c15:"rgba(92,64,51,0.15)",
+  cafe:"#A563A2",    // roxo principal do logo
+  oliva:"#23355A",   // azul escuro do logo
+  areia:"#D8B4CE",   // lilás claro do logo
+  linho:"#F3EAF5",   // fundo lilás suave
+  branco:"#FDFAFF",  // branco levemente lilás
+  dourado:"#A563A2", // roxo médio (substitui dourado)
+  verde:"#23355A",   // azul escuro (substitui verde)
+  vermelho:"#c0392b",
+  d20:"rgba(165,99,162,0.15)", c15:"rgba(165,99,162,0.10)",
 };
 
 // ─── ESTILOS GLOBAIS ──────────────────────────────────────────────────────────
 const GS = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,400&family=Inter:wght@300;400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,400&family=Poppins:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-    body{background:${C.branco};color:${C.cafe};font-family:'Inter',sans-serif;}
+    body{background:${C.branco};color:${C.oliva};font-family:'Poppins',sans-serif;}
     h1,h2,h3{font-family:'Playfair Display',serif;}
     h4,h5{font-family:'Cormorant Garamond',serif;font-weight:500;}
     ::-webkit-scrollbar{width:5px;}
@@ -711,13 +716,22 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
 
       {/* MODAL INSPIRAÇÃO */}
       {inspModal&&<Modal title="💡 Estou sem inspiração" onClose={()=>setInspModal(false)} wide>
-        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva,marginBottom:16}}>Escolha um tema para escrever hoje ✦</p>
+        <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:C.oliva,marginBottom:16}}>Escolha um tema ✦ Depois decidimos onde usar.</p>
         {TEMAS_INSPIRACAO.map(cat=>(
           <div key={cat.cat} style={{marginBottom:16}}>
             <div style={{fontSize:11,fontWeight:700,color:C.cafe,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>{cat.cat}</div>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {cat.temas.map(t=>(
-                <button key={t} onClick={()=>{setCartas(prev=>[...prev,{id:uid(),titulo:t,subtitulo:"",data:today,categoria:cat.cat.split(" ")[1]||"Reflexões",texto:"",origem:"Reflexão pessoal",status:"Rascunho",assinatura:"Simara Lobui",volume:""}]);setInspModal(false);setView("diario");showSavedGlobal("Carta criada!");}} style={{padding:"10px 14px",background:C.linho,border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12,cursor:"pointer",color:C.cafe,textAlign:"left",fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic"}}>{t}</button>
+                <div key={t} style={{display:"flex",gap:6,alignItems:"center",background:C.linho,borderRadius:4,padding:"8px 12px"}}>
+                  <span style={{flex:1,fontSize:12,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",color:C.cafe}}>{t}</span>
+                  <button onClick={()=>{
+                    setCartas(prev=>[...prev,{id:uid(),titulo:t,subtitulo:"",data:today,categoria:cat.cat.replace(/.*\s/,""),texto:"",origem:"Reflexão pessoal",status:"Rascunho",assinatura:"Simara Lobui",volume:""}]);
+                    setInspModal(false);setView("diario");showSavedGlobal("Carta criada no Diário!");
+                  }} style={{fontSize:10,padding:"4px 8px",background:C.cafe,color:"#fff",border:"none",borderRadius:4,cursor:"pointer",whiteSpace:"nowrap"}}>✍🏻 Carta</button>
+                  <button onClick={()=>{
+                    setInspModal(false);setView("agenda");showSavedGlobal("Vá para a Agenda e adicione como compromisso!");
+                  }} style={{fontSize:10,padding:"4px 8px",background:"transparent",color:C.cafe,border:`1px solid ${C.cafe}`,borderRadius:4,cursor:"pointer",whiteSpace:"nowrap"}}>📅 Agenda</button>
+                </div>
               ))}
             </div>
           </div>
@@ -1057,26 +1071,26 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
       if(novos.length>0) setFinance(prev=>[...prev,...novos]);
 
     } else {
-      // EDIÇÃO — pergunta o que fazer com os lançamentos existentes
+      // EDIÇÃO — salva o pedido
+      const pedidoOriginal=orders.find(x=>x.id===o.id);
       setOrders(prev=>reorderQ(prev.map(x=>x.id===o.id?{...o,valorPago:x.valorPago,historicoPagamentos:x.historicoPagamentos}:x)));
+
+      // Só pergunta sobre financeiro se mudou valor ou condição de pagamento
+      const mudouValor=Math.abs((pedidoOriginal?.precoFinal||0)-pF)>0.01;
+      const mudouCondicao=pedidoOriginal?.condicao!==o.condicao;
       const lancExist=finance.filter(f=>f.orderId===o.id);
-      if(lancExist.length>0){
+
+      if(lancExist.length>0&&(mudouValor||mudouCondicao)){
         const resp=window.confirm(
-          `Este pedido já tem ${lancExist.length} lançamento(s) no financeiro.\n\nOK = Substituir pelos novos lançamentos\nCancelar = Manter os existentes e adicionar novos`
+          `O valor ou condição de pagamento foi alterado.\n\nOK = Substituir lançamentos no financeiro\nCancelar = Manter os lançamentos existentes`
         );
-        const novos=gerarLancamentos(o,o.id,itens,pF,prodDesc);
         if(resp){
-          // Substitui — remove antigos e adiciona novos
+          const novos=gerarLancamentos(o,o.id,itens,pF,prodDesc);
           setFinance(prev=>[...prev.filter(f=>f.orderId!==o.id),...novos]);
-        } else {
-          // Adiciona sem remover
-          setFinance(prev=>[...prev,...novos]);
         }
-      } else {
-        // Sem lançamentos — cria novos
-        const novos=gerarLancamentos(o,o.id,itens,pF,prodDesc);
-        if(novos.length>0) setFinance(prev=>[...prev,...novos]);
+        // Se cancelar, NÃO faz nada no financeiro
       }
+      // Se não mudou valor/condição (ex: só mudou data de entrega), não toca no financeiro
     }
     setModal(null);
     showSavedGlobal("Pedido salvo com sucesso!");
@@ -1623,7 +1637,7 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   );
 };
 
-const Finance = ({finance,setFinance,orders,contas,setContas}) => {
+const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
   const [tab,setTab]=useState("lanc");
   const [formModal,setFormModal]=useState(false);
   const [contaModal,setContaModal]=useState(false);
@@ -1906,8 +1920,19 @@ const Finance = ({finance,setFinance,orders,contas,setContas}) => {
             </div>
           </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
-          <Inp label={form.type==="receita"?"Cliente (opcional)":"Fornecedor (opcional)"} value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))} placeholder={form.type==="receita"?"Nome da cliente...":"Nome do fornecedor..."}/>
-          <Inp label="Valor (R$)" type="number" value={form.value} onChange={v=>setForm(f=>({...f,value:v}))}/>
+          <div style={{position:"relative"}}>
+            <Inp label={form.type==="receita"?"Cliente (opcional)":"Fornecedor / Cliente"} value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))} placeholder={form.type==="receita"?"Nome da cliente...":"Nome do fornecedor ou cliente..."}/>
+            {form.clientName&&form.clientName.length>=2&&(()=>{
+              const sugs=clients.filter(c=>c.name.toLowerCase().includes(form.clientName.toLowerCase())).slice(0,5);
+              if(!sugs.length)return null;
+              return<div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:`1px solid ${C.areia}`,borderRadius:4,zIndex:50,boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
+                {sugs.map(s=><div key={s.id} onClick={()=>setForm(f=>({...f,clientName:s.name}))} style={{padding:"8px 12px",cursor:"pointer",fontSize:12,display:"flex",gap:6,alignItems:"center",borderBottom:`1px solid ${C.linho}`}}>
+                  <span style={{fontSize:10,background:C.linho,padding:"1px 6px",borderRadius:8,color:C.oliva}}>{(s.tipo||"cliente")==="fornecedor"?"🏪":"👤"}</span>
+                  {s.name}
+                </div>)}
+              </div>;
+            })()}
+          </div>          <Inp label="Valor (R$)" type="number" value={form.value} onChange={v=>setForm(f=>({...f,value:v}))}/>
           {!form.fixa&&<>
             <Inp label="Data do lançamento" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
             <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>
@@ -2099,30 +2124,27 @@ const Clients = ({clients,setClients,orders,config}) => {
         </div>
       )}
       {clients.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Cadastre clientes e fornecedores aqui ✦</div>}
-      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-        {filtered.map(c=>{const ord=orders.filter(o=>o.client===c.name);const isForn=(c.tipo||"cliente")==="fornecedor";return(
-          <Card key={c.id} hover style={{flex:"1 1 220px",minWidth:200}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                <div style={{width:36,height:36,borderRadius:"50%",background:isForn?`linear-gradient(135deg,#6B7152,#4A5E32)`:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff"}}>{c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}</div>
-                <span style={{fontSize:9,background:isForn?"#E3E8D4":"#FEF3E9",color:isForn?"#4A5E32":C.dourado,padding:"2px 7px",borderRadius:10,fontWeight:700}}>{isForn?"🏪 Fornecedor":"👤 Cliente"}</span>
-              </div>
-              <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                {c.vip&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"2px 6px",borderRadius:10,fontWeight:700}}>✦ VIP</span>}
-                <Btn sm v="ghost" onClick={()=>{setForm({...EF2,...c});setModal("edit");}}>✎</Btn>
+      <Card style={{padding:0,overflow:"hidden"}}>
+        {filtered.map((c,i)=>{const isForn=(c.tipo||"cliente")==="fornecedor";return(
+          <div key={c.id} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 16px",borderBottom:i<filtered.length-1?`1px solid ${C.linho}`:"none",background:"#fff"}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:isForn?`linear-gradient(135deg,#23355A,#0E0F40)`:`linear-gradient(135deg,${C.areia},${C.cafe})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",flexShrink:0}}>{c.name.slice(0,2).toUpperCase()}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.oliva}}>{c.name}</div>
+              <div style={{fontSize:11,color:C.cafe,display:"flex",gap:8,flexWrap:"wrap"}}>
+                <span style={{background:isForn?"#E8EDF5":"#F3EAF5",padding:"1px 7px",borderRadius:8,fontSize:9,fontWeight:700}}>{isForn?"🏪 Fornecedor":"👤 Cliente"}</span>
+                {c.vip&&<span style={{background:"#F3EAF5",color:C.cafe,padding:"1px 7px",borderRadius:8,fontSize:9,fontWeight:700}}>✦ VIP</span>}
+                {c.nascimento&&!isForn&&<span>🎂 {c.nascimento}</span>}
+                {c.phone&&<span>{c.phone}</span>}
+                {c.city&&<span>{c.city}</span>}
               </div>
             </div>
-            <h4 style={{fontSize:15,fontWeight:700,marginBottom:1}}>{c.name}</h4>
-            {c.nascimento&&!isForn&&<div style={{fontSize:11,color:C.dourado,marginBottom:2}}>🎂 {new Date(c.nascimento+"T00:00").toLocaleDateString("pt-BR",{day:"numeric",month:"long"})}</div>}
-            <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>{c.origem||""}{c.city?` · ${c.city}`:""}</div>
-            {!isForn&&<div style={{display:"flex",gap:8,marginBottom:10}}>
-              <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:15,fontWeight:700,fontFamily:"'Playfair Display',serif"}}>{ord.length}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>PEDIDOS</div></div>
-              <div style={{flex:1,background:C.linho,borderRadius:4,padding:"5px 8px",textAlign:"center"}}><div style={{fontSize:12,fontWeight:700,color:C.dourado}}>{fmtBRL(ord.reduce((a,o)=>a+(o.precoFinal||o.price||0),0))}</div><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px"}}>TOTAL</div></div>
-            </div>}
-            {c.phone&&<Btn sm v="ghost" full onClick={()=>window.open(`https://wa.me/${c.phone?.replace(/\D/g,"")}`)}>💬 WhatsApp</Btn>}
-          </Card>
+            <div style={{display:"flex",gap:6,flexShrink:0}}>
+              {c.phone&&<button onClick={()=>window.open(`https://wa.me/${c.phone?.replace(/\D/g,"")}`)} style={{fontSize:11,background:"none",border:`1px solid ${C.areia}`,borderRadius:4,padding:"4px 8px",cursor:"pointer",color:C.oliva}}>💬</button>}
+              <Btn sm v="ghost" onClick={()=>{setForm({...EF2,...c});setModal("edit");}}>✎</Btn>
+            </div>
+          </div>
         );})}
-      </div>
+      </Card>
       {modal&&<Modal title={modal==="edit"?"Editar Cadastro":"Novo Cadastro"} onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div>
@@ -2312,13 +2334,49 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
 
         {/* Detalhe do dia selecionado */}
         {diaSel&&<Card style={{borderTop:`3px solid ${C.cafe}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <h3 style={{fontSize:16,fontFamily:"'Cormorant Garamond',serif"}}>{String(diaSel).padStart(2,"0")}/{String(mesVis+1).padStart(2,"0")}/{anoVis}</h3>
             <div style={{display:"flex",gap:6}}>
               <Btn sm onClick={()=>{setForm({desc:"",data:getDiaStr(diaSel),hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso"});setModal("comp");}}>+ Compromisso</Btn>
               <Btn sm v="ghost" onClick={()=>{setFormPub({data:getDiaStr(diaSel),tipo:"",status:"Pendente",obs:""});setModal("pub");}}>+ Publicação</Btn>
             </div>
           </div>
+
+          {/* CHECKLIST DE TAREFAS DIÁRIAS */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>✅ Tarefas do dia</div>
+            {TIPOS_PUB.map(tarefa=>{
+              const dStr=getDiaStr(diaSel);
+              const pub=publicacoes.find(p=>p.data===dStr&&p.tipo===tarefa);
+              const conc=pub?.status==="Concluído";
+              return(
+                <div key={tarefa} onClick={()=>{
+                  if(pub){
+                    setPublicacoes(prev=>prev.map(x=>x.id===pub.id?{...x,status:conc?"Pendente":"Concluído"}:x));
+                  } else {
+                    setPublicacoes(prev=>[...prev,{id:uid(),data:dStr,tipo:tarefa,status:"Concluído",obs:""}]);
+                  }
+                }} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 8px",marginBottom:3,borderRadius:4,cursor:"pointer",background:conc?"#EDF7ED":"transparent",transition:"all 0.2s"}}>
+                  <span style={{fontSize:16,flexShrink:0}}>{conc?"✅":"⬜"}</span>
+                  <span style={{fontSize:12,textDecoration:conc?"line-through":"none",color:conc?C.oliva:C.cafe}}>{tarefa}</span>
+                </div>
+              );
+            })}
+            {(()=>{
+              const dStr=getDiaStr(diaSel);
+              const total=TIPOS_PUB.length;
+              const conc=publicacoes.filter(p=>p.data===dStr&&p.status==="Concluído").length;
+              const pct=Math.round((conc/total)*100);
+              return<div style={{marginTop:8,padding:"6px 8px",background:C.linho,borderRadius:4}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
+                  <span style={{color:C.oliva}}>{conc}/{total} concluídas</span>
+                  <span style={{fontWeight:700,color:pct===100?C.verde:C.cafe}}>{pct}%</span>
+                </div>
+                <PBar pct={pct} color={pct===100?C.verde:C.cafe} h={4}/>
+              </div>;
+            })()}
+          </div>
+
           {/* Encomendas do dia */}
           {encDia(diaSel).length>0&&<>
             <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>📦 Encomendas</div>
@@ -3586,7 +3644,7 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas}/>}
+          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
