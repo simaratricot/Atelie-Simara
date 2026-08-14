@@ -771,7 +771,7 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   const [search,setSearch]=useState("");
   const [catF,setCatF]=useState("Todos");
   const [modal,setModal]=useState(null);
-  const EF={name:"",category:categories[0]||"Moda",subcategory:"",type:"encomenda",price:0,cost:0,hours:0,margem:40,desc:"",buffer:2,img:"🧶",photos:[],stock:0,materiais:[],tamanhos:[],cores:[],valorPorTamanho:[]};
+  const EF={name:"",category:categories[0]||"Moda",subcategory:"",type:"encomenda",price:0,cost:0,hours:0,margem:40,desc:"",buffer:2,img:"🧶",photos:[],stock:0,materiais:[],tamanhos:[],cores:[],valorPorTamanho:[],caracteristicas:"",beneficio:"",sensacao:""};
   const [form,setForm]=useState(EF);
   const allCats=["Todos",...categories];
   const filtered=products.filter(p=>(catF==="Todos"||p.category===catF)&&p.name.toLowerCase().includes(search.toLowerCase()));
@@ -779,6 +779,95 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   const custoFinal=form.materiais?.length>0?custoMat:Number(form.cost||0);
   const precoSug=calcPreco(custoFinal,Number(form.hours||0),config.valorHora,Number(form.margem||40));
   const SUBS={Moda:["Blusas","Coletes","Toucas","Cachecóis","Acessórios"],Casa:["Jogos de banheiro","Panos de prato","Decoração"],Amigurumi:["Bichinhos","Personagens"]};
+
+  // Gera imagem Story para divulgação do produto
+  const compartilharProduto=async(p)=>{
+    const canvas=document.createElement("canvas");
+    canvas.width=1080;canvas.height=1920;
+    const ctx=canvas.getContext("2d");
+
+    // Fundo gradiente roxo do logo
+    const grad=ctx.createLinearGradient(0,0,0,1920);
+    grad.addColorStop(0,"#1A0A2E");grad.addColorStop(0.5,"#23355A");grad.addColorStop(1,"#1A0A2E");
+    ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
+
+    // Ornamento decorativo
+    ctx.fillStyle="rgba(165,99,162,0.12)";ctx.beginPath();ctx.arc(540,800,480,0,Math.PI*2);ctx.fill();
+
+    // Foto do produto se existir
+    if(p.photos?.[0]){
+      try{
+        await new Promise((res,rej)=>{
+          const img=new Image();img.crossOrigin="anonymous";
+          img.onload=()=>{
+            // Área da foto — quadrada centrada
+            const s=600,x=(1080-s)/2,y=180;
+            ctx.save();
+            ctx.beginPath();ctx.roundRect(x,y,s,s,20);ctx.clip();
+            ctx.drawImage(img,x,y,s,s);
+            ctx.restore();
+            // Borda elegante
+            ctx.strokeStyle="rgba(165,99,162,0.6)";ctx.lineWidth=2;
+            ctx.beginPath();ctx.roundRect(x,y,s,s,20);ctx.stroke();
+            res();
+          };
+          img.onerror=rej;img.src=p.photos[0];
+        });
+      }catch{}
+    }
+
+    // Nome do produto
+    ctx.fillStyle="#FDFAFF";ctx.textAlign="center";
+    ctx.font="bold 64px 'Georgia', serif";
+    const nome=p.name;
+    if(ctx.measureText(nome).width>900){ctx.font="bold 50px 'Georgia', serif";}
+    ctx.fillText(nome,540,870);
+
+    // Linha dourada
+    ctx.strokeStyle="#A563A2";ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(240,900);ctx.lineTo(840,900);ctx.stroke();
+
+    // Preço
+    ctx.fillStyle="#D8B4CE";ctx.font="italic 44px 'Georgia', serif";
+    ctx.fillText(p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price),540,960);
+
+    // Campos de marketing
+    const linhas=[];
+    if(p.caracteristicas)linhas.push({label:"✦ Características",texto:p.caracteristicas});
+    if(p.beneficio)linhas.push({label:"✦ Benefício",texto:p.beneficio});
+    if(p.sensacao)linhas.push({label:"✦ Sensação",texto:p.sensacao});
+
+    let yPos=1020;
+    ctx.textAlign="left";
+    linhas.forEach(({label,texto})=>{
+      if(yPos>1780)return;
+      ctx.fillStyle="#A563A2";ctx.font="bold 28px 'Georgia', serif";
+      ctx.fillText(label,120,yPos);yPos+=40;
+      ctx.fillStyle="rgba(253,250,255,0.85)";ctx.font="italic 26px 'Georgia', serif";
+      // Quebra texto
+      const words=texto.split(" ");let line="";
+      words.forEach(w=>{
+        const t=line+w+" ";
+        if(ctx.measureText(t).width>840&&line){ctx.fillText(line.trim(),120,yPos);line=w+" ";yPos+=36;}
+        else line=t;
+      });
+      if(line)ctx.fillText(line.trim(),120,yPos);
+      yPos+=50;
+    });
+
+    // Assinatura
+    ctx.textAlign="center";
+    ctx.fillStyle="rgba(165,99,162,0.7)";ctx.font="24px 'Georgia', serif";ctx.letterSpacing="4px";
+    ctx.fillText("SIMARA LOBUI · TRICOT AMOR & ARTE",540,1860);
+
+    canvas.toBlob(blob=>{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=`story-${p.name.replace(/\s+/g,"-").toLowerCase()}.png`;a.click();
+      URL.revokeObjectURL(url);
+    });
+    showSavedGlobal("Story gerado! Verifique seus downloads.");
+  };
 
   const comprimirFoto = async (dataUrl) => {
     if(!dataUrl || !dataUrl.startsWith("data:image")) return dataUrl;
@@ -831,18 +920,34 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
       <style>{`.pg{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}@media(max-width:600px){.pg{grid-template-columns:repeat(2,1fr);gap:10px;}}`}</style>
       <div className="pg">
         {filtered.map(p=>(
-          <div key={p.id} className="ch" style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
-            <ProdPhoto photos={p.photos} emoji={p.img} size={120}/>
-            <div style={{padding:"10px 12px"}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:1}}>{p.name}</div>
-              <div style={{fontSize:10,color:C.oliva,marginBottom:5}}>{p.category}{p.subcategory?` · ${p.subcategory}`:""}</div>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                <span style={{fontSize:14,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(p.price)}</span>
-                <span style={{fontSize:9,background:p.type==="pronta"?"#D4E8D4":"#EDE8E1",color:p.type==="pronta"?"#2E6B2E":"#8B6B55",padding:"2px 7px",borderRadius:10,fontWeight:700}}>{p.type==="pronta"?`Est: ${p.stock}`:"Encomenda"}</span>
+          <div key={p.id} className="ch" style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            {/* FOTO QUADRADA 1:1 */}
+            <div style={{width:"100%",paddingBottom:"100%",position:"relative",background:C.linho,flexShrink:0}}>
+              {p.photos?.[0]
+                ?<img src={p.photos[0]} alt="" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+                :<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:48}}>{p.img||"🧶"}</div>}
+              <div style={{position:"absolute",top:6,right:6,display:"flex",gap:4}}>
+                <span style={{fontSize:9,background:p.type==="pronta"?"rgba(46,107,46,0.9)":"rgba(165,99,162,0.85)",color:"#fff",padding:"2px 7px",borderRadius:10,fontWeight:700,backdropFilter:"blur(4px)"}}>{p.type==="pronta"?`Est: ${p.stock}`:"Encomenda"}</span>
               </div>
-              {p.cores?.length>0&&<div style={{display:"flex",gap:3,marginBottom:6,flexWrap:"wrap"}}>{p.cores.slice(0,6).map(c=><div key={c.id} title={c.nome} style={{width:14,height:14,borderRadius:"50%",overflow:"hidden",border:`1px solid ${C.areia}`,background:C.areia,flexShrink:0}}>{c.foto&&<img src={c.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>)}</div>}
-              <div style={{display:"flex",gap:5}}>
+            </div>
+            <div style={{padding:"10px 12px",flex:1,display:"flex",flexDirection:"column"}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:1,color:C.oliva}}>{p.name}</div>
+              <div style={{fontSize:10,color:C.cafe,marginBottom:5}}>{p.category}{p.subcategory?` · ${p.subcategory}`:""}</div>
+              <div style={{fontSize:15,fontFamily:"'Cormorant Garamond',serif",color:C.cafe,fontWeight:700,marginBottom:5}}>{p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price)}</div>
+              {p.cores?.length>0&&<div style={{display:"flex",gap:3,marginBottom:6,flexWrap:"wrap"}}>{p.cores.slice(0,6).map(c=><div key={c.id} title={c.nome} style={{width:12,height:12,borderRadius:"50%",overflow:"hidden",border:`1px solid ${C.areia}`,background:C.areia,flexShrink:0}}>{c.foto&&<img src={c.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>)}</div>}
+              <div style={{display:"flex",gap:5,marginTop:"auto",flexWrap:"wrap"}}>
                 <Btn sm v="ghost" onClick={()=>{setForm({...EF,...p,materiais:p.materiais||[],tamanhos:p.tamanhos||[],cores:p.cores||[],photos:p.photos||[],valorPorTamanho:p.valorPorTamanho||[]});setModal("edit");}}>✎</Btn>
+                <Btn sm v="ghost" onClick={()=>compartilharProduto(p)} title="Compartilhar">📤</Btn>
+                <button onClick={()=>setProducts(prev=>prev.map(x=>x.id===p.id?{...x,nocatalogo:x.nocatalogo===false?undefined:false}:x))}
+                  title={p.nocatalogo===false?"Oculto do catálogo":"Visível no catálogo"}
+                  style={{fontSize:11,padding:"3px 7px",borderRadius:4,border:`1px solid ${p.nocatalogo===false?"#FF6B6B":C.oliva}`,background:p.nocatalogo===false?"#FEE":"#EDF7ED",cursor:"pointer",color:p.nocatalogo===false?"#c0392b":C.oliva}}>
+                  {p.nocatalogo===false?"👁️‍🗨️":"👁️"}
+                </button>
+                <button onClick={()=>setProducts(prev=>prev.map(x=>x.id===p.id?{...x,destaque:!x.destaque}:x))}
+                  title={p.destaque?"Remover destaque":"Destacar no catálogo"}
+                  style={{fontSize:11,padding:"3px 7px",borderRadius:4,border:`1px solid ${p.destaque?C.cafe:C.areia}`,background:p.destaque?"#F3EAF5":"transparent",cursor:"pointer"}}>
+                  {p.destaque?"⭐":"☆"}
+                </button>
                 <Btn sm v="danger" onClick={()=>{if(window.confirm(`Excluir "${p.name}"?`))setProducts(prev=>prev.filter(x=>x.id!==p.id));}}>✕</Btn>
               </div>
             </div>
@@ -863,7 +968,13 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
             <div style={{gridColumn:"1/-1"}}><Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))} rows={2}/></div>
           </div>
 
-          <Divider label="Tamanhos e cores"/>
+          <Divider label="📤 Campos para divulgação (Story)"/>
+          <div style={{background:C.linho,borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:4}}>Esses campos serão usados na arte de divulgação do produto.</div>
+            <Inp label="✦ Características (material, acabamento, capricho)" value={form.caracteristicas||""} onChange={v=>setForm(f=>({...f,caracteristicas:v}))} rows={2} placeholder="Ex: Tricô manual 100% acrílico premium, acabamento reforçado..."/>
+            <Inp label="✦ Benefício (o que resolve na prática)" value={form.beneficio||""} onChange={v=>setForm(f=>({...f,beneficio:v}))} rows={2} placeholder="Ex: Mantém a cabeça aquecida nos dias frios sem pesar..."/>
+            <Inp label="✦ Sensação (toque emocional, acolhimento)" value={form.sensacao||""} onChange={v=>setForm(f=>({...f,sensacao:v}))} rows={2} placeholder="Ex: A sensação de aconchego de um abraço feito à mão..."/>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
             <SizePicker sizes={form.tamanhos||[]} onChange={v=>setForm(f=>({...f,tamanhos:v,valorPorTamanho:(f.valorPorTamanho||[]).filter(x=>v.includes(x.tamanho))}))}/>
             <ColorPicker cores={form.cores||[]} onChange={v=>setForm(f=>({...f,cores:v}))}/>
@@ -3200,17 +3311,213 @@ const FichaPedido = ({order,products,onClose,config}) => {
 
 // ─── SITE PÚBLICO (catálogo para clientes) ────────────────────────────────────
 const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config={},orders=[],setOrders,clients=[],setClients}) => {
-  const [bIdx,setBIdx]=useState(0);
-  const [cat,setCat]=useState("Todos");
-  const [rastrear,setRastrear]=useState(false);
+  const [secao,setSecao]=useState("inicio");
   const [compraModal,setCompraModal]=useState(null);
-  const [recovery,setRecovery]=useState(false);
-  const ativos=banners.filter(b=>b.ativo);
-  useEffect(()=>{if(ativos.length<2)return;const t=setInterval(()=>setBIdx(i=>(i+1)%ativos.length),4500);return()=>clearInterval(t);},[ativos.length]);
-  useEffect(()=>{const t=setTimeout(()=>setRecovery(true),30000);return()=>clearTimeout(t);},[]);
-  const b=ativos[bIdx]||{title:BRAND_SHORT,sub:"Peças feitas à mão com amor.",foto:""};
-  const allCats=["Todos",...categories];
-  const filtered=cat==="Todos"?products:products.filter(p=>p.category===cat);
+  const [rastrear,setRastrear]=useState(false);
+  const [destIdx,setDestIdx]=useState(0);
+  const [filtCat,setFiltCat]=useState("Todos");
+
+  // Paleta do logo
+  const P={roxo:"#A563A2",marinho:"#23355A",lilas:"#D8B4CE",branco:"#FDFAFF",lilasClaro:"#F3EAF5",texto:"#1A1A2E"};
+
+  // Separa produtos por visibilidade
+  const pubProd=products.filter(p=>p.nocatalogo!==false);
+  const destaques=pubProd.filter(p=>p.destaque).slice(0,6);
+  const prontas=pubProd.filter(p=>p.type==="pronta"&&p.stock>0);
+  const encomendas=pubProd.filter(p=>p.type==="encomenda");
+
+  const preco=p=>p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price);
+
+  // Carrossel destaques
+  const VISIBLE=3;
+  const maxIdx=Math.max(0,destaques.length-VISIBLE);
+  const prevDest=()=>setDestIdx(i=>Math.max(0,i-1));
+  const nextDest=()=>setDestIdx(i=>Math.min(maxIdx,i+1));
+
+  const ProdCard=({p,grande=false})=>(
+    <div onClick={()=>setCompraModal(p)} style={{cursor:"pointer",background:"#fff",borderRadius:8,overflow:"hidden",boxShadow:"0 2px 12px rgba(35,53,90,0.06)",transition:"transform 0.25s,box-shadow 0.25s",flex:grande?"0 0 280px":"1 1 180px"}}
+      onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 8px 24px rgba(35,53,90,0.13)";}}
+      onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="0 2px 12px rgba(35,53,90,0.06)";}}>
+      <div style={{width:"100%",paddingBottom:"110%",position:"relative",background:P.lilasClaro,overflow:"hidden"}}>
+        {p.photos?.[0]
+          ?<img src={p.photos[0]} alt={p.name} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+          :<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:52,background:`linear-gradient(135deg,${P.lilasClaro},${P.lilas})`}}>{p.img||"🧶"}</div>}
+        <div style={{position:"absolute",top:8,left:8}}>
+          {p.type==="pronta"&&p.stock<=2&&p.stock>0&&<span style={{background:"#FF6B6B",color:"#fff",fontSize:8,fontWeight:700,padding:"3px 8px",borderRadius:20,letterSpacing:"1px"}}>ÚLTIMA{p.stock>1?"S":""} {p.stock}</span>}
+          {p.type==="pronta"&&p.stock>2&&<span style={{background:P.marinho,color:"#fff",fontSize:8,fontWeight:700,padding:"3px 8px",borderRadius:20,letterSpacing:"1px"}}>PRONTA ENTREGA</span>}
+        </div>
+      </div>
+      <div style={{padding:"12px 14px 16px"}}>
+        <div style={{fontSize:9,color:P.roxo,letterSpacing:"2px",textTransform:"uppercase",marginBottom:4,fontWeight:600}}>{p.subcategory||p.category}</div>
+        <div style={{fontSize:14,fontWeight:600,color:P.marinho,marginBottom:8,lineHeight:1.3}}>{p.name}</div>
+        {p.cores?.length>0&&<div style={{display:"flex",gap:3,marginBottom:8}}>{p.cores.slice(0,5).map(c=><div key={c.id} title={c.nome} style={{width:10,height:10,borderRadius:"50%",overflow:"hidden",border:`1.5px solid ${P.lilas}`,background:P.lilas}}>{c.foto&&<img src={c.foto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>}</div>)}</div>}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:15,fontFamily:"'Cormorant Garamond',serif",color:P.marinho,fontWeight:700}}>{preco(p)}</span>
+          <button onClick={e=>{e.stopPropagation();setCompraModal(p);}} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:20,padding:"5px 14px",fontSize:10,fontWeight:600,cursor:"pointer",letterSpacing:"1px"}}>Ver</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh",background:P.branco,fontFamily:"'Poppins',sans-serif",color:P.marinho}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&display=swap');
+        .nav-link{background:none;border:none;font-family:'Poppins',sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;padding:4px 0;color:#23355A;font-weight:500;}
+        .nav-link:hover{color:#A563A2;}
+        .cg-mobile{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+        @media(min-width:640px){.cg-mobile{grid-template-columns:repeat(3,1fr);gap:16px;}}
+        @media(min-width:900px){.cg-mobile{grid-template-columns:repeat(4,1fr);gap:20px;}}
+        .carousel-track{display:flex;gap:16px;overflow:hidden;}
+        @media(max-width:640px){.carousel-track{overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:8px;}}
+        @media(max-width:640px){.carousel-track>*{scroll-snap-align:start;}}
+        .dest-card{flex:0 0 calc(33% - 11px);}
+        @media(max-width:640px){.dest-card{flex:0 0 75vw;}}
+      `}</style>
+
+      {/* NAVEGAÇÃO */}
+      <nav style={{position:"sticky",top:0,zIndex:100,background:"rgba(253,250,255,0.95)",backdropFilter:"blur(12px)",borderBottom:`1px solid ${P.lilas}`,padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",flexDirection:"column"}}>
+          <span style={{fontSize:14,fontFamily:"'Cormorant Garamond',serif",fontWeight:600,color:P.marinho,letterSpacing:"1px"}}>Ateliê Simara Lobui</span>
+          <span style={{fontSize:9,color:P.roxo,letterSpacing:"3px",textTransform:"uppercase"}}>Tricot · Crochê · Arte</span>
+        </div>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+          {[["inicio","Início"],["destaques","Destaques"],["pronta","Pronta Entrega"],["encomenda","Sob Encomenda"]].map(([k,l])=>(
+            <button key={k} className="nav-link" onClick={()=>{setSecao(k);document.getElementById(`sec-${k}`)?.scrollIntoView({behavior:"smooth"});}} style={{color:secao===k?P.roxo:P.marinho,fontWeight:secao===k?600:400,borderBottom:secao===k?`2px solid ${P.roxo}`:"none",paddingBottom:2}}>{l}</button>
+          ))}
+        </div>
+        <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:24,padding:"8px 18px",fontSize:10,fontWeight:600,cursor:"pointer",letterSpacing:"1.5px",textTransform:"uppercase"}}>💬 Falar comigo</button>
+      </nav>
+
+      {/* HERO */}
+      <div id="sec-inicio" style={{background:`linear-gradient(135deg,${P.marinho} 0%,#0E0F40 60%,${P.marinho} 100%)`,minHeight:"85vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",textAlign:"center",padding:"60px 24px",position:"relative",overflow:"hidden"}}>
+        {/* Ornamentos */}
+        <div style={{position:"absolute",top:"10%",left:"5%",width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${P.roxo}22,transparent)`,pointerEvents:"none"}}/>
+        <div style={{position:"absolute",bottom:"15%",right:"8%",width:280,height:280,borderRadius:"50%",background:`radial-gradient(circle,${P.lilas}18,transparent)`,pointerEvents:"none"}}/>
+        <div style={{position:"relative",zIndex:1,maxWidth:600}}>
+          <div style={{fontSize:9,color:P.lilas,letterSpacing:"6px",textTransform:"uppercase",marginBottom:20,opacity:0.8}}>Bem-vinda ao meu ateliê</div>
+          <h1 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(36px,6vw,64px)",fontWeight:300,color:"#FDFAFF",lineHeight:1.15,marginBottom:8}}>Feito à mão,</h1>
+          <h1 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(36px,6vw,64px)",fontWeight:400,color:P.lilas,fontStyle:"italic",lineHeight:1.15,marginBottom:24}}>com amor e propósito.</h1>
+          <div style={{width:40,height:1,background:P.roxo,margin:"0 auto 24px"}}/>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:`${P.lilas}cc`,fontStyle:"italic",lineHeight:1.7,marginBottom:36}}>Peças autorais que carregam histórias,<br/>acolhem e transformam momentos.</p>
+          <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>document.getElementById("sec-destaques")?.scrollIntoView({behavior:"smooth"})} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:30,padding:"14px 32px",fontSize:11,fontWeight:600,cursor:"pointer",letterSpacing:"2px",textTransform:"uppercase",boxShadow:`0 4px 20px ${P.roxo}55`}}>Conhecer o ateliê ›</button>
+            <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:"transparent",color:"#FDFAFF",border:`1.5px solid rgba(253,250,255,0.35)`,borderRadius:30,padding:"14px 32px",fontSize:11,fontWeight:400,cursor:"pointer",letterSpacing:"2px",textTransform:"uppercase"}}>Fazer encomenda</button>
+          </div>
+        </div>
+        {/* Indicador scroll */}
+        <div style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",display:"flex",flexDirection:"column",alignItems:"center",gap:6,opacity:0.4}}>
+          <div style={{width:1,height:30,background:P.lilas}}/>
+          <div style={{fontSize:8,color:P.lilas,letterSpacing:"3px",textTransform:"uppercase"}}>scroll</div>
+        </div>
+      </div>
+
+      {/* DESTAQUES DO ATELIÊ */}
+      <div id="sec-destaques" style={{background:P.branco,padding:"60px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:40}}>
+          <div style={{fontSize:9,color:P.roxo,letterSpacing:"5px",textTransform:"uppercase",marginBottom:12,fontWeight:500}}>O que está em destaque ♡</div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(28px,4vw,42px)",fontWeight:400,color:P.marinho,marginBottom:16}}>Destaques do Ateliê</h2>
+          <div style={{width:32,height:1,background:P.roxo,margin:"0 auto"}}/>
+        </div>
+        {destaques.length===0&&<div style={{textAlign:"center",padding:"30px",color:P.roxo,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:15}}>Em breve, nossas peças em destaque ✦</div>}
+        {destaques.length>0&&<>
+          {/* Desktop: carrossel com setas */}
+          <div style={{position:"relative",maxWidth:1100,margin:"0 auto"}}>
+            {destIdx>0&&<button onClick={prevDest} style={{position:"absolute",left:-20,top:"40%",transform:"translateY(-50%)",zIndex:10,background:"#fff",border:`1.5px solid ${P.lilas}`,borderRadius:"50%",width:40,height:40,fontSize:18,cursor:"pointer",color:P.marinho,boxShadow:"0 2px 8px rgba(35,53,90,0.1)",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>}
+            <div className="carousel-track" style={{paddingLeft:4}}>
+              {destaques.map((p,i)=>(
+                <div key={p.id} className="dest-card" style={{opacity:1,transition:"all 0.3s",transform:i===Math.floor(VISIBLE/2+destIdx)?"scale(1.02)":"scale(1)"}}>
+                  <ProdCard p={p} grande/>
+                </div>
+              ))}
+            </div>
+            {destIdx<maxIdx&&<button onClick={nextDest} style={{position:"absolute",right:-20,top:"40%",transform:"translateY(-50%)",zIndex:10,background:"#fff",border:`1.5px solid ${P.lilas}`,borderRadius:"50%",width:40,height:40,fontSize:18,cursor:"pointer",color:P.marinho,boxShadow:"0 2px 8px rgba(35,53,90,0.1)",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>}
+          </div>
+          {/* Dots */}
+          {destaques.length>VISIBLE&&<div style={{display:"flex",gap:6,justifyContent:"center",marginTop:20}}>
+            {Array.from({length:maxIdx+1}).map((_,i)=><div key={i} onClick={()=>setDestIdx(i)} style={{width:i===destIdx?20:6,height:6,borderRadius:3,background:i===destIdx?P.roxo:P.lilas,cursor:"pointer",transition:"all 0.3s"}}/>)}
+          </div>}
+        </>}
+      </div>
+
+      {/* PRONTA ENTREGA */}
+      {prontas.length>0&&<div id="sec-pronta" style={{background:P.lilasClaro,padding:"60px 24px"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",gap:40,alignItems:"flex-start",flexWrap:"wrap"}}>
+          <div style={{minWidth:160,flex:"0 0 180px"}}>
+            <div style={{fontSize:9,color:P.roxo,letterSpacing:"4px",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Disponível agora ♡</div>
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:400,color:P.marinho,lineHeight:1.2,marginBottom:14}}>Pronta<br/>entrega</h2>
+            <p style={{fontSize:12,color:P.marinho,opacity:0.7,lineHeight:1.7,marginBottom:24}}>Peças únicas,<br/>prontas para<br/>chegar até você.</p>
+            <button onClick={()=>{setFiltCat("Todos");document.getElementById("sec-galeria")?.scrollIntoView({behavior:"smooth"});}} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:24,padding:"10px 22px",fontSize:10,fontWeight:600,cursor:"pointer",letterSpacing:"1.5px",textTransform:"uppercase"}}>Ver todas</button>
+          </div>
+          <div style={{flex:1,minWidth:260}}>
+            <div className="cg-mobile" style={{gridTemplateColumns:"repeat(2,1fr)"}}>
+              {prontas.slice(0,4).map(p=><ProdCard key={p.id} p={p}/>)}
+            </div>
+          </div>
+        </div>
+      </div>}
+
+      {/* SOB ENCOMENDA */}
+      {encomendas.length>0&&<div id="sec-encomenda" style={{background:P.branco,padding:"60px 24px"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",gap:40,alignItems:"flex-start",flexWrap:"wrap",flexDirection:"row-reverse"}}>
+          <div style={{minWidth:160,flex:"0 0 180px",textAlign:"right"}}>
+            <div style={{fontSize:9,color:P.roxo,letterSpacing:"4px",textTransform:"uppercase",marginBottom:10,fontWeight:500}}>Feito especialmente ♡</div>
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:400,color:P.marinho,lineHeight:1.2,marginBottom:14}}>Sob<br/>encomenda</h2>
+            <p style={{fontSize:12,color:P.marinho,opacity:0.7,lineHeight:1.7,marginBottom:24}}>Peças feitas com calma,<br/>do seu jeitinho.</p>
+            <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:P.marinho,color:"#fff",border:"none",borderRadius:24,padding:"10px 22px",fontSize:10,fontWeight:600,cursor:"pointer",letterSpacing:"1.5px",textTransform:"uppercase"}}>Fazer encomenda</button>
+          </div>
+          <div style={{flex:1,minWidth:260}}>
+            <div className="cg-mobile" style={{gridTemplateColumns:"repeat(2,1fr)"}}>
+              {encomendas.slice(0,4).map(p=><ProdCard key={p.id} p={p}/>)}
+            </div>
+          </div>
+        </div>
+      </div>}
+
+      {/* GALERIA COMPLETA */}
+      <div id="sec-galeria" style={{background:P.lilasClaro,padding:"60px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:9,color:P.roxo,letterSpacing:"5px",textTransform:"uppercase",marginBottom:12,fontWeight:500}}>Coleções ✦</div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(24px,3vw,36px)",fontWeight:400,color:P.marinho}}>Todas as peças</h2>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginBottom:28}}>
+          {["Todos",...categories].map(c=><button key={c} onClick={()=>setFiltCat(c)} style={{padding:"6px 18px",border:`1.5px solid ${filtCat===c?P.roxo:P.lilas}`,borderRadius:24,background:filtCat===c?P.roxo:"transparent",color:filtCat===c?"#fff":P.marinho,fontSize:10,fontWeight:filtCat===c?600:400,cursor:"pointer",letterSpacing:"1.5px",textTransform:"uppercase",transition:"all 0.2s"}}>{c}</button>)}
+        </div>
+        <div style={{maxWidth:1100,margin:"0 auto"}}>
+          <div className="cg-mobile">
+            {pubProd.filter(p=>filtCat==="Todos"||p.category===filtCat).map(p=><ProdCard key={p.id} p={p}/>)}
+          </div>
+          {pubProd.filter(p=>filtCat==="Todos"||p.category===filtCat).length===0&&<div style={{textAlign:"center",padding:"40px",color:P.roxo,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:15}}>Nenhuma peça nesta categoria no momento ✦</div>}
+        </div>
+      </div>
+
+      {/* SOBRE */}
+      <div id="quem-pub" style={{background:P.marinho,padding:"60px 24px",textAlign:"center"}}>
+        <div style={{maxWidth:560,margin:"0 auto"}}>
+          <div style={{width:40,height:1,background:P.roxo,margin:"0 auto 24px"}}/>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:P.lilas,fontStyle:"italic",lineHeight:1.8,marginBottom:24}}>Obrigada por apoiar o trabalho artesanal.</p>
+          <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,color:"#FDFAFF",fontStyle:"italic",fontWeight:300,lineHeight:1.5,marginBottom:32}}>"Sua escolha transforma sonhos em realidade."</p>
+          <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:30,padding:"14px 32px",fontSize:11,fontWeight:600,cursor:"pointer",letterSpacing:"2px",textTransform:"uppercase"}}>💬 Conversar comigo</button>
+          <div style={{marginTop:40,paddingTop:24,borderTop:`1px solid rgba(216,180,206,0.2)`,fontSize:10,color:`${P.lilas}88`,letterSpacing:"2px"}}>© {new Date().getFullYear()} Ateliê Simara Lobui · Feito com amor e muitos pontos 💜</div>
+        </div>
+      </div>
+
+      {/* RASTREAR PEDIDO */}
+      {rastrear&&<div style={{position:"fixed",inset:0,background:"rgba(35,53,90,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#fff",borderRadius:10,padding:24,width:"100%",maxWidth:400}}>
+          <div style={{fontSize:16,fontWeight:600,marginBottom:16,color:P.marinho}}>📦 Rastrear pedido</div>
+          <p style={{fontSize:13,color:P.marinho,opacity:0.7,marginBottom:16}}>Entre em contato pelo WhatsApp para acompanhar seu pedido.</p>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{flex:1,background:P.roxo,color:"#fff",border:"none",borderRadius:6,padding:"10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>💬 WhatsApp</button>
+            <button onClick={()=>setRastrear(false)} style={{padding:"10px 16px",background:"transparent",border:`1px solid ${P.lilas}`,borderRadius:6,cursor:"pointer",fontSize:12}}>Fechar</button>
+          </div>
+        </div>
+      </div>}
+
+      {compraModal&&<CompraModal produto={compraModal} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients} config={config} onClose={()=>setCompraModal(null)}/>}
+    </div>
+  );
+};
 
   return(
     <div style={{minHeight:"100vh",background:C.branco}}>
