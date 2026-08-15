@@ -480,23 +480,59 @@ const NAV = [
 
 const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
   const unread=orders.filter(o=>!o.read).length;
+  const NAV_GROUPS=[
+    {label:"Principal",items:NAV.slice(0,2)},
+    {label:"Gestão",items:NAV.slice(2,7)},
+    {label:"Criativo",items:NAV.slice(7,12)},
+    {label:"Sistema",items:NAV.slice(12)},
+  ];
   return (
-    <div style={{width:mobile?"100vw":224,minHeight:"100vh",background:C.cafe,display:"flex",flexDirection:"column",position:mobile?"fixed":"relative",top:0,left:0,zIndex:100,overflowY:"auto"}}>
-      <div style={{padding:"22px 20px 16px",borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
-        <div style={{fontSize:11,color:C.areia,fontFamily:"'Playfair Display',serif"}}>Ateliê Digital</div>
-        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:19,color:"#FAF8F5",fontStyle:"italic",lineHeight:1.2,marginTop:2}}>{BRAND_SHORT}</div>
-        <div style={{fontSize:8,color:C.dourado,letterSpacing:"2px",marginTop:2,textTransform:"uppercase"}}>Tricot, Amor & Arte</div>
+    <div style={{width:mobile?"100vw":224,minHeight:"100vh",background:"#0E0F40",display:"flex",flexDirection:"column",position:mobile?"fixed":"relative",top:0,left:0,zIndex:100,overflowY:"auto"}}>
+      {/* HEADER */}
+      <div style={{padding:"22px 20px 18px",background:"linear-gradient(135deg,#1A0A2E,#23355A)",borderBottom:"1px solid rgba(165,99,162,0.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#A563A2,#D8B4CE)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>🧶</div>
+          <div>
+            <div style={{fontSize:9,color:"rgba(216,180,206,0.7)",letterSpacing:"2px",textTransform:"uppercase"}}>Ateliê Digital</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:"#FDFAFF",fontStyle:"italic",lineHeight:1.1,marginTop:1}}>{BRAND_SHORT}</div>
+          </div>
+        </div>
+        <div style={{fontSize:8,color:"#A563A2",letterSpacing:"3px",textTransform:"uppercase",fontWeight:600}}>✦ Tricot · Amor · Arte</div>
       </div>
-      <nav style={{flex:1,padding:"12px 0"}}>
-        {NAV.map(n=>(
-          <button key={n.k} onClick={()=>{setActive(n.k);onClose?.();}} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 20px",background:active===n.k?"rgba(176,141,87,0.25)":"transparent",border:"none",color:active===n.k?C.dourado:"rgba(250,248,245,0.65)",fontSize:12,fontWeight:active===n.k?600:400,cursor:"pointer",textAlign:"left",borderLeft:active===n.k?`3px solid ${C.dourado}`:"3px solid transparent",transition:"all 0.18s",position:"relative"}}>
-            <span style={{fontSize:12}}>{n.i}</span>{n.l}
-            {n.k==="orders"&&unread>0&&<span className="pulse" style={{marginLeft:"auto",background:C.dourado,color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 6px"}}>{unread}</span>}
-          </button>
+
+      {/* NAV */}
+      <nav style={{flex:1,padding:"8px 0"}}>
+        {NAV_GROUPS.map(g=>(
+          <div key={g.label}>
+            <div style={{fontSize:8,color:"rgba(216,180,206,0.4)",letterSpacing:"3px",textTransform:"uppercase",padding:"14px 20px 5px",fontWeight:600}}>{g.label}</div>
+            {g.items.map(n=>{
+              const isActive=active===n.k;
+              return(
+                <button key={n.k} onClick={()=>{setActive(n.k);onClose?.();}}
+                  style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 20px",
+                    background:isActive?"rgba(165,99,162,0.2)":"transparent",
+                    border:"none",
+                    color:isActive?"#FDFAFF":"rgba(216,180,206,0.65)",
+                    fontSize:12,fontWeight:isActive?600:400,cursor:"pointer",
+                    textAlign:"left",
+                    borderLeft:isActive?"3px solid #A563A2":"3px solid transparent",
+                    transition:"all 0.15s",position:"relative"}}>
+                  <span style={{fontSize:13,width:18,textAlign:"center",opacity:isActive?1:0.7}}>{n.i}</span>
+                  <span style={{flex:1}}>{n.l}</span>
+                  {n.k==="orders"&&unread>0&&(
+                    <span className="pulse" style={{background:"#A563A2",color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 7px",marginLeft:"auto"}}>{unread}</span>
+                  )}
+                  {isActive&&<span style={{width:4,height:4,borderRadius:"50%",background:"#A563A2",flexShrink:0}}/>}
+                </button>
+              );
+            })}
+          </div>
         ))}
       </nav>
-      <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,0.1)"}}>
-        <div style={{fontSize:9,color:"rgba(250,248,245,0.3)",letterSpacing:"1px"}}>v5.0 · 2026</div>
+
+      {/* FOOTER */}
+      <div style={{padding:"12px 20px",borderTop:"1px solid rgba(165,99,162,0.15)",background:"rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:9,color:"rgba(216,180,206,0.3)",letterSpacing:"1px"}}>v5.1 · 2026 · Firebase ☁️</div>
       </div>
     </div>
   );
@@ -780,35 +816,45 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   const precoSug=calcPreco(custoFinal,Number(form.hours||0),config.valorHora,Number(form.margem||40));
   const SUBS={Moda:["Blusas","Coletes","Toucas","Cachecóis","Acessórios"],Casa:["Jogos de banheiro","Panos de prato","Decoração"],Amigurumi:["Bichinhos","Personagens"]};
 
-  // Gera imagem Story para divulgação do produto
   const compartilharProduto=async(p)=>{
     const canvas=document.createElement("canvas");
     canvas.width=1080;canvas.height=1920;
     const ctx=canvas.getContext("2d");
 
-    // Fundo gradiente roxo do logo
+    // Fundo lilás claro (tom da segunda foto)
     const grad=ctx.createLinearGradient(0,0,0,1920);
-    grad.addColorStop(0,"#1A0A2E");grad.addColorStop(0.5,"#23355A");grad.addColorStop(1,"#1A0A2E");
+    grad.addColorStop(0,"#F3EAF5");
+    grad.addColorStop(0.4,"#E8D5F0");
+    grad.addColorStop(1,"#D8B4CE");
     ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
 
-    // Ornamento decorativo
-    ctx.fillStyle="rgba(165,99,162,0.12)";ctx.beginPath();ctx.arc(540,800,480,0,Math.PI*2);ctx.fill();
+    // Ornamento sutil
+    ctx.fillStyle="rgba(165,99,162,0.07)";
+    ctx.beginPath();ctx.arc(540,540,440,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(540,540,280,0,Math.PI*2);ctx.fill();
 
-    // Foto do produto se existir
+    // Foto do produto — retrato, sem distorção
     if(p.photos?.[0]){
       try{
         await new Promise((res,rej)=>{
           const img=new Image();img.crossOrigin="anonymous";
           img.onload=()=>{
-            // Área da foto — quadrada centrada
-            const s=600,x=(1080-s)/2,y=180;
+            const fw=820,fh=900,fx=(1080-fw)/2,fy=80;
             ctx.save();
-            ctx.beginPath();ctx.roundRect(x,y,s,s,20);ctx.clip();
-            ctx.drawImage(img,x,y,s,s);
+            ctx.beginPath();
+            ctx.roundRect(fx,fy,fw,fh,16);
+            ctx.clip();
+            // cover sem distorcer
+            const ir=img.width/img.height;
+            const fr=fw/fh;
+            let sw,sh,sx,sy;
+            if(ir>fr){sh=img.height;sw=sh*fr;sx=(img.width-sw)/2;sy=0;}
+            else{sw=img.width;sh=sw/fr;sx=0;sy=(img.height-sh)/2;}
+            ctx.drawImage(img,sx,sy,sw,sh,fx,fy,fw,fh);
             ctx.restore();
-            // Borda elegante
-            ctx.strokeStyle="rgba(165,99,162,0.6)";ctx.lineWidth=2;
-            ctx.beginPath();ctx.roundRect(x,y,s,s,20);ctx.stroke();
+            // borda suave
+            ctx.strokeStyle="rgba(165,99,162,0.3)";ctx.lineWidth=2;
+            ctx.beginPath();ctx.roundRect(fx,fy,fw,fh,16);ctx.stroke();
             res();
           };
           img.onerror=rej;img.src=p.photos[0];
@@ -816,72 +862,103 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
       }catch{}
     }
 
-    // Nome do produto
-    ctx.fillStyle="#FDFAFF";ctx.textAlign="center";
-    ctx.font="bold 64px 'Georgia', serif";
+    // NOME DO PRODUTO
+    ctx.fillStyle="#23355A";ctx.textAlign="center";
+    ctx.font="bold 58px 'Georgia',serif";
     const nome=p.name;
-    if(ctx.measureText(nome).width>900){ctx.font="bold 50px 'Georgia', serif";}
-    ctx.fillText(nome,540,870);
+    const maxW=900;
+    if(ctx.measureText(nome).width>maxW){
+      ctx.font="bold 46px 'Georgia',serif";
+    }
+    ctx.fillText(nome,540,1060);
 
-    // Linha dourada
+    // Linha decorativa
     ctx.strokeStyle="#A563A2";ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.moveTo(240,900);ctx.lineTo(840,900);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(280,1085);ctx.lineTo(800,1085);ctx.stroke();
 
-    // Preço
-    ctx.fillStyle="#D8B4CE";ctx.font="italic 44px 'Georgia', serif";
-    ctx.fillText(p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price),540,960);
+    // PREÇO
+    ctx.fillStyle="#A563A2";ctx.font="italic 40px 'Georgia',serif";
+    const precoStr=p.valorPorTamanho?.length>0?`A partir de ${fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco)))}`:fmtBRL(p.price);
+    ctx.fillText(precoStr,540,1135);
 
-    // Campos de marketing
-    const linhas=[];
-    if(p.caracteristicas)linhas.push({label:"✦ Características",texto:p.caracteristicas});
-    if(p.beneficio)linhas.push({label:"✦ Benefício",texto:p.beneficio});
-    if(p.sensacao)linhas.push({label:"✦ Sensação",texto:p.sensacao});
-
-    let yPos=1020;
+    // CAMPOS DE MARKETING abaixo
+    let yPos=1185;
     ctx.textAlign="left";
-    linhas.forEach(({label,texto})=>{
-      if(yPos>1780)return;
-      ctx.fillStyle="#A563A2";ctx.font="bold 28px 'Georgia', serif";
-      ctx.fillText(label,120,yPos);yPos+=40;
-      ctx.fillStyle="rgba(253,250,255,0.85)";ctx.font="italic 26px 'Georgia', serif";
-      // Quebra texto
+    const drawField=(label,texto)=>{
+      if(!texto||yPos>1830)return;
+      ctx.fillStyle="#23355A";ctx.font="bold 26px 'Georgia',serif";
+      ctx.fillText(label,120,yPos);yPos+=36;
+      ctx.fillStyle="#5A3D6B";ctx.font="italic 24px 'Georgia',serif";
       const words=texto.split(" ");let line="";
       words.forEach(w=>{
         const t=line+w+" ";
-        if(ctx.measureText(t).width>840&&line){ctx.fillText(line.trim(),120,yPos);line=w+" ";yPos+=36;}
-        else line=t;
+        if(ctx.measureText(t).width>840&&line){
+          ctx.fillText(line.trim(),120,yPos);line=w+" ";yPos+=32;
+        } else line=t;
       });
       if(line)ctx.fillText(line.trim(),120,yPos);
-      yPos+=50;
-    });
+      yPos+=44;
+    };
+    if(p.caracteristicas)drawField("✦ Características",p.caracteristicas);
+    if(p.beneficio)drawField("✦ Benefício",p.beneficio);
+    if(p.sensacao)drawField("✦ Sensação",p.sensacao);
 
-    // Assinatura
+    // LOGO como marca d'água (se tiver)
+    const logoSrc=config?.logoMarca;
+    if(logoSrc){
+      try{
+        await new Promise((res,rej)=>{
+          const logo=new Image();logo.crossOrigin="anonymous";
+          logo.onload=()=>{
+            ctx.globalAlpha=0.25;
+            const lw=180,lh=(logo.height/logo.width)*lw;
+            ctx.drawImage(logo,(1080-lw)/2,1840-lh/2,lw,lh);
+            ctx.globalAlpha=1;
+            res();
+          };
+          logo.onerror=()=>{res();};logo.src=logoSrc;
+        });
+      }catch{}
+    }
+
+    // ASSINATURA
     ctx.textAlign="center";
-    ctx.fillStyle="rgba(165,99,162,0.7)";ctx.font="24px 'Georgia', serif";ctx.letterSpacing="4px";
-    ctx.fillText("SIMARA LOBUI · TRICOT AMOR & ARTE",540,1860);
+    ctx.fillStyle="rgba(35,53,90,0.45)";ctx.font="20px 'Georgia',serif";
+    ctx.letterSpacing="3px";
+    ctx.fillText("SIMARA LOBUI · TRICOT AMOR & ARTE",540,1885);
 
     canvas.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
       const a=document.createElement("a");
-      a.href=url;a.download=`story-${p.name.replace(/\s+/g,"-").toLowerCase()}.png`;a.click();
+      a.href=url;a.download=`divulgacao-${p.name.replace(/\s+/g,"-").toLowerCase()}.png`;a.click();
       URL.revokeObjectURL(url);
     });
-    showSavedGlobal("Story gerado! Verifique seus downloads.");
+    showSavedGlobal("Arte gerada! Verifique seus downloads 📤");
   };
 
   const comprimirFoto = async (dataUrl) => {
     if(!dataUrl || !dataUrl.startsWith("data:image")) return dataUrl;
-    if(dataUrl.length < 200000) return dataUrl; // já pequena
     return new Promise(res => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const max = 800;
+        // Limita a 600px máximo para garantir que cabe no Firebase
+        const max = 600;
         const ratio = Math.min(max/img.width, max/img.height, 1);
-        canvas.width = img.width * ratio;
-        canvas.height = img.height * ratio;
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        res(canvas.toDataURL("image/jpeg", 0.7));
+        // Qualidade 0.6 — bom visual, tamanho pequeno
+        const compressed = canvas.toDataURL("image/jpeg", 0.6);
+        // Se ainda muito grande, comprime mais
+        if(compressed.length > 400000) {
+          canvas.width = Math.round(canvas.width * 0.7);
+          canvas.height = Math.round(canvas.height * 0.7);
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          res(canvas.toDataURL("image/jpeg", 0.5));
+        } else {
+          res(compressed);
+        }
       };
       img.onerror = () => res(dataUrl);
       img.src = dataUrl;
@@ -3041,6 +3118,7 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
   const [novaDepo,setNovaDepo]=useState({name:"",product:"",comment:"",foto:""});
   const [novaCat,setNovaCat]=useState("");
   const artesaRef=useRef();
+  const logoRef=useRef();
   const bannerRef=useRef();
   const depoRef=useRef();
   const CATS_F=["Fé","Motivação","Reflexão","Entusiasmo","Gratidão"];
@@ -3062,6 +3140,18 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
 
       {tab==="geral"&&<>
         <Card style={{marginBottom:14}}>
+          <Divider label="Logo da marca"/>
+          <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:14}}>
+            <div style={{width:80,height:80,borderRadius:8,overflow:"hidden",border:`2px solid ${C.areia}`,background:C.linho,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:24}} onClick={()=>logoRef.current?.click()}>
+              {config.logoMarca?<img src={config.logoMarca} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}}/>:"🏷️"}
+            </div>
+            <div>
+              <Btn sm v="ghost" onClick={()=>logoRef.current?.click()}>📷 Carregar logo</Btn>
+              <div style={{fontSize:10,color:C.oliva,marginTop:4,fontStyle:"italic"}}>Aparece no catálogo e nas artes de divulgação como marca d'água.</div>
+              {config.logoMarca&&<Btn sm v="danger" onClick={()=>setConfig(c=>({...c,logoMarca:""}))}>✕ Remover</Btn>}
+            </div>
+            <input ref={logoRef} type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{if(e.target.files[0]){const u=await readFile(e.target.files[0]);setConfig(c=>({...c,logoMarca:u}));}}}/>
+          </div>
           <Divider label="Foto da artesã"/>
           <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:14}}>
             <div style={{width:76,height:76,borderRadius:"50%",overflow:"hidden",border:`3px solid ${C.dourado}`,flexShrink:0,background:`linear-gradient(135deg,${C.areia},${C.dourado})`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:30}} onClick={()=>artesaRef.current.click()}>
@@ -3491,7 +3581,59 @@ const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config
         </div>
       </div>
 
-      {/* SOBRE */}
+      {/* POLÍTICA DE ENCOMENDAS */}
+      {(config.politicaPrazo||config.politicaFila||config.politicaPagamento||config.politicaEntrega)&&<div style={{background:P.branco,padding:"50px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:9,color:P.roxo,letterSpacing:"5px",textTransform:"uppercase",marginBottom:12,fontWeight:500}}>Transparência ✦</div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(24px,3vw,36px)",fontWeight:400,color:P.marinho}}>Política de Encomendas</h2>
+        </div>
+        <div style={{maxWidth:900,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:16}}>
+          {[{i:"⏱",t:"Prazo de produção",v:config.politicaPrazo},{i:"📋",t:"Fila de produção",v:config.politicaFila},{i:"💰",t:"Pagamento",v:config.politicaPagamento},{i:"📦",t:"Entregas",v:config.politicaEntrega}].filter(x=>x.v).map(x=>(
+            <div key={x.t} style={{background:P.lilasClaro,borderRadius:8,padding:"18px",border:`1px solid ${P.lilas}`}}>
+              <div style={{fontSize:22,marginBottom:8}}>{x.i}</div>
+              <div style={{fontSize:13,fontWeight:600,color:P.marinho,marginBottom:6}}>{x.t}</div>
+              <div style={{fontSize:12,color:P.marinho,opacity:0.75,lineHeight:1.7}}>{x.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>}
+
+      {/* DEPOIMENTOS */}
+      {depoimentos.length>0&&<div style={{background:P.lilasClaro,padding:"50px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{fontSize:9,color:P.roxo,letterSpacing:"5px",textTransform:"uppercase",marginBottom:12,fontWeight:500}}>Quem já amou ♡</div>
+          <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(24px,3vw,36px)",fontWeight:400,color:P.marinho}}>Depoimentos</h2>
+        </div>
+        <div style={{maxWidth:900,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16}}>
+          {depoimentos.map(d=>(
+            <div key={d.id} style={{background:"#fff",borderRadius:8,padding:"18px",border:`1px solid ${P.lilas}`}}>
+              <div style={{color:P.roxo,fontSize:13,marginBottom:8}}>★★★★★</div>
+              <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:14,fontStyle:"italic",color:P.marinho,lineHeight:1.7,marginBottom:12}}>"{d.comment}"</p>
+              <div style={{fontSize:12,fontWeight:600,color:P.marinho}}>{d.name}</div>
+              <div style={{fontSize:11,color:P.roxo}}>{d.product}</div>
+            </div>
+          ))}
+        </div>
+      </div>}
+
+      {/* SOBRE MIM */}
+      {config.sobreMim&&<div style={{background:P.marinho,padding:"50px 24px"}}>
+        <div style={{maxWidth:600,margin:"0 auto",textAlign:"center"}}>
+          <div style={{fontSize:9,color:P.lilas,letterSpacing:"5px",textTransform:"uppercase",marginBottom:20,fontWeight:500}}>Quem sou ✦</div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+            {config.fotoArtesa&&<div style={{width:90,height:90,borderRadius:"50%",overflow:"hidden",border:`3px solid ${P.roxo}`}}><img src={config.fotoArtesa} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:400,color:"#FDFAFF"}}>{BRAND_SHORT}</h2>
+            <div style={{width:32,height:1,background:P.roxo}}/>
+            <p style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,fontStyle:"italic",color:`${P.lilas}cc`,lineHeight:1.8,whiteSpace:"pre-line"}}>{config.sobreMim}</p>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center",marginTop:8}}>
+              <button onClick={()=>window.open(`https://wa.me/${config.whatsapp}`)} style={{background:P.roxo,color:"#fff",border:"none",borderRadius:24,padding:"10px 22px",fontSize:11,fontWeight:600,cursor:"pointer",letterSpacing:"1.5px"}}>💬 WhatsApp</button>
+              {config.instagram&&<button onClick={()=>window.open(`https://instagram.com/${config.instagram?.replace("@","")}`)} style={{background:"transparent",color:P.lilas,border:`1px solid ${P.lilas}55`,borderRadius:24,padding:"10px 22px",fontSize:11,cursor:"pointer",letterSpacing:"1.5px"}}>📷 {config.instagram}</button>}
+            </div>
+          </div>
+        </div>
+      </div>}
+
+      {/* RODAPÉ */}
       <div id="quem-pub" style={{background:P.marinho,padding:"60px 24px",textAlign:"center"}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
           <div style={{width:40,height:1,background:P.roxo,margin:"0 auto 24px"}}/>
@@ -3747,7 +3889,7 @@ function App() {
 
   const TITLES={
     dashboard:["Bem-vinda ✦",new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})],
-    site:["Catálogo","Como a cliente vê o catálogo"],
+    site:["Catálogo",""],
     products:["Produtos","Catálogo e precificação"],
     orders:["Encomendas","Gestão de pedidos"],
     production:["Produção","Fila e capacidade"],
@@ -3783,19 +3925,19 @@ function App() {
       </div>}
       <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",minWidth:0}}>
         {/* TOPBAR */}
-        <div style={{background:C.branco,borderBottom:`1px solid ${C.areia}`,padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
+        <div style={{background:"#fff",borderBottom:"2px solid #D8B4CE",padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0,boxShadow:"0 1px 8px rgba(35,53,90,0.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <button onClick={()=>setMenuOpen(true)} style={{display:"none",background:"none",border:"none",fontSize:20,color:C.cafe,cursor:"pointer"}} className="mob-menu">☰</button>
+            <button onClick={()=>setMenuOpen(true)} style={{display:"none",background:"none",border:"none",fontSize:20,color:"#23355A",cursor:"pointer"}} className="mob-menu">☰</button>
             <style>{`@media(max-width:768px){.mob-menu{display:flex!important;}}`}</style>
             <div>
-              <h2 style={{fontSize:16,fontWeight:700,color:C.cafe,lineHeight:1.2}}>{title}</h2>
-              {subtitle&&<div style={{fontSize:11,color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic"}}>{subtitle}</div>}
+              <h2 style={{fontSize:16,fontWeight:700,color:"#23355A",lineHeight:1.2}}>{title}</h2>
+              {subtitle&&<div style={{fontSize:11,color:"#A563A2",fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic"}}>{subtitle}</div>}
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            {savedMsg&&<span style={{fontSize:11,color:C.verde,fontWeight:700,background:"#D4E8D4",padding:"3px 10px",borderRadius:20}}>✓ {savedMsg}</span>}
+            {savedMsg&&<span style={{fontSize:11,color:"#23355A",fontWeight:700,background:"#D8B4CE",padding:"3px 10px",borderRadius:20}}>✓ {savedMsg}</span>}
             <Btn sm v="ghost" onClick={copyLink} style={{fontSize:11}}>🔗 Link da loja</Btn>
-            <div style={{width:28,height:28,borderRadius:"50%",background:C.dourado,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>S</div>
+            <div style={{width:30,height:30,borderRadius:"50%",background:"linear-gradient(135deg,#A563A2,#23355A)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700,flexShrink:0}}>S</div>
           </div>
         </div>
         {/* CONTEÚDO */}
