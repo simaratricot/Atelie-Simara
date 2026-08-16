@@ -2546,6 +2546,12 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
     setPublicacoes(prev=>[...prev,{...formPub,id:uid(),data:getDiaStr(diaSel)}]);
     setModal(null);showSavedGlobal("Publicação salva!");
   };
+  const saveIdeia=()=>{
+    if(modal==="editIdeia") setIdeias(prev=>prev.map(x=>x.id===formIdeia.id?formIdeia:x));
+    else setIdeias(prev=>[...prev,{...formIdeia,id:uid(),data:today}]);
+    setModal(null);showSavedGlobal("Ideia salva!");
+  };
+
   const gerarCardIdeia=async(idea,imgFundo=null)=>{
     const W=1080,H=1080; // quadrado para feed/stories
     const canvas=document.createElement("canvas");
