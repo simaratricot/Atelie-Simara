@@ -807,8 +807,10 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
           <Btn onClick={salvarPensamento}>Salvar no Diário</Btn>
         </div>
       </Modal>}
-    </div>
+      </div>{/* fecha saudação */}
+    </div>{/* fecha fade */}
   );
+};
 };
 
 // ─── PRODUTOS ─────────────────────────────────────────────────────────────────
@@ -2649,7 +2651,6 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
   const [cardModal,setCardModal]=useState(null);
   const [imgFundoCard,setImgFundoCard]=useState(null);
   const imgFundoRef=useRef();
-  };
 
   return(
     <div className="fade" style={{padding:24}}>
