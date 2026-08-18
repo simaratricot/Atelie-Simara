@@ -678,7 +678,7 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
           <button onClick={()=>setEncerrModal(true)}
             style={{fontSize:11,background:"rgba(35,53,90,0.5)",border:"1.5px solid rgba(216,180,206,0.3)",color:"rgba(216,180,206,0.9)",padding:"7px 16px",borderRadius:20,cursor:"pointer",marginLeft:"auto",display:"flex",alignItems:"center",gap:5}}>🌙 Encerrar dia</button>
         </div>
-      </div>
+      </div>{/* fecha saudação */}
 
       {/* AGENDA DE HOJE */}
       <Card>
@@ -807,10 +807,8 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
           <Btn onClick={salvarPensamento}>Salvar no Diário</Btn>
         </div>
       </Modal>}
-      </div>
     </div>
   );
-};
 };
 
 // ─── PRODUTOS ─────────────────────────────────────────────────────────────────
