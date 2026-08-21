@@ -232,29 +232,81 @@ const verificarEspaco = () => {
   } catch { return 0; }
 };
 
+// ─── COMPRESSÃO DE FOTO PARA FIREBASE ────────────────────────────────────────
+const comprimirParaFirebase = (dataUrl) => {
+  if (!dataUrl || !dataUrl.startsWith("data:image")) return dataUrl;
+  // Se já pequena, retorna como está
+  if (dataUrl.length < 150000) return dataUrl;
+  // Comprime via canvas
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      // Máximo 500px para garantir < 150KB no Firebase
+      const max = 500;
+      const ratio = Math.min(max/img.width, max/img.height, 1);
+      canvas.width = Math.round(img.width * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      let q = 0.6;
+      let result = canvas.toDataURL("image/jpeg", q);
+      // Reduz qualidade até caber
+      while (result.length > 150000 && q > 0.2) {
+        q -= 0.1;
+        result = canvas.toDataURL("image/jpeg", q);
+      }
+      res(result);
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+};
+
 // ─── FIREBASE — FONTE PRINCIPAL DE DADOS ─────────────────────────────────────
-const fbSave = (key, value) => {
+const fbSave = async (key, value) => {
   try {
-    const forCloud = Array.isArray(value)
-      ? value.map(item => {
-          if (typeof item !== "object" || !item) return item;
-          const c = {...item};
-          if (c.photos?.length > 1) c.photos = [c.photos[0]];
-          if (c.foto && c.foto.length > 50000) c.foto = "[foto]";
-          if (c.fotoArtesa && c.fotoArtesa.length > 50000) c.fotoArtesa = "[foto]";
-          return c;
-        })
-      : (typeof value === "object" && value !== null
-          ? {...value, fotoArtesa: value.fotoArtesa && value.fotoArtesa.length > 50000 ? "[foto]" : (value.fotoArtesa||"")}
-          : value);
+    let forCloud = value;
+
+    if (Array.isArray(value)) {
+      // Comprime fotos de cada item antes de salvar
+      forCloud = await Promise.all(value.map(async item => {
+        if (typeof item !== "object" || !item) return item;
+        const c = {...item};
+        // Comprime todas as fotos do array photos
+        if (c.photos?.length) {
+          c.photos = await Promise.all(c.photos.map(p => comprimirParaFirebase(p)));
+        }
+        // Comprime foto de cor
+        if (c.cores?.length) {
+          c.cores = await Promise.all(c.cores.map(async cor => ({
+            ...cor,
+            foto: cor.foto ? await comprimirParaFirebase(cor.foto) : cor.foto
+          })));
+        }
+        // Comprime foto individual
+        if (c.foto) c.foto = await comprimirParaFirebase(c.foto);
+        return c;
+      }));
+    } else if (typeof value === "object" && value !== null) {
+      forCloud = {...value};
+      if (forCloud.fotoArtesa) forCloud.fotoArtesa = await comprimirParaFirebase(forCloud.fotoArtesa);
+      if (forCloud.logoMarca) forCloud.logoMarca = await comprimirParaFirebase(forCloud.logoMarca);
+    }
+
+    // Verifica tamanho final
+    const json = JSON.stringify(forCloud);
+    if (json.length > 900000) {
+      console.warn("Firebase: documento ainda grande após compressão:", json.length);
+    }
+
     // Salva no Firebase
-    db.collection("atelie").doc(key).set({
-      value: JSON.stringify(forCloud),
+    await db.collection("atelie").doc(key).set({
+      value: json,
       updated: Date.now()
     });
     // Salva local como backup
     try { localStorage.setItem("atelie_"+key, JSON.stringify(value)); } catch {}
-  } catch(e) { console.warn("Firebase save:", e.message); }
+  } catch(e) { console.warn("Firebase save error:", e.message); }
 };
 
 // Indicador global de salvamento
@@ -598,40 +650,89 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
   const hora=new Date().getHours();
   const saudacao=hora<12?"🌅 Bom dia":"🌿 Boa tarde";
 
-  const compartilharFrase=()=>{
+  const compartilharFrase=async()=>{
     if(!frase)return;
+    const W=1080,H=1080;
     const canvas=document.createElement("canvas");
-    canvas.width=1080;canvas.height=1920;
+    canvas.width=W;canvas.height=H;
     const ctx=canvas.getContext("2d");
-    // Fundo
-    const grad=ctx.createLinearGradient(0,0,0,1920);
-    grad.addColorStop(0,"#3D2B1F");grad.addColorStop(1,"#5C4033");
-    ctx.fillStyle=grad;ctx.fillRect(0,0,1080,1920);
-    // Ornamento
-    ctx.fillStyle="rgba(176,141,87,0.08)";ctx.font="400px serif";ctx.fillText("✦",640,600);
+
+    // Fundo gradiente da marca
+    const grad=ctx.createLinearGradient(0,0,W,H);
+    grad.addColorStop(0,"#1A2744");
+    grad.addColorStop(0.5,"#2D1B69");
+    grad.addColorStop(1,"#A563A2");
+    ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+
+    // Ornamentos circulares suaves
+    ctx.fillStyle="rgba(216,180,206,0.06)";
+    ctx.beginPath();ctx.arc(W*0.85,H*0.12,280,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="rgba(165,99,162,0.08)";
+    ctx.beginPath();ctx.arc(W*0.1,H*0.88,220,0,Math.PI*2);ctx.fill();
+
+    // Logo se tiver
+    if(config?.logoMarca){
+      try{
+        await new Promise((res)=>{
+          const logo=new Image();logo.crossOrigin="anonymous";
+          logo.onload=()=>{
+            ctx.globalAlpha=0.9;
+            const lw=140,lh=(logo.height/logo.width)*lw;
+            ctx.drawImage(logo,W/2-lw/2,60,lw,lh);
+            ctx.globalAlpha=1;res();
+          };logo.onerror=()=>res();logo.src=config.logoMarca;
+        });
+      }catch{}
+    }
+
+    // Linha decorativa topo
+    ctx.strokeStyle="rgba(216,180,206,0.3)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(120,200);ctx.lineTo(W-120,200);ctx.stroke();
+
     // Categoria
-    ctx.fillStyle="#B08D57";ctx.font="bold 28px Arial";ctx.letterSpacing="6px";
-    ctx.textAlign="center";ctx.fillText(frase.categoria.toUpperCase(),540,480);
-    // Frase
-    ctx.fillStyle="#FAF8F5";ctx.font="italic 52px Georgia";ctx.letterSpacing="0px";
-    const words=`"${frase.texto}"`.split(" ");
-    let line="",y=650,maxW=820;
+    ctx.fillStyle="#D8B4CE";ctx.font="bold 22px Arial,sans-serif";
+    ctx.textAlign="center";ctx.letterSpacing="4px";
+    ctx.fillText(frase.categoria.toUpperCase(),W/2,240);
+
+    // Aspas decorativas
+    ctx.fillStyle="rgba(165,99,162,0.4)";ctx.font="bold 120px Georgia,serif";
+    ctx.textAlign="left";ctx.fillText('"',90,420);
+
+    // Texto da frase — centralizado com quebra de linha
+    ctx.fillStyle="#FDFAFF";ctx.font="italic 52px Georgia,serif";
+    ctx.textAlign="center";ctx.letterSpacing="0px";
+    const words=frase.texto.split(" ");
+    let line="",y=370,maxW=820;
     words.forEach(w=>{
       const test=line+w+" ";
-      if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line.trim(),540,y);line=w+" ";y+=80;}
-      else line=test;
+      if(ctx.measureText(test).width>maxW&&line){
+        ctx.fillText(line.trim(),W/2,y);line=w+" ";y+=72;
+      } else line=test;
     });
-    ctx.fillText(line.trim(),540,y);
+    ctx.fillText(line.trim(),W/2,y);y+=72;
+
+    // Aspas finais
+    ctx.fillStyle="rgba(165,99,162,0.4)";ctx.font="bold 120px Georgia,serif";
+    ctx.textAlign="right";ctx.fillText('"',W-90,y+40);
+
+    // Linha divisória
+    ctx.strokeStyle="rgba(165,99,162,0.5)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(W/2-60,y+80);ctx.lineTo(W/2+60,y+80);ctx.stroke();
+    ctx.fillStyle="#A563A2";ctx.font="26px serif";ctx.textAlign="center";
+    ctx.fillText("♥",W/2,y+90);
+
     // Assinatura
-    ctx.fillStyle="#B08D57";ctx.font="36px Georgia";ctx.fillText("— Simara Lobui",540,y+120);
-    // Logo
-    ctx.fillStyle="rgba(216,195,165,0.5)";ctx.font="22px Arial";ctx.fillText("Ateliê Digital · Simara Lobui",540,1820);
-    canvas.toBlob(blob=>{
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=url;a.download="frase-simara.png";a.click();
-      URL.revokeObjectURL(url);
-    });
+    ctx.fillStyle="#D8B4CE";ctx.font="italic 32px Georgia,serif";
+    ctx.fillText("— Simara Lobui",W/2,y+140);
+    ctx.fillStyle="rgba(216,180,206,0.5)";ctx.font="18px Arial,sans-serif";
+    ctx.letterSpacing="2px";ctx.fillText("@simara.lobui",W/2,y+180);
+
+    const url=canvas.toDataURL("image/png");
+    const pw=window.open("","_blank","width=460,height=520");
+    if(pw){
+      pw.document.write(`<!DOCTYPE html><html><head><title>Frase do dia</title><style>body{margin:0;background:#1A2744;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;padding:20px;gap:12px;}img{max-width:380px;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.5);}a{background:#A563A2;color:#fff;padding:12px 28px;border-radius:24px;text-decoration:none;font-weight:700;font-size:13px;letter-spacing:1px;text-align:center;}p{color:#D8B4CE;font-size:11px;margin:0;}</style></head><body><img src="${url}"><a href="${url}" download="frase-simara.png">⬇️ Baixar imagem</a><p>1080 × 1080 px · Feed e Stories</p></body></html>`);
+      pw.document.close();
+    }
   };
 
   const salvarPensamento=()=>{
@@ -1930,6 +2031,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
   const recMes=finance.filter(f=>f.type==="receita"&&f.pago&&f.dataPagamento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const pendMes=finance.filter(f=>f.type==="receita"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const vencidos=finance.filter(f=>isVencido(f)).length;
+  const aPag=finance.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const aRec=finance.filter(f=>f.type==="receita"&&!f.pago).reduce((a,f)=>a+f.value,0);
   const balAno=Array.from({length:12},(_,i)=>{const m=`${ano}-${String(i+1).padStart(2,"0")}`;const r=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);const d=finance.filter(f=>f.type==="despesa"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);return{mes:m,label:MESES[i],r,d,lucro:r-d};});
   const recHoje=finance.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
 
@@ -2000,21 +2103,21 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
   return (
     <div className="fade" style={{padding:24}}>
       {/* RESUMO — hoje e mês */}
-      <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"14px 18px",marginBottom:16}}>
-        <div style={{fontSize:9,color:C.dourado,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>Painel financeiro</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-          <div style={{background:"rgba(255,255,255,0.07)",borderRadius:6,padding:"8px 12px"}}>
-            <div style={{fontSize:9,color:"rgba(250,248,245,0.6)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>Receber hoje</div>
-            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700}}>{fmtBRL(recHojeVal)}</div>
+      <div style={{background:`linear-gradient(135deg,#1A2744,#2D1B69)`,borderRadius:8,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(165,99,162,0.3)"}}>
+        <div style={{fontSize:9,color:"#D8B4CE",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:12}}>Painel financeiro</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+          <div style={{background:"rgba(255,255,255,0.08)",borderRadius:6,padding:"10px 14px",border:"1px solid rgba(216,180,206,0.15)"}}>
+            <div style={{fontSize:9,color:"#D8B4CE",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:4,fontWeight:600}}>Receber hoje</div>
+            <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:"#FDFAFF",fontWeight:700}}>{fmtBRL(recHojeVal)}</div>
           </div>
-          <div style={{background:"rgba(255,255,255,0.07)",borderRadius:6,padding:"8px 12px"}}>
-            <div style={{fontSize:9,color:"rgba(250,248,245,0.6)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>Pagar hoje</div>
-            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:pagHojeVal>0?C.vermelho:C.areia,fontWeight:700}}>{fmtBRL(pagHojeVal)}</div>
+          <div style={{background:"rgba(255,255,255,0.08)",borderRadius:6,padding:"10px 14px",border:"1px solid rgba(216,180,206,0.15)"}}>
+            <div style={{fontSize:9,color:"#D8B4CE",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:4,fontWeight:600}}>Pagar hoje</div>
+            <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHojeVal>0?"#FF8A80":"#FDFAFF",fontWeight:700}}>{fmtBRL(pagHojeVal)}</div>
           </div>
         </div>
-        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-          {[{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FAF8F5"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:C.dourado},{l:"Vencidos",v:`${vencidos}`,c:vencidos>0?C.vermelho:C.areia}].map(k=>(
-            <div key={k.l}><div style={{fontSize:9,color:"rgba(250,248,245,0.5)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:1}}>{k.l}</div><div style={{fontSize:14,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",paddingTop:10,borderTop:"1px solid rgba(216,180,206,0.15)"}}>
+          {[{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FDFAFF"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:"#D8B4CE"},{l:"Vencidos",v:`${vencidos}`,c:vencidos>0?"#FF8A80":"#D8B4CE"}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:"rgba(216,180,206,0.7)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:15,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
           ))}
         </div>
       </div>
