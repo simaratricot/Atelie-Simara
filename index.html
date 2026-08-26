@@ -939,172 +939,134 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
     const ctx=canvas.getContext("2d");
     const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
 
-    // ── FUNDO BASE off-white/creme ──
-    ctx.fillStyle="#F5F0F8";ctx.fillRect(0,0,W,H);
+    // ── FUNDO ESCURO ELEGANTE ──
+    ctx.fillStyle="#0D0A1A";ctx.fillRect(0,0,W,H);
 
-    // ── FOTO OCUPA TODA LARGURA COM DEGRADÊ ──
+    // ── FOTO OCUPA 75% DA ARTE (produto é o destaque) ──
     if(p.photos?.[0]){
       try{
         await new Promise((res,rej)=>{
           const img=new Image();img.crossOrigin="anonymous";
           img.onload=()=>{
-            const fh=H*0.60,fw=W,fx=0,fy=0;
-            ctx.save();ctx.beginPath();ctx.rect(fx,fy,fw,fh);ctx.clip();
+            const fh=H*0.72,fw=W,fx=0,fy=0;
             const ir=img.width/img.height,fr=fw/fh;
             let sw,sh,sx,sy;
             if(ir>fr){sh=img.height;sw=sh*fr;sx=(img.width-sw)/2;sy=0;}
             else{sw=img.width;sh=sw/fr;sx=0;sy=(img.height-sh)/2;}
             ctx.drawImage(img,sx,sy,sw,sh,fx,fy,fw,fh);
-            ctx.restore();
-            // Degradê topo
-            const gT=ctx.createLinearGradient(0,0,0,fh*0.35);
-            gT.addColorStop(0,"rgba(245,240,248,0.9)");gT.addColorStop(1,"rgba(245,240,248,0)");
-            ctx.fillStyle=gT;ctx.fillRect(0,0,W,fh*0.35);
-            // Degradê base
-            const gB=ctx.createLinearGradient(0,fh*0.55,0,fh);
-            gB.addColorStop(0,"rgba(245,240,248,0)");gB.addColorStop(1,"rgba(245,240,248,1)");
-            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.55,W,fh*0.45);
+            // Degradê suave apenas na base da foto
+            const gB=ctx.createLinearGradient(0,fh*0.6,0,fh);
+            gB.addColorStop(0,"rgba(13,10,26,0)");
+            gB.addColorStop(1,"rgba(13,10,26,0.98)");
+            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.6,W,fh*0.4);
             res();
           };img.onerror=rej;img.src=p.photos[0];
         });
       }catch{}
     } else {
-      const g=ctx.createLinearGradient(0,0,0,H*0.55);
-      g.addColorStop(0,"#E8D5F0");g.addColorStop(1,"#F5F0F8");
-      ctx.fillStyle=g;ctx.fillRect(0,0,W,H*0.55);
+      // Sem foto: fundo lilás com emoji
+      const g=ctx.createLinearGradient(0,0,0,H*0.72);
+      g.addColorStop(0,"#2D1B69");g.addColorStop(1,"#0D0A1A");
+      ctx.fillStyle=g;ctx.fillRect(0,0,W,H*0.72);
+      ctx.fillStyle="rgba(165,99,162,0.3)";ctx.font="200px serif";ctx.textAlign="center";
+      ctx.fillText(p.img||"🧶",W/2,H*0.4);
     }
 
-    // ── RODAPÉ MARINHO CURVO ──
-    ctx.fillStyle="#1A2744";
-    ctx.beginPath();
-    ctx.moveTo(0,H);ctx.lineTo(W,H);ctx.lineTo(W,H*0.875);
-    ctx.bezierCurveTo(W*0.75,H*0.84,W*0.25,H*0.895,0,H*0.865);
-    ctx.closePath();ctx.fill();
-
-    // ── PÍLULA CABEÇALHO ──
-    ctx.fillStyle="#1A2744";
-    ctx.beginPath();ctx.roundRect(50,52,400,46,23);ctx.fill();
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 21px Arial,sans-serif";ctx.textAlign="left";
-    ctx.fillText("♥  FEITO À MÃO, COM AMOR",68,82);
-
-    // ── MARCA canto direito ──
-    ctx.fillStyle="rgba(165,99,162,0.2)";ctx.font="56px serif";ctx.textAlign="right";
-    ctx.fillText("✿",W-48,108);
-    ctx.fillStyle="#23355A";ctx.font="11px Arial,sans-serif";ctx.letterSpacing="3px";
-    ctx.fillText("ATELIÊ",W-50,118);
-    ctx.font="bold 24px Georgia,serif";ctx.letterSpacing="1px";ctx.fillStyle="#23355A";
-    ctx.fillText("SIMARA LOBUI",W-50,148);
-    ctx.font="italic 17px Georgia,serif";ctx.fillStyle="#A563A2";
-    ctx.fillText("tricô & crochê",W-50,172);
-
-    // ── NOME DO PRODUTO ──
+    // ── NOME SOBRE A FOTO (parte inferior) ──
+    const nY=H*0.72-20;
     const partes=p.name.split(" ");
-    const p1=partes[0]||"";
-    const p2=partes.slice(1,3).join(" ");
-    const p3=partes.slice(3).join(" ");
-    const baseY=H*0.595;
     ctx.textAlign="left";
-    ctx.fillStyle="#1A2744";ctx.font="bold 76px Georgia,serif";ctx.letterSpacing="-1px";
-    ctx.fillText(p1,50,baseY+72);
-    if(p2){
-      ctx.fillStyle="#A563A2";ctx.font="bold 84px Georgia,serif";
-      ctx.fillText(p2,50,baseY+165);
+
+    if(partes.length===1){
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 90px Georgia,serif";ctx.letterSpacing="-2px";
+      ctx.fillText(partes[0],52,nY);
+    } else {
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 76px Georgia,serif";ctx.letterSpacing="-1px";
+      ctx.fillText(partes[0],52,nY-60);
+      ctx.fillStyle="#D8B4CE";ctx.font="bold 80px Georgia,serif";
+      ctx.fillText(partes.slice(1,3).join(" "),52,nY+18);
+      if(partes.length>3){
+        ctx.fillStyle="rgba(165,99,162,0.9)";ctx.font="italic 60px Georgia,serif";
+        ctx.fillText(partes.slice(3).join(" "),52,nY+92);
+      }
     }
-    if(p3){
-      ctx.fillStyle="#D8B4CE";ctx.font="italic 66px Georgia,serif";
-      ctx.fillText(p3,50,baseY+240);
-    }
-    ctx.fillStyle="#A563A2";ctx.font="40px serif";ctx.textAlign="left";
-    ctx.fillText("♥",50+(ctx.measureText(p2||p1).width)+16,baseY+(p2?165:72));
 
-    // Linha decorativa
-    ctx.strokeStyle="#A563A2";ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.moveTo(50,baseY+268);ctx.lineTo(180,baseY+268);ctx.stroke();
-    ctx.fillStyle="#A563A2";ctx.font="26px serif";ctx.textAlign="left";
-    ctx.fillText("♥",192,baseY+274);
+    // ── LINHA DECORATIVA ──
+    ctx.strokeStyle="#A563A2";ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(52,H*0.72+24);ctx.lineTo(200,H*0.72+24);ctx.stroke();
 
-    // ── FRASE DE DESEJO ──
-    const fraseText=p.sensacao||p.beneficio||"Feito com cuidado para encantar.";
-    const fraseWords=fraseText.split(" ");
-    let fline="",fy2=baseY+320;
-    ctx.fillStyle="#3D2B5A";ctx.font="italic 34px Georgia,serif";ctx.textAlign="left";
-    fraseWords.forEach(w=>{
-      const t=fline+w+" ";
-      if(ctx.measureText(t).width>700&&fline){ctx.fillText(fline.trim(),50,fy2);fline=w+" ";fy2+=46;}
-      else fline=t;
-    });
-    ctx.fillText(fline.trim(),50,fy2);fy2+=60;
+    // ── ÁREA DE INFORMAÇÕES (parte baixa) ──
+    const infoY=H*0.72+52;
 
-    // ── BENEFÍCIOS ──
+    // Preço em destaque
+    ctx.fillStyle="rgba(165,99,162,0.15)";ctx.beginPath();ctx.roundRect(44,infoY,420,120,12);ctx.fill();
+    ctx.strokeStyle="rgba(165,99,162,0.4)";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(44,infoY,420,120,12);ctx.stroke();
+    ctx.fillStyle="rgba(216,180,206,0.7)";ctx.font="22px Arial,sans-serif";ctx.textAlign="left";ctx.letterSpacing="1px";
+    ctx.fillText("A partir de",66,infoY+40);
+    ctx.fillStyle="#FDFAFF";ctx.font="bold 64px Georgia,serif";ctx.letterSpacing="-1px";
+    ctx.fillText(precoStr,66,infoY+108);
+
+    // Benefícios compactos
+    let bY=infoY+158;
     const bens=[];
-    if(p.caracteristicas)bens.push({ic:"🌿",t:"Artesanal",d:p.caracteristicas});
-    if(p.beneficio)bens.push({ic:"♥",t:"Confortável",d:p.beneficio});
-    if(p.sensacao&&bens.length<2)bens.push({ic:"✦",t:"Exclusivo",d:p.sensacao});
-    if(!bens.length){bens.push({ic:"🌿",t:"Artesanal",d:"Feita à mão com atenção a cada detalhe."});bens.push({ic:"♥",t:"Especial",d:"Peça única criada com amor e dedicação."});}
-    let by=fy2;
+    if(p.caracteristicas)bens.push({ic:"✦",txt:p.caracteristicas.slice(0,55)});
+    if(p.beneficio)bens.push({ic:"♥",txt:p.beneficio.slice(0,55)});
+    if(p.sensacao)bens.push({ic:"◈",txt:p.sensacao.slice(0,55)});
+
     bens.slice(0,3).forEach(b=>{
-      ctx.fillStyle="#4B2D7F";ctx.beginPath();ctx.arc(76,by,28,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle="#FDFAFF";ctx.font="22px serif";ctx.textAlign="center";ctx.fillText(b.ic,76,by+8);
-      ctx.textAlign="left";
-      ctx.fillStyle="#A563A2";ctx.font="bold 27px Arial,sans-serif";ctx.fillText(b.t,118,by-6);
-      ctx.fillStyle="#3D2B5A";ctx.font="23px Arial,sans-serif";
-      const dwords=b.d.split(" ");let dl="",dx=118,dy2=by+20;
-      dwords.forEach(w=>{const t=dl+w+" ";if(ctx.measureText(t).width>440&&dl){ctx.fillText(dl.trim(),dx,dy2);dl=w+" ";dy2+=30;}else dl=t;});
-      ctx.fillText(dl.trim(),dx,dy2);
-      by=Math.max(by+96,dy2+40);
+      ctx.fillStyle="#A563A2";ctx.font="bold 26px Arial,sans-serif";ctx.letterSpacing="0px";ctx.textAlign="left";
+      ctx.fillText(b.ic,52,bY);
+      ctx.fillStyle="rgba(253,250,255,0.82)";ctx.font="italic 26px Georgia,serif";
+      ctx.fillText(b.txt+(b.txt.length>=55?"...":""),88,bY);
+      bY+=52;
     });
 
-    // ── CAIXA DO PREÇO ──
-    ctx.fillStyle="#1A2744";ctx.beginPath();ctx.roundRect(50,by+12,380,136,14);ctx.fill();
-    ctx.strokeStyle="#A563A2";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(52,by+14,376,132,13);ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,0.5)";ctx.font="23px Arial,sans-serif";ctx.textAlign="left";
-    ctx.fillText("A partir de",70,by+54);
-    ctx.fillStyle="#D8B4CE";ctx.font="bold 66px Georgia,serif";ctx.letterSpacing="-1px";
-    ctx.fillText(precoStr,70,by+126);
-    ctx.fillStyle="#A563A2";ctx.font="24px serif";ctx.textAlign="left";ctx.fillText("♥",by+60,by+144);
-
-    // ── ÁREA INFERIOR CREME ──
-    const aY=H*0.832;
-    ctx.fillStyle="#FAF5FF";ctx.fillRect(0,aY,W,H*0.875-aY);
-    // Ornamentos botânicos
-    ctx.fillStyle="rgba(165,99,162,0.15)";ctx.font="100px serif";ctx.textAlign="right";
-    ctx.fillText("❧",W-30,aY+100);ctx.textAlign="left";ctx.fillText("❧",20,aY+105);
-    // Frase
-    ctx.fillStyle="#A563A2";ctx.font="italic 36px Georgia,serif";ctx.textAlign="center";
-    ctx.fillText("Você merece peças",W/2,aY+56);
-    ctx.fillStyle="#1A2744";ctx.font="bold 29px Arial,sans-serif";ctx.letterSpacing="1px";
-    ctx.fillText("FEITAS PARA DURAR E",W/2,aY+96);
-    ctx.fillStyle="#A563A2";ctx.fillText("ENCANTAR.",W/2,aY+132);
-    // Botão CTA
-    ctx.fillStyle="#4B2D7F";ctx.beginPath();ctx.roundRect(80,aY+150,W-160,82,41);ctx.fill();
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 29px Arial,sans-serif";ctx.letterSpacing="2px";ctx.textAlign="center";
-    ctx.fillText("🔗  TOQUE NO LINK E CONHEÇA",W/2,aY+201);
-
-    // ── LOGO marca d'água ──
+    // ── LOGO (se cadastrada) ──
     if(config?.logoMarca){
       try{
         await new Promise((res,rej)=>{
           const logo=new Image();logo.crossOrigin="anonymous";
-          logo.onload=()=>{ctx.globalAlpha=0.12;const lw=160,lh=(logo.height/logo.width)*lw;ctx.drawImage(logo,W-lw-40,H*0.875-lh-10,lw,lh);ctx.globalAlpha=1;res();};
-          logo.onerror=()=>res();logo.src=config.logoMarca;
+          logo.onload=()=>{
+            const lw=120,lh=(logo.height/logo.width)*lw;
+            // Fundo circular branco
+            ctx.fillStyle="rgba(255,255,255,0.12)";
+            ctx.beginPath();ctx.arc(W-80,80,58,0,Math.PI*2);ctx.fill();
+            ctx.globalAlpha=0.92;
+            ctx.drawImage(logo,W-80-lw/2,80-lh/2,lw,lh);
+            ctx.globalAlpha=1;res();
+          };
+          logo.onerror=()=>{
+            ctx.fillStyle="rgba(253,250,255,0.9)";ctx.font="bold 20px Arial,sans-serif";ctx.letterSpacing="2px";ctx.textAlign="right";
+            ctx.fillText("SIMARA LOBUI",W-44,68);
+            ctx.fillStyle="rgba(165,99,162,0.8)";ctx.font="italic 16px Georgia,serif";ctx.letterSpacing="0px";
+            ctx.fillText("tricô & crochê",W-44,92);
+            res();
+          };
+          logo.src=config.logoMarca;
         });
       }catch{}
+    } else {
+      ctx.fillStyle="rgba(253,250,255,0.85)";ctx.font="bold 20px Arial,sans-serif";ctx.letterSpacing="2px";ctx.textAlign="right";
+      ctx.fillText("SIMARA LOBUI",W-44,68);
+      ctx.fillStyle="rgba(165,99,162,0.8)";ctx.font="italic 16px Georgia,serif";ctx.letterSpacing="0px";
+      ctx.fillText("tricô & crochê",W-44,92);
     }
 
-    // ── RODAPÉ ──
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 23px Arial,sans-serif";ctx.letterSpacing="3px";ctx.textAlign="center";
-    ctx.fillText("♥  SIMARA LOBUI",W/2,H-66);
-    ctx.fillStyle="rgba(216,180,206,0.8)";ctx.font="17px Arial,sans-serif";ctx.letterSpacing="4px";
-    ctx.fillText("TRICOT AMOR & ARTE",W/2,H-38);
+    // ── RODAPÉ MINIMALISTA ──
+    const rY=H-90;
+    ctx.strokeStyle="rgba(165,99,162,0.3)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(44,rY);ctx.lineTo(W-44,rY);ctx.stroke();
+    ctx.fillStyle="rgba(216,180,206,0.6)";ctx.font="22px Arial,sans-serif";ctx.letterSpacing="4px";ctx.textAlign="center";
+    ctx.fillText(`@${config?.instagram?.replace("@","")||"simara.lobui"}`,W/2,rY+44);
 
     // ── PREVIEW + DOWNLOAD ──
-    const previewUrl=canvas.toDataURL("image/png");
-    const pw=window.open("","_blank","width=420,height=760");
+    const previewUrl=canvas.toDataURL("image/jpeg",0.92);
+    const pw=window.open("","_blank","width=440,height=800");
     if(pw){
-      pw.document.write(`<!DOCTYPE html><html><head><title>Story — ${p.name}</title><style>body{margin:0;background:#1A2744;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;padding:20px;}img{max-width:360px;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.5);}a{display:block;margin-top:16px;background:#A563A2;color:#fff;padding:12px 32px;border-radius:24px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:1px;text-align:center;}p{color:#D8B4CE;font-size:12px;margin-top:8px;text-align:center;}</style></head><body><img src="${previewUrl}"><a href="${previewUrl}" download="story-${p.name.replace(/\s+/g,"-").toLowerCase()}.png">⬇️ Baixar Story (1080×1920)</a><p>Pronto para Instagram e WhatsApp ✨</p></body></html>`);
+      pw.document.write(`<!DOCTYPE html><html><head><title>Story — ${p.name}</title><style>body{margin:0;background:#0D0A1A;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;padding:20px;gap:14px;}img{max-width:360px;max-height:650px;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,0.7);}a{background:#A563A2;color:#fff;padding:12px 32px;border-radius:24px;text-decoration:none;font-weight:700;font-size:14px;letter-spacing:1px;text-align:center;}p{color:#D8B4CE;font-size:11px;margin:0;text-align:center;}</style></head><body><img src="${previewUrl}"><a href="${previewUrl}" download="divulgacao-${p.name.replace(/\s+/g,"-").toLowerCase()}.jpg">⬇️ Baixar arte (1080×1920)</a><p>Pronto para Instagram Stories e WhatsApp ✨</p></body></html>`);
       pw.document.close();
     }
-    showSavedGlobal("Story gerado! ✨");
+    showSavedGlobal("Arte gerada! ✨");
   };
 
 
@@ -3644,57 +3606,131 @@ const RastrearModal = ({onClose}) => {
 
 // ─── FICHA DO PEDIDO ──────────────────────────────────────────────────────────
 const FichaPedido = ({order,products,onClose,config}) => {
-  const p=products.find(x=>x.name===order?.product);
   const pF=order?.precoFinal||order?.price||0;
   const saldo=Math.max(0,pF-(order?.valorPago||0));
+  const itens=order?.itens?.length>0?order.itens:[{product:order?.product,color:order?.color,size:order?.size,qty:1,price:pF}];
   if(!order)return null;
+
   const shareWA=()=>{
-    const msg=`🤎 *Ficha do Pedido ${order.id}*\n\nCliente: ${order.client}\nProduto: ${order.product}\nCor: ${order.color||"—"} · Tamanho: ${order.size||"—"}\nMedidas: ${order.measures||"—"}\nValor total: ${fmtBRL(pF)}${order.desconto>0?`\nDesconto: -${order.tipoDesc==="pct"?order.desconto+"%":fmtBRL(order.desconto)}`:""}${order.condicao==="Com entrada"?`\nEntrada: ${fmtBRL(order.entrada)} em ${fmtDate(order.dataEntradaPag)}\nSaldo: ${fmtBRL(saldo)}\nData limite: ${fmtDate(order.dataSaldo||order.delivery)}`:""}${order.condicao==="Parcelado"&&order.parcelas?.length?`\nParcelas:\n${order.parcelas.map(x=>`  ${x.n}ª: ${fmtBRL(x.valor)} em ${fmtDate(x.data)}`).join("\n")}`:""}\nEntrega: ${fmtDate(order.delivery)}\nFila: ${order.position}ª\n\n${BRAND}`;
+    const itensStr=itens.map(i=>`  • ${i.product}${i.color&&i.color!=="—"?` · ${i.color}`:""}${i.size&&i.size!=="—"?` · ${i.size}`:""}${i.qty>1?` (${i.qty}x)`:""} — ${fmtBRL(Number(i.price)*Number(i.qty||1))}`).join("\n");
+    const msg=`🤎 *Ficha do Pedido ${order.id}*\n\nCliente: ${order.client}\n\n*Produtos:*\n${itensStr}\n\nValor total: ${fmtBRL(pF)}${order.desconto>0?`\nDesconto: -${order.tipoDesc==="pct"?order.desconto+"%":fmtBRL(order.desconto)}`:""}${order.taxaEnvio>0?`\nFrete: ${fmtBRL(order.taxaEnvio)}`:""}${order.condicao==="Com entrada"?`\nEntrada: ${fmtBRL(order.entrada)} em ${fmtDate(order.dataEntradaPag)}\nSaldo: ${fmtBRL(saldo)}`:""}${order.condicao==="Parcelado"&&order.parcelas?.length?`\nParcelas:\n${order.parcelas.map(x=>`  ${x.n}ª: ${fmtBRL(x.valor)} em ${fmtDate(x.data)}`).join("\n")}`:""}\nMedidas: ${order.measures||"—"}\nEntrega: ${fmtDate(order.delivery)}\nFila: ${order.position}ª\n\n${BRAND}`;
     window.open(`https://wa.me/${order.phone?.replace(/\D/g,"")}?text=${waMsg(msg)}`);
   };
+
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(92,64,51,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16,overflowY:"auto"}}>
-      <div style={{background:C.branco,borderRadius:10,width:"100%",maxWidth:420,maxHeight:"95vh",overflowY:"auto"}}>
-        <div style={{padding:"20px"}}>
-          <div style={{background:`linear-gradient(135deg,${C.cafe},#3D2B1F)`,borderRadius:8,padding:"14px 18px",marginBottom:16,textAlign:"center"}}>
-            <div style={{fontSize:9,color:C.dourado,letterSpacing:"4px",textTransform:"uppercase",fontWeight:700,marginBottom:2}}>Ateliê Digital</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,color:"#FAF8F5",fontStyle:"italic"}}>{BRAND_SHORT}</div>
-            <div style={{fontSize:8,color:C.areia,letterSpacing:"2px",marginTop:1}}>TRICOT, AMOR & ARTE</div>
+    <div style={{position:"fixed",inset:0,background:"rgba(35,53,90,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16,overflowY:"auto"}}>
+      <div style={{background:"#FDFAFF",borderRadius:10,width:"100%",maxWidth:440,maxHeight:"95vh",overflowY:"auto"}}>
+        <div style={{padding:"18px 20px"}}>
+
+          {/* CABEÇALHO */}
+          <div style={{background:`linear-gradient(135deg,#23355A,#2D1B69)`,borderRadius:8,padding:"14px 18px",marginBottom:16,textAlign:"center"}}>
+            <div style={{fontSize:8,color:"#D8B4CE",letterSpacing:"4px",textTransform:"uppercase",fontWeight:700,marginBottom:2}}>Ateliê Digital</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,color:"#FDFAFF",fontStyle:"italic"}}>{BRAND_SHORT}</div>
+            <div style={{fontSize:8,color:"rgba(216,180,206,0.7)",letterSpacing:"2px",marginTop:1}}>TRICOT, AMOR & ARTE</div>
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Pedido</div><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",fontWeight:700}}>{order.id}</div></div>
-            <div style={{textAlign:"right"}}><Badge label={order.status}/><div style={{fontSize:10,color:C.oliva,marginTop:2}}>Fila: {order.position}ª</div></div>
+
+          {/* PEDIDO + STATUS */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Pedido</div>
+              <div style={{fontSize:24,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.oliva}}>{order.id}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <Badge label={order.status}/>
+              <div style={{fontSize:10,color:C.oliva,marginTop:3}}>Fila: {order.position}ª</div>
+            </div>
           </div>
-          {p?.photos?.[0]&&<div style={{borderRadius:6,overflow:"hidden",marginBottom:12,height:120}}><img src={p.photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"7px 12px",marginBottom:10}}>
-            {[["Cliente",order.client],["Produto",order.product],["Cor",order.color||"—"],["Tamanho",order.size||"—"],["Medidas",order.measures||"—"],["Pagamento",order.condicao||order.payment]].map(([l,v])=>(
-              <div key={l} style={{borderBottom:`1px solid ${C.linho}`,paddingBottom:4}}><div style={{fontSize:9,color:C.oliva,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",marginBottom:1}}>{l}</div><div style={{fontSize:12,fontWeight:600}}>{v}</div></div>
+
+          {/* CLIENTE */}
+          <div style={{borderBottom:`1px solid ${C.areia}`,paddingBottom:8,marginBottom:12}}>
+            <div style={{fontSize:8,color:C.oliva,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:2}}>Cliente</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.oliva}}>{order.client}</div>
+            {order.phone&&<div style={{fontSize:11,color:C.oliva,opacity:0.7}}>{order.phone}</div>}
+          </div>
+
+          {/* PRODUTOS — cada item detalhado */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:8,color:C.oliva,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>Produtos do pedido</div>
+            {itens.map((item,i)=>(
+              <div key={i} style={{background:i%2===0?C.linho:"#fff",borderRadius:6,padding:"8px 10px",marginBottom:5,border:`1px solid ${C.areia}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.oliva,lineHeight:1.3}}>{item.product||"—"}</div>
+                    <div style={{display:"flex",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                      {item.color&&item.color!=="—"&&<span style={{fontSize:10,color:C.oliva}}>Cor: <b>{item.color}</b></span>}
+                      {item.size&&item.size!=="—"&&<span style={{fontSize:10,color:C.oliva}}>Tam: <b>{item.size}</b></span>}
+                      {item.qty>1&&<span style={{fontSize:10,color:C.oliva}}>Qtd: <b>{item.qty}</b></span>}
+                    </div>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.oliva,whiteSpace:"nowrap"}}>{fmtBRL(Number(item.price||0)*Number(item.qty||1))}</div>
+                </div>
+              </div>
             ))}
           </div>
+
+          {/* MEDIDAS */}
+          {order.measures&&<div style={{fontSize:10,color:C.oliva,marginBottom:10,padding:"5px 8px",background:C.linho,borderRadius:4}}><b>Medidas:</b> {order.measures}</div>}
+
+          {/* PAGAMENTO */}
           <div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.oliva}}>Valor total</span><span style={{fontWeight:700}}>{fmtBRL(pF)}</span></div>
-            {order.desconto>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}><span style={{color:C.oliva}}>Desconto</span><span>-{order.tipoDesc==="pct"?order.desconto+"%":fmtBRL(order.desconto)}</span></div>}
-            {order.condicao==="Com entrada"&&<>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{color:C.oliva}}>Entrada em {fmtDate(order.dataEntradaPag)}</span><span style={{fontWeight:600}}>{fmtBRL(order.entrada||0)}</span></div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingTop:4,borderTop:`1px dashed ${C.areia}`}}><span style={{fontWeight:700}}>Saldo a pagar</span><span style={{fontWeight:700,color:C.vermelho}}>{fmtBRL(saldo)}</span></div>
-              <div style={{fontSize:10,color:"#9A6B40",marginTop:3,fontStyle:"italic"}}>⚠ Saldo deve ser pago até {fmtDate(order.dataSaldo||order.delivery)}</div>
-            </>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+              <span style={{color:C.oliva}}>Forma</span>
+              <span style={{fontWeight:600}}>{order.condicao||order.payment}</span>
+            </div>
+            {order.taxaEnvio>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+              <span style={{color:C.oliva}}>Frete</span><span>{fmtBRL(order.taxaEnvio)}</span>
+            </div>}
+            {order.desconto>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+              <span style={{color:C.oliva}}>Desconto</span><span>-{order.tipoDesc==="pct"?order.desconto+"%":fmtBRL(order.desconto)}</span>
+            </div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,paddingTop:5,borderTop:`1px solid ${C.areia}`}}>
+              <span>Valor total</span><span>{fmtBRL(pF)}</span>
+            </div>
+
+            {/* PARCELAS */}
             {order.condicao==="Parcelado"&&order.parcelas?.length>0&&<>
-              <Divider label="Parcelas"/>
-              {order.parcelas.map((x,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={{color:C.oliva}}>{x.n}ª — {fmtDate(x.data)}</span><span style={{fontWeight:600}}>{fmtBRL(x.valor)}</span></div>)}
+              <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:8,marginBottom:4,fontWeight:700}}>Parcelas</div>
+              {order.parcelas.map((x,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}>
+                <span style={{color:C.oliva}}>{x.n}ª — {fmtDate(x.data)}</span>
+                <span style={{fontWeight:600}}>{fmtBRL(x.valor)}</span>
+              </div>)}
             </>}
-            {order.condicao==="À vista"&&<div style={{fontSize:11,color:C.oliva,marginTop:3}}>Pago à vista em {fmtDate(order.dataCompra)}</div>}
-            <div style={{display:"flex",justifyContent:"space-between",paddingTop:6,borderTop:`1px dashed ${C.areia}`,marginTop:4}}><span style={{fontSize:11,fontWeight:700}}>Já pago</span><span style={{fontWeight:700,color:C.oliva}}>{fmtBRL(order.valorPago||0)}</span></div>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,fontWeight:700}}>Saldo em aberto</span><span style={{fontWeight:700,color:saldo<=0?C.oliva:C.vermelho}}>{fmtBRL(saldo)}</span></div>
+
+            {/* COM ENTRADA */}
+            {order.condicao==="Com entrada"&&<>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginTop:5}}>
+                <span style={{color:C.oliva}}>Entrada ({fmtDate(order.dataEntradaPag)})</span>
+                <span style={{fontWeight:600}}>{fmtBRL(order.entrada||0)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.vermelho}}>
+                <span>Saldo até {fmtDate(order.dataSaldo||order.delivery)}</span>
+                <span style={{fontWeight:700}}>{fmtBRL(saldo)}</span>
+              </div>
+            </>}
+
+            <div style={{borderTop:`1px dashed ${C.areia}`,marginTop:6,paddingTop:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}>
+                <span style={{fontWeight:700}}>Já pago</span>
+                <span style={{fontWeight:700,color:C.oliva}}>{fmtBRL(order.valorPago||0)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                <span style={{fontWeight:700}}>Saldo em aberto</span>
+                <span style={{fontWeight:700,color:saldo<=0?C.oliva:C.vermelho}}>{fmtBRL(saldo)}</span>
+              </div>
+            </div>
           </div>
-          <div style={{textAlign:"center",padding:"7px",background:C.d20,borderRadius:6,marginBottom:8}}>
-            <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:1}}>Previsão de entrega</div>
-            <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",fontWeight:700}}>{fmtDate(order.delivery)}</div>
+
+          {/* ENTREGA */}
+          <div style={{textAlign:"center",padding:"8px",background:"rgba(165,99,162,0.08)",borderRadius:6,marginBottom:8,border:`1px solid rgba(165,99,162,0.2)`}}>
+            <div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:2}}>Previsão de entrega</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.oliva}}>{fmtDate(order.delivery)}</div>
           </div>
-          {order.note&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Obs: {order.note}</div>}
-          <div style={{textAlign:"center",marginTop:12,paddingTop:8,borderTop:`1px solid ${C.areia}`,fontSize:9,color:C.oliva,letterSpacing:"1.5px"}}>Feito com amor · {BRAND}</div>
+
+          {order.note&&<div style={{fontSize:10,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Obs: {order.note}</div>}
+          <div style={{textAlign:"center",paddingTop:8,borderTop:`1px solid ${C.areia}`,fontSize:8,color:C.oliva,letterSpacing:"1.5px"}}>Feito com amor · {BRAND}</div>
         </div>
-        <div style={{padding:"12px 20px",borderTop:`1px solid ${C.areia}`,display:"flex",gap:8,flexWrap:"wrap",background:C.linho}}>
+
+        <div style={{padding:"10px 20px",borderTop:`1px solid ${C.areia}`,display:"flex",gap:8,flexWrap:"wrap",background:C.linho}}>
           <Btn v="oliva" onClick={shareWA}>💬 WhatsApp</Btn>
           <Btn v="ghost" onClick={()=>window.print()}>🖨 Imprimir</Btn>
           <Btn v="ghost" onClick={onClose} style={{marginLeft:"auto"}}>Fechar</Btn>
