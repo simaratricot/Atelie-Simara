@@ -101,6 +101,46 @@ const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 const readFile = f => new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(f);});
 const addDays = (d,n) => { const dt=new Date(d+"T00:00"); dt.setDate(dt.getDate()+n); return dt.toISOString().split("T")[0]; };
 const calcDays = h => { let rem=h,days=0,i=0; const wh=Object.values(WEEK_HRS); while(rem>0){rem-=wh[i%7];days++;i++;} return days; };
+
+// Adiciona apenas dias úteis (segunda a sexta)
+const addWorkDays = (startDate, n) => {
+  const dt = new Date(startDate+"T00:00");
+  let added = 0;
+  while(added < n) {
+    dt.setDate(dt.getDate()+1);
+    const dow = dt.getDay();
+    if(dow !== 0 && dow !== 6) added++; // pula sab/dom
+  }
+  return dt.toISOString().split("T")[0];
+};
+
+// Calcula próxima data de entrega baseada na fila atual
+const calcProximaEntrega = (orders, produto, config) => {
+  const buffer = Number(produto?.buffer || config?.bufferDias || 2);
+  const envio = Number(config?.diasEnvio || 1);
+  const horas = Number(produto?.hours || 7);
+  const diasProd = calcDays(horas);
+
+  // Pega todos os pedidos ativos (não concluídos/cancelados)
+  const ativos = orders
+    .filter(o => !["Concluído","Cancelado","Enviado"].includes(o.status))
+    .sort((a,b) => (a.position||999)-(b.position||999));
+
+  // Encontra a última data de entrega na fila
+  let base = today;
+  if(ativos.length > 0) {
+    const ultDelivery = ativos
+      .map(o => o.delivery)
+      .filter(Boolean)
+      .sort()
+      .pop();
+    if(ultDelivery && ultDelivery > today) base = ultDelivery;
+  }
+
+  // Nova entrega = última + produção + buffer + envio (em dias úteis)
+  const novaEntrega = addWorkDays(base, diasProd + buffer + envio);
+  return { novaEntrega, diasProd, buffer, envio, base };
+};
 const waMsg = txt => encodeURIComponent(txt);
 const dayOfYear = () => Math.floor((new Date()-new Date(new Date().getFullYear(),0,0))/864e5);
 
