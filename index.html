@@ -1012,54 +1012,77 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
       ctx.fillText(p.img||"🧶",W/2,H*0.4);
     }
 
-    // ── NOME SOBRE A FOTO (parte inferior) ──
-    const nY=H*0.72-20;
-    const partes=p.name.split(" ");
+    // ── NOME DO PRODUTO — mais acima, sobre a foto ──
+    const nY=H*0.68;
     ctx.textAlign="left";
+    ctx.shadowColor="rgba(0,0,0,0.5)";ctx.shadowBlur=12;
 
     if(partes.length===1){
-      ctx.fillStyle="#FDFAFF";ctx.font="bold 90px Georgia,serif";ctx.letterSpacing="-2px";
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 86px Georgia,serif";ctx.letterSpacing="-2px";
       ctx.fillText(partes[0],52,nY);
     } else {
-      ctx.fillStyle="#FDFAFF";ctx.font="bold 76px Georgia,serif";ctx.letterSpacing="-1px";
-      ctx.fillText(partes[0],52,nY-60);
-      ctx.fillStyle="#D8B4CE";ctx.font="bold 80px Georgia,serif";
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 72px Georgia,serif";ctx.letterSpacing="-1px";
+      ctx.fillText(partes[0],52,nY-56);
+      ctx.fillStyle="#D8B4CE";ctx.font="bold 76px Georgia,serif";
       ctx.fillText(partes.slice(1,3).join(" "),52,nY+18);
       if(partes.length>3){
-        ctx.fillStyle="rgba(165,99,162,0.9)";ctx.font="italic 60px Georgia,serif";
-        ctx.fillText(partes.slice(3).join(" "),52,nY+92);
+        ctx.fillStyle="rgba(216,180,206,0.85)";ctx.font="italic 56px Georgia,serif";
+        ctx.fillText(partes.slice(3).join(" "),52,nY+86);
       }
     }
+    ctx.shadowBlur=0;
+
+    // ── BADGE DISPONIBILIDADE ──
+    const dispLabel=p.type==="pronta"?`✓ Pronta Entrega — ${p.stock} unid.`:"✦ Sob Encomenda";
+    const dispColor=p.type==="pronta"?"rgba(46,107,46,0.85)":"rgba(75,45,127,0.85)";
+    ctx.fillStyle=dispColor;
+    const dispW=ctx.measureText(dispLabel).width+40;
+    ctx.beginPath();ctx.roundRect(44,H*0.72+8,dispW+20,40,20);ctx.fill();
+    ctx.fillStyle="#FDFAFF";ctx.font="bold 22px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
+    ctx.fillText(dispLabel,64,H*0.72+34);
 
     // ── LINHA DECORATIVA ──
     ctx.strokeStyle="#A563A2";ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(52,H*0.72+24);ctx.lineTo(200,H*0.72+24);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(52,H*0.72+60);ctx.lineTo(220,H*0.72+60);ctx.stroke();
 
-    // ── ÁREA DE INFORMAÇÕES (parte baixa) ──
-    const infoY=H*0.72+52;
+    // ── ÁREA DE INFORMAÇÕES ──
+    const infoY=H*0.72+76;
 
-    // Preço em destaque
-    ctx.fillStyle="rgba(165,99,162,0.15)";ctx.beginPath();ctx.roundRect(44,infoY,420,120,12);ctx.fill();
-    ctx.strokeStyle="rgba(165,99,162,0.4)";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(44,infoY,420,120,12);ctx.stroke();
-    ctx.fillStyle="rgba(216,180,206,0.7)";ctx.font="22px Arial,sans-serif";ctx.textAlign="left";ctx.letterSpacing="1px";
-    ctx.fillText("A partir de",66,infoY+40);
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 64px Georgia,serif";ctx.letterSpacing="-1px";
-    ctx.fillText(precoStr,66,infoY+108);
+    // Preço
+    ctx.fillStyle="rgba(165,99,162,0.15)";ctx.beginPath();ctx.roundRect(44,infoY,380,108,10);ctx.fill();
+    ctx.strokeStyle="rgba(165,99,162,0.35)";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(44,infoY,380,108,10);ctx.stroke();
+    ctx.fillStyle="rgba(216,180,206,0.7)";ctx.font="20px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
+    ctx.fillText("A partir de",66,infoY+36);
+    ctx.fillStyle="#FDFAFF";ctx.font="bold 58px Georgia,serif";ctx.letterSpacing="-1px";
+    ctx.fillText(precoStr,66,infoY+96);
 
-    // Benefícios compactos
-    let bY=infoY+158;
-    const bens=[];
-    if(p.caracteristicas)bens.push({ic:"✦",txt:p.caracteristicas.slice(0,55)});
-    if(p.beneficio)bens.push({ic:"♥",txt:p.beneficio.slice(0,55)});
-    if(p.sensacao)bens.push({ic:"◈",txt:p.sensacao.slice(0,55)});
+    // ── CBS — texto completo com quebra de linha ──
+    const drawTextBlock=(label,icon,texto,startY,maxW)=>{
+      if(!texto||startY>H-100)return startY;
+      ctx.letterSpacing="0px";ctx.textAlign="left";
+      // Label
+      ctx.fillStyle="#A563A2";ctx.font="bold 24px Arial,sans-serif";
+      ctx.fillText(`${icon} ${label}`,52,startY);
+      let y=startY+32;
+      // Texto completo com quebra
+      ctx.fillStyle="rgba(253,250,255,0.88)";ctx.font="22px Georgia,serif";
+      const words=texto.split(" ");let line="";
+      for(const w of words){
+        const test=line+w+" ";
+        if(ctx.measureText(test).width>maxW&&line){
+          if(y>H-80)break;
+          ctx.fillText(line.trim(),52,y);line=w+" ";y+=30;
+        }else line=test;
+      }
+      if(line.trim()&&y<=H-80){ctx.fillText(line.trim(),52,y);y+=30;}
+      return y+14;
+    };
 
-    bens.slice(0,3).forEach(b=>{
-      ctx.fillStyle="#A563A2";ctx.font="bold 26px Arial,sans-serif";ctx.letterSpacing="0px";ctx.textAlign="left";
-      ctx.fillText(b.ic,52,bY);
-      ctx.fillStyle="rgba(253,250,255,0.82)";ctx.font="italic 26px Georgia,serif";
-      ctx.fillText(b.txt+(b.txt.length>=55?"...":""),88,bY);
-      bY+=52;
-    });
+    const maxW=W-104;
+    let cY=infoY+120;
+    if(p.caracteristicas)cY=drawTextBlock("Características","✦",p.caracteristicas,cY,maxW);
+    if(p.beneficio)cY=drawTextBlock("Benefício","♥",p.beneficio,cY,maxW);
+    if(p.sensacao)cY=drawTextBlock("Sensação","◈",p.sensacao,cY,maxW);
 
     // ── LOGO (se cadastrada) ──
     if(config?.logoMarca){
