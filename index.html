@@ -427,8 +427,8 @@ const Sel = ({label,value,onChange,options=[]}) => (
   </div>
 );
 
-const Card = ({children,style:sx={},hover}) => (
-  <div className={hover?"ch":""} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,padding:20,...sx}}>{children}</div>
+const Card = ({children,style:sx={},hover,onClick}) => (
+  <div className={hover?"ch":""} onClick={onClick} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,padding:20,cursor:onClick?"pointer":"default",...sx}}>{children}</div>
 );
 
 const Divider = ({label}) => (
@@ -3333,407 +3333,321 @@ const TIPOS_CONSULTORIA=["Área Fiscal e Administrativa","Gestão Financeira","M
 const TEMPO_CONSULTORIA=["Mensal","Pacote","Diária","Por hora"];
 
 // ─── CONSULTORIA — MÉTODO CONTÍNUA ───────────────────────────────────────────
-const NIVEIS_CONTINUA=["Essencial","Em Ação","Estratégica"];
-const STATUS_CONSUL=["Lead","Diagnóstico","Ativo","Pausado","Finalizado"];
+const TIPOS_PEDIDO_CONSUL=["Esporádico","Fixo mensal","Por medição"];
+const STATUS_PEDIDO_CONSUL=["Aberto","Em andamento","Finalizado","Cancelado"];
 const TIPOS_ATEND=["Consultoria","Treinamento","Implantação","Reunião","Outro"];
-const PRIOR_ACAO=["Alta","Média","Baixa"];
-const STATUS_ACAO=["Pendente","Em andamento","Concluída","Atrasada"];
 const SERVICOS_CONSUL=["Área Fiscal e Administrativa","Gestão Financeira","Marketing Digital","Consultoria Geral","Outro"];
 
-const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,config})=>{
-  const [tab,setTab]=useState("dashboard");
+const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,clients,config})=>{
+  const [tab,setTab]=useState("pedidos");
   const [selId,setSelId]=useState(null);
-  const [subTab,setSubTab]=useState("dados");
+  const [subTab,setSubTab]=useState("hist");
   const [modal,setModal]=useState(null);
+  const [busca,setBusca]=useState("");
 
-  // Forms
-  const EFC={empresa:"",responsavel:"",cnpj:"",whatsapp:"",email:"",segmento:"",dataEntrada:today,status:"Lead",servico:"Gestão Financeira",nivel:"Essencial",dataInicio:today,prazo:"",valorContratado:0,horasContratadas:0,obs:""};
-  const [form,setForm]=useState(EFC);
-  const [diagForm,setDiagForm]=useState({situacao:"",objetivos:"",problemas:"",pontos:"",oportunidades:"",prioridades:"",resultado:"",nivel:"Essencial"});
-  const [acaoForm,setAcaoForm]=useState({acao:"",descricao:"",responsavel:"Simara",prioridade:"Alta",prazo:"",status:"Pendente",esperado:"",alcancado:"",obs:""});
-  const [atendForm,setAtendForm]=useState({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0,agendarRetorno:false,dataRetorno:"",horaRetorno:"09:00"});
+  const EFP={clientId:"",clienteNome:"",servico:"Área Fiscal e Administrativa",tipo:"Fixo mensal",status:"Aberto",valor:0,diaEmissao:22,dataInicio:today,obs:""};
+  const [form,setForm]=useState(EFP);
+  const [atendForm,setAtendForm]=useState({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});
+  const [medForm,setMedForm]=useState({dataInicio:"",dataFim:"",obs:"",status:"Aberto"});
 
   const sel=consultoria.find(c=>c.id===selId);
 
-  // Horas calculadas
-  const horasRealizadas=(c)=>(c.atendimentos||[]).reduce((a,x)=>a+Number(x.duracao||0),0);
-  const horasRestantes=(c)=>Math.max(0,Number(c.horasContratadas||0)-horasRealizadas(c));
+  // Filtra pedidos
+  const filtered=consultoria.filter(c=>{
+    if(!busca)return true;
+    return c.clienteNome?.toLowerCase().includes(busca.toLowerCase())||c.servico?.toLowerCase().includes(busca.toLowerCase());
+  });
 
-  // Próximos atendimentos (da agenda com tipo Consultoria)
-  const proxAtend=compromissos.filter(c=>c.tipo==="Consultoria"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
+  // Horas por medição
+  const horasMedicao=(med,pedido)=>(pedido.atendimentos||[])
+    .filter(a=>a.medicaoId===med.id)
+    .reduce((s,a)=>s+Number(a.duracao||0),0);
 
-  // Dashboard stats
-  const ativos=consultoria.filter(c=>c.status==="Ativo");
-  const acoesPend=consultoria.flatMap(c=>(c.planoAcao||[]).filter(a=>a.status==="Pendente"||a.status==="Atrasada"));
-  const totalValor=ativos.reduce((a,c)=>a+Number(c.valorContratado||0),0);
-  const totalRecebido=finance.filter(f=>f.tipoReceita==="Consultoria"&&f.pago).reduce((a,f)=>a+f.value,0);
-  const totalPendente=finance.filter(f=>f.tipoReceita==="Consultoria"&&!f.pago).reduce((a,f)=>a+f.value,0);
+  // Total horas do pedido
+  const totalHoras=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.duracao||0),0);
+  const totalValorAtend=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.valor||0),0);
 
-  const saveCliente=()=>{
-    if(!form.empresa)return;
+  const savePedido=()=>{
+    if(!form.clienteNome)return;
     const isNew=!form.id;
-    const novo={...form,id:form.id||uid(),atendimentos:[],planoAcao:[],diagnostico:null,...(form.id?{}:{atendimentos:[],planoAcao:[]})};
-    if(isNew){setConsultoria(prev=>[...prev,novo]);setSelId(novo.id);}
-    else setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo}:x));
-    setModal(null);showSavedGlobal("Cliente salvo!");
+    const novo={...form,id:form.id||uid(),atendimentos:[],medicoes:[]};
+    if(isNew){
+      setConsultoria(prev=>[...prev,novo]);
+      // Se fixo mensal, cria compromisso recorrente na agenda
+      if(novo.tipo==="Fixo mensal"&&novo.diaEmissao){
+        setCompromissos(prev=>[...prev,{id:uid(),desc:`📋 Consultoria Mensal — ${novo.clienteNome} — ${novo.servico}`,data:today,hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:novo.id,recorrente:true,diaEmissao:novo.diaEmissao}]);
+      }
+    } else {
+      setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo}:x));
+    }
+    setModal(null);showSavedGlobal("Pedido salvo!");
   };
 
-  const saveDiag=()=>{
-    if(!sel)return;
-    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,diagnostico:diagForm,nivel:diagForm.nivel,status:c.status==="Lead"?"Diagnóstico":c.status}:c));
-    setModal(null);showSavedGlobal("Diagnóstico salvo!");
-  };
-
-  const saveAcao=()=>{
-    if(!sel||!acaoForm.acao)return;
-    const nova={...acaoForm,id:uid()};
-    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,planoAcao:[...(c.planoAcao||[]),nova]}:c));
-    setAcaoForm({acao:"",descricao:"",responsavel:"Simara",prioridade:"Alta",prazo:"",status:"Pendente",esperado:"",alcancado:"",obs:""});
-    setModal(null);showSavedGlobal("Ação salva!");
-  };
-
-  const saveAtend=()=>{
-    if(!sel||!atendForm.assunto)return;
-    const novo={...atendForm,id:uid()};
-    // Salva atendimento no cliente
-    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
+  const saveAtend=(pedidoId,medicaoId=null)=>{
+    if(!atendForm.assunto)return;
+    const novo={...atendForm,id:uid(),medicaoId};
+    setConsultoria(prev=>prev.map(c=>c.id===pedidoId?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
     // Lança no financeiro se tiver valor
+    const pedido=consultoria.find(c=>c.id===pedidoId);
     if(Number(atendForm.valor)>0){
-      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${sel.empresa} — ${atendForm.assunto}`,value:Number(atendForm.valor),date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:sel.empresa}]);
+      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${pedido?.clienteNome} — ${atendForm.assunto}`,value:Number(atendForm.valor),date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:pedido?.clienteNome}]);
     }
-    // Agenda retorno se solicitado
-    if(atendForm.agendarRetorno&&atendForm.dataRetorno){
-      setCompromissos(prev=>[...prev,{id:uid(),desc:`Retorno — ${sel.empresa}`,data:atendForm.dataRetorno,hora:atendForm.horaRetorno||"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",clienteId:sel.id}]);
-    }
-    setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0,agendarRetorno:false,dataRetorno:"",horaRetorno:"09:00"});
+    setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});
     setModal(null);showSavedGlobal("Atendimento salvo!");
   };
 
-  const gerarRelatorio=(c)=>{
-    const hrs=horasRealizadas(c);
-    const atends=(c.atendimentos||[]).sort((a,b)=>b.data.localeCompare(a.data));
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório — ${c.empresa}</title>
-    <style>body{font-family:'Georgia',serif;max-width:700px;margin:40px auto;color:#1A1A2E;padding:20px;}
-    h1{color:#7B4FA6;font-size:28px;margin-bottom:4px;}h2{color:#3D5A8A;font-size:18px;border-bottom:1px solid #E0C8F0;padding-bottom:6px;margin-top:24px;}
-    .meta{color:#666;font-size:13px;margin-bottom:20px;}.tag{background:#F5EFF9;color:#7B4FA6;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:bold;}
-    table{width:100%;border-collapse:collapse;margin-top:10px;}td,th{padding:8px 10px;border-bottom:1px solid #F0E8F8;font-size:13px;text-align:left;}
-    th{background:#F5EFF9;color:#3D5A8A;font-size:11px;text-transform:uppercase;letter-spacing:1px;}
-    .total{font-weight:bold;color:#7B4FA6;}.footer{margin-top:40px;text-align:center;color:#999;font-size:12px;border-top:1px solid #E0C8F0;padding-top:16px;}
-    </style></head><body>
-    <h1>${c.empresa}</h1>
-    <div class="meta">${c.responsavel} · ${c.servico} · <span class="tag">${c.nivel}</span> · <span class="tag">${c.status}</span></div>
-    <h2>Resumo do Contrato</h2>
-    <table><tr><th>Item</th><th>Valor</th></tr>
-    <tr><td>Valor contratado</td><td class="total">${fmtBRL(Number(c.valorContratado||0))}</td></tr>
-    <tr><td>Horas contratadas</td><td>${c.horasContratadas||0}h</td></tr>
-    <tr><td>Horas realizadas</td><td>${hrs}h</td></tr>
-    <tr><td>Horas restantes</td><td class="total">${Math.max(0,(c.horasContratadas||0)-hrs)}h</td></tr>
-    </table>
-    ${c.diagnostico?`<h2>Diagnóstico</h2><p><b>Situação atual:</b> ${c.diagnostico.situacao||"—"}</p><p><b>Objetivos:</b> ${c.diagnostico.objetivos||"—"}</p><p><b>Prioridades:</b> ${c.diagnostico.prioridades||"—"}</p>`:""}
-    <h2>Atendimentos Realizados</h2>
-    <table><tr><th>Data</th><th>Tipo</th><th>Assunto</th><th>Duração</th></tr>
-    ${atends.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${a.tipo}</td><td>${a.assunto}</td><td>${a.duracao}h</td></tr>`).join("")}
-    ${atends.length===0?"<tr><td colspan='4' style='text-align:center;color:#999'>Nenhum atendimento registrado</td></tr>":""}
-    <tr style='background:#F5EFF9'><td colspan='3'><b>Total de horas</b></td><td class='total'><b>${hrs}h</b></td></tr>
-    </table>
-    ${(c.planoAcao||[]).length?`<h2>Plano de Ação</h2><table><tr><th>Ação</th><th>Prazo</th><th>Status</th></tr>
-    ${(c.planoAcao||[]).map(a=>`<tr><td>${a.acao}</td><td>${fmtDate(a.prazo)}</td><td>${a.status}</td></tr>`).join("")}</table>`:""}
-    <div class="footer">Simara Lobui · Consultoria Comercial e Administrativa · ${new Date().toLocaleDateString("pt-BR")}</div>
-    </body></html>`;
-    const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);
+  const lancarMensalidade=(p)=>{
+    if(!p.valor||Number(p.valor)===0){alert("Cadastre o valor do pedido.");return;}
+    const mes=today.slice(0,7);
+    const jaLancou=finance.some(f=>f.tipoReceita==="Consultoria"&&f.clientName===p.clienteNome&&f.dataVencimento?.startsWith(mes));
+    if(jaLancou&&!window.confirm("Já existe lançamento deste mês. Lançar mesmo assim?"))return;
+    const venc=`${mes}-${String(p.diaEmissao||22).padStart(2,"0")}`;
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria ${mes} — ${p.clienteNome} — ${p.servico}`,value:Number(p.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:p.clienteNome}]);
+    showSavedGlobal(`Mensalidade ${fmtBRL(Number(p.valor))} lançada!`);
   };
 
-  // ── RENDER ──
+  const fecharMedicao=(p)=>{
+    const hrs=totalHoras(p);
+    const val=totalValorAtend(p);
+    const nova={id:uid(),dataFim:today,horas:hrs,valor:val,status:"Finalizado",obs:medForm.obs};
+    setConsultoria(prev=>prev.map(c=>c.id===p.id?{...c,medicoes:[...(c.medicoes||[]),nova]}:c));
+    if(val>0){
+      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${p.clienteNome} — ${hrs}h`,value:val,date:today,dataVencimento:today,pago:false,category:"Consultoria",clientName:p.clienteNome}]);
+    }
+    setMedForm({obs:"",status:"Aberto"});
+    setModal(null);showSavedGlobal("Medição fechada!");
+  };
+
+  const gerarContrato=(p)=>{
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contrato — ${p.clienteNome}</title>
+    <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#1A1A2E;padding:30px;line-height:1.8;}
+    .header{text-align:center;border-bottom:2px solid #7B4FA6;padding-bottom:20px;margin-bottom:30px;}
+    h1{color:#7B4FA6;font-size:22px;margin:0;}
+    .sub{color:#3D5A8A;font-size:13px;letter-spacing:2px;text-transform:uppercase;}
+    h2{color:#3D5A8A;font-size:15px;border-left:4px solid #7B4FA6;padding-left:10px;margin-top:24px;}
+    .campo{margin-bottom:8px;font-size:13px;}.campo b{color:#3D5A8A;}
+    .ass{display:flex;justify-content:space-between;margin-top:60px;gap:40px;}
+    .ass-box{flex:1;border-top:1px solid #333;padding-top:8px;text-align:center;font-size:11px;}
+    .footer{margin-top:30px;text-align:center;color:#999;font-size:11px;border-top:1px solid #E0C8F0;padding-top:12px;}
+    </style></head><body>
+    <div class="header"><h1>PEDIDO DE SERVIÇO — CONSULTORIA</h1><div class="sub">Simara Lobui · Consultoria Comercial e Administrativa</div></div>
+    <h2>Prestadora</h2>
+    <div class="campo"><b>Nome:</b> Simara Lobui</div>
+    <div class="campo"><b>WhatsApp:</b> ${config?.whatsapp||"(19) 98871-7228"}</div>
+    <h2>Cliente</h2>
+    <div class="campo"><b>Empresa/Cliente:</b> ${p.clienteNome}</div>
+    <h2>Serviço</h2>
+    <div class="campo"><b>Tipo:</b> ${p.servico}</div>
+    <div class="campo"><b>Modalidade:</b> ${p.tipo}</div>
+    ${p.tipo==="Fixo mensal"?`<div class="campo"><b>Dia de emissão:</b> Todo dia ${p.diaEmissao} de cada mês</div>`:""}
+    <div class="campo"><b>Valor:</b> ${fmtBRL(Number(p.valor||0))}${p.tipo==="Fixo mensal"?" / mês":p.tipo==="Por medição"?" / medição":""}</div>
+    <div class="campo"><b>Início:</b> ${fmtDate(p.dataInicio)}</div>
+    <div class="campo"><b>Status:</b> ${p.status}</div>
+    ${p.obs?`<div class="campo"><b>Observações:</b> ${p.obs}</div>`:""}
+    <h2>Histórico de Atendimentos</h2>
+    ${(p.atendimentos||[]).length===0?"<p style='color:#999;font-size:12px'>Nenhum atendimento ainda.</p>":`
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <tr style="background:#F5EFF9"><th style="padding:6px;text-align:left">Data</th><th style="text-align:left">Tipo</th><th style="text-align:left">Assunto</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor</th></tr>
+    ${(p.atendimentos||[]).map(a=>`<tr style="border-bottom:1px solid #F0E8F8"><td style="padding:5px">${fmtDate(a.data)}</td><td>${a.tipo}</td><td>${a.assunto}</td><td style="text-align:right">${a.duracao}h</td><td style="text-align:right">${a.valor>0?fmtBRL(a.valor):"—"}</td></tr>`).join("")}
+    <tr style="background:#F5EFF9;font-weight:bold"><td colspan="3">Total</td><td style="text-align:right">${totalHoras(p)}h</td><td style="text-align:right">${totalValorAtend(p)>0?fmtBRL(totalValorAtend(p)):"—"}</td></tr>
+    </table>`}
+    <div class="ass"><div class="ass-box">Simara Lobui<br>Prestadora</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
+    <div class="footer">Emitido em ${new Date().toLocaleDateString("pt-BR")}</div>
+    </body></html>`;
+    const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
+  };
+
   return(
     <div className="fade" style={{padding:"16px"}}>
-      {/* Header */}
       <div style={{background:"linear-gradient(135deg,#23355A,#2D1B69)",borderRadius:8,padding:"14px 18px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:"#D8B4CE",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria · Método CONTÍNUA</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria · Pedidos de Serviço</div>
         </div>
-        <Btn onClick={()=>{setForm(EFC);setModal("cliente");}}>+ Novo cliente</Btn>
+        <Btn onClick={()=>{setForm(EFP);setModal("pedido");}}>+ Novo pedido</Btn>
       </div>
 
       {!selId&&<>
-        <Tabs tabs={[{k:"dashboard",l:"📊 Dashboard"},{k:"clientes",l:"👥 Clientes"}]} active={tab} set={setTab}/>
-
-        {tab==="dashboard"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          {/* KPIs */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
-            {[["Clientes ativos",ativos.length,"👥"],["Ações pendentes",acoesPend.length,"📋"],["Próx. atend.",proxAtend.length,"📅"]].map(([l,v,i])=>(
-              <Card key={l} style={{textAlign:"center",padding:"12px 8px"}}>
-                <div style={{fontSize:22,marginBottom:4}}>{i}</div>
-                <div style={{fontSize:22,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.cafe}}>{v}</div>
-                <div style={{fontSize:10,color:C.oliva,letterSpacing:"0.5px"}}>{l}</div>
-              </Card>
-            ))}
-          </div>
-          {/* Financeiro consultoria */}
-          <Card>
-            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>💰 Financeiro Consultoria</div>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-              {[["Contratado",fmtBRL(totalValor),C.cafe],["Recebido",fmtBRL(totalRecebido),C.verde],["Pendente",fmtBRL(totalPendente),C.vermelho]].map(([l,v,cor])=>(
-                <div key={l} style={{flex:"1 1 100px",background:C.linho,borderRadius:6,padding:"8px 10px"}}>
-                  <div style={{fontSize:9,color:C.oliva,marginBottom:2}}>{l}</div>
-                  <div style={{fontSize:16,fontWeight:700,color:cor}}>{v}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-          {/* Próximos atendimentos */}
-          <Card>
-            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📅 Próximos atendimentos</div>
-            {proxAtend.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum agendado ✦</div>}
-            {proxAtend.map(a=>(
-              <div key={a.id} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.linho}`}}>
-                <span style={{fontSize:11,color:C.cafe,fontWeight:600,minWidth:80}}>{fmtDate(a.data)}</span>
-                <span style={{fontSize:11,flex:1}}>{a.desc}</span>
-                <span style={{fontSize:10,color:C.oliva}}>{a.hora}</span>
-              </div>
-            ))}
-          </Card>
-          {/* Ações pendentes */}
-          {acoesPend.length>0&&<Card>
-            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📋 Ações pendentes</div>
-            {acoesPend.slice(0,5).map(a=>(
-              <div key={a.id} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.linho}`}}>
-                <Badge label={a.prioridade} sm/>
-                <span style={{fontSize:12,flex:1}}>{a.acao}</span>
-                <span style={{fontSize:10,color:a.status==="Atrasada"?C.vermelho:C.oliva}}>{fmtDate(a.prazo)}</span>
-              </div>
-            ))}
-          </Card>}
-        </div>}
-
-        {tab==="clientes"&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {consultoria.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum cliente ainda ✦<br/>Clique em "+ Novo cliente" para começar</div>}
-          {consultoria.map(c=>(
-            <Card key={c.id} hover onClick={()=>{setSelId(c.id);setSubTab("dados");}}>
+        <div style={{marginBottom:12}}><Inp value={busca} onChange={setBusca} placeholder="Buscar por cliente ou serviço..."/></div>
+        {filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum pedido ainda ✦<br/>Clique em "+ Novo pedido" para começar</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {filtered.map(p=>(
+            <Card key={p.id} hover onClick={()=>{setSelId(p.id);setSubTab("hist");}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{flex:1}}>
-                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
-                    <span style={{fontSize:14,fontWeight:700,color:C.oliva}}>{c.empresa}</span>
-                    <span style={{fontSize:9,background:c.status==="Ativo"?"#D4E8D4":c.status==="Lead"?"#FEF3E9":C.linho,color:c.status==="Ativo"?C.verde:c.status==="Lead"?C.dourado:C.oliva,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{c.status}</span>
-                    <span style={{fontSize:9,background:"rgba(123,79,166,0.1)",color:C.cafe,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{c.nivel}</span>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+                    <span style={{fontSize:14,fontWeight:700,color:C.oliva}}>{p.clienteNome}</span>
+                    <span style={{fontSize:9,background:p.status==="Aberto"?"#D4E8D4":p.status==="Finalizado"?C.linho:"#FEE",color:p.status==="Aberto"?C.verde:p.status==="Finalizado"?C.oliva:C.vermelho,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.status}</span>
+                    <span style={{fontSize:9,background:"rgba(123,79,166,0.1)",color:C.cafe,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.tipo}</span>
                   </div>
-                  <div style={{fontSize:11,color:C.cafe}}>{c.servico}</div>
-                  <div style={{fontSize:11,color:C.oliva,marginTop:2}}>{c.responsavel}{c.whatsapp?` · ${c.whatsapp}`:""}</div>
+                  <div style={{fontSize:11,color:C.cafe}}>{p.servico}</div>
+                  <div style={{fontSize:11,color:C.oliva,marginTop:2}}>
+                    {p.tipo==="Fixo mensal"&&`Emissão: dia ${p.diaEmissao} · `}
+                    {fmtBRL(Number(p.valor||0))}{p.tipo==="Fixo mensal"?" /mês":p.tipo==="Por medição"?" /medição":""}
+                  </div>
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>{fmtBRL(Number(c.valorContratado||0))}</div>
-                  <div style={{fontSize:10,color:C.oliva}}>{horasRealizadas(c)}h / {c.horasContratadas||0}h</div>
-                  <PBar pct={c.horasContratadas>0?Math.min(100,(horasRealizadas(c)/Number(c.horasContratadas))*100):0} h={4} color={C.cafe}/>
+                  <div style={{fontSize:12,fontWeight:700,color:C.cafe}}>{totalHoras(p)}h</div>
+                  <div style={{fontSize:10,color:C.oliva}}>{(p.atendimentos||[]).length} atend.</div>
                 </div>
               </div>
             </Card>
           ))}
-        </div>}
+        </div>
       </>}
 
-      {/* DETALHE DO CLIENTE */}
       {selId&&sel&&<>
-        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
           <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:C.cafe}}>←</button>
           <div style={{flex:1}}>
-            <div style={{fontSize:16,fontWeight:700,color:C.oliva}}>{sel.empresa}</div>
-            <div style={{fontSize:11,color:C.cafe}}>{sel.responsavel} · {sel.servico}</div>
+            <div style={{fontSize:15,fontWeight:700,color:C.oliva}}>{sel.clienteNome}</div>
+            <div style={{fontSize:11,color:C.cafe}}>{sel.servico} · {sel.tipo}</div>
           </div>
-          <Btn sm v="ghost" onClick={()=>gerarRelatorio(sel)}>📄 Relatório</Btn>
-          <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("cliente");}}>✎</Btn>
+          <Btn sm v="ghost" onClick={()=>gerarContrato(sel)}>📋 Contrato</Btn>
+          {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={()=>lancarMensalidade(sel)}>💰 Lançar mês</Btn>}
+          {sel.tipo==="Por medição"&&<Btn sm v="oliva" onClick={()=>setModal("medicao")}>📏 Fechar medição</Btn>}
+          <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
         </div>
 
-        {/* Horas progress */}
-        <Card style={{marginBottom:12}}>
-          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:8}}>
-            {[["Contratadas",sel.horasContratadas||0,"h"],["Realizadas",horasRealizadas(sel),"h"],["Restantes",horasRestantes(sel),"h"]].map(([l,v,u])=>(
-              <div key={l} style={{flex:"1 1 80px",textAlign:"center",background:C.linho,borderRadius:6,padding:"6px 8px"}}>
-                <div style={{fontSize:9,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase"}}>{l}</div>
-                <div style={{fontSize:20,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}{u}</div>
+        {/* Resumo */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+          {[["Valor",fmtBRL(Number(sel.valor||0))+(sel.tipo==="Fixo mensal"?"/mês":"")],["Horas",totalHoras(sel)+"h"],["Atend.",(sel.atendimentos||[]).length]].map(([l,v])=>(
+            <div key={l} style={{background:C.linho,borderRadius:6,padding:"8px",textAlign:"center"}}>
+              <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>{l}</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        <Tabs tabs={[{k:"hist",l:"📋 Histórico"},{k:"med",l:"📏 Medições"},{k:"dados",l:"⚙️ Dados"}]} active={subTab} set={setSubTab}/>
+
+        {subTab==="hist"&&<>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+            <Btn sm onClick={()=>{setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});setModal("atend");}}>+ Atendimento</Btn>
+          </div>
+          {(sel.atendimentos||[]).length===0&&<div style={{textAlign:"center",padding:"24px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhum atendimento ainda ✦</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {(sel.atendimentos||[]).slice().reverse().map(a=>(
+              <div key={a.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${C.cafe}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
+                  <div style={{display:"flex",gap:6}}>
+                    <span style={{fontSize:10,background:C.linho,color:C.oliva,padding:"1px 7px",borderRadius:8}}>{a.tipo}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>{a.duracao}h</span>
+                    {a.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(a.valor)}</span>}
+                  </div>
+                </div>
+                <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
+                {a.obs&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginTop:2}}>{a.obs}</div>}
               </div>
             ))}
           </div>
-          <PBar pct={sel.horasContratadas>0?Math.min(100,(horasRealizadas(sel)/Number(sel.horasContratadas))*100):0} color={C.cafe} h={6}/>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.oliva,marginTop:4}}>
-            <span>{sel.nivel} · {sel.status}</span>
-            <span>{fmtBRL(Number(sel.valorContratado||0))}</span>
-          </div>
-        </Card>
+        </>}
 
-        <Tabs tabs={[{k:"dados",l:"📋 Dados"},{k:"diag",l:"🔍 Diagnóstico"},{k:"acao",l:"🎯 Plano"},{k:"atend",l:"⏱ Atendimentos"}]} active={subTab} set={setSubTab}/>
+        {subTab==="med"&&<>
+          {sel.tipo!=="Por medição"&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Medições disponíveis apenas para pedidos "Por medição".</div>}
+          {sel.tipo==="Por medição"&&<>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:12,color:C.oliva}}>Atendimentos não fechados: {(sel.atendimentos||[]).filter(a=>!a.medicaoId).length}</span>
+              <Btn sm v="oliva" onClick={()=>setModal("medicao")}>📏 Fechar medição</Btn>
+            </div>
+            {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ainda ✦</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {(sel.medicoes||[]).slice().reverse().map((m,i)=>(
+                <div key={m.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${C.dourado}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>Medição {(sel.medicoes||[]).length-i}</span>
+                    <span style={{fontSize:10,background:m.status==="Finalizado"?"#D4E8D4":C.linho,color:m.status==="Finalizado"?C.verde:C.oliva,padding:"2px 8px",borderRadius:8,fontWeight:700}}>{m.status}</span>
+                  </div>
+                  <div style={{display:"flex",gap:12,fontSize:11,color:C.oliva}}>
+                    <span>📅 {fmtDate(m.dataFim)}</span>
+                    <span>⏱ {m.horas}h</span>
+                    {m.valor>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(m.valor)}</span>}
+                  </div>
+                  {m.obs&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginTop:3}}>{m.obs}</div>}
+                </div>
+              ))}
+            </div>
+          </>}
+        </>}
 
-        {/* DADOS */}
         {subTab==="dados"&&<Card>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 12px"}}>
-            {[["Empresa",sel.empresa],["Responsável",sel.responsavel],["CNPJ/CPF",sel.cnpj||"—"],["WhatsApp",sel.whatsapp||"—"],["E-mail",sel.email||"—"],["Segmento",sel.segmento||"—"],["Entrada",fmtDate(sel.dataEntrada)],["Início",fmtDate(sel.dataInicio)],["Prazo",sel.prazo?fmtDate(sel.prazo):"—"],["Serviço",sel.servico],["Nível",sel.nivel],["Status",sel.status]].map(([l,v])=>(
+            {[["Cliente",sel.clienteNome],["Serviço",sel.servico],["Modalidade",sel.tipo],["Status",sel.status],["Valor",fmtBRL(Number(sel.valor||0))],["Início",fmtDate(sel.dataInicio)],sel.tipo==="Fixo mensal"?["Dia emissão",`Dia ${sel.diaEmissao}`]:["",""]].filter(([l])=>l).map(([l,v])=>(
               <div key={l} style={{borderBottom:`1px solid ${C.linho}`,paddingBottom:4}}>
                 <div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>{l}</div>
                 <div style={{fontSize:12,fontWeight:600,color:C.cafe}}>{v}</div>
               </div>
             ))}
           </div>
-          {sel.obs&&<div style={{marginTop:10,fontSize:12,color:C.oliva,fontStyle:"italic",background:C.linho,borderRadius:4,padding:"8px 10px"}}>{sel.obs}</div>}
-          {sel.whatsapp&&<Btn sm v="oliva" onClick={()=>window.open(`https://wa.me/${sel.whatsapp.replace(/\D/g,"")}`)} style={{marginTop:10}}>💬 WhatsApp</Btn>}
+          {sel.obs&&<div style={{marginTop:8,fontSize:12,color:C.oliva,fontStyle:"italic",background:C.linho,borderRadius:4,padding:"8px 10px"}}>{sel.obs}</div>}
         </Card>}
-
-        {/* DIAGNÓSTICO */}
-        {subTab==="diag"&&<>
-          {sel.diagnostico?<Card>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-              <span style={{fontSize:9,background:"rgba(123,79,166,0.1)",color:C.cafe,padding:"2px 10px",borderRadius:10,fontWeight:700}}>Nível: {sel.diagnostico.nivel}</span>
-              <Btn sm v="ghost" onClick={()=>{setDiagForm({...sel.diagnostico});setModal("diag");}}>✎ Editar</Btn>
-            </div>
-            {[["Situação atual",sel.diagnostico.situacao],["Objetivos",sel.diagnostico.objetivos],["Problemas/Gargalos",sel.diagnostico.problemas],["Pontos fortes",sel.diagnostico.pontos],["Oportunidades",sel.diagnostico.oportunidades],["Prioridades",sel.diagnostico.prioridades],["Resultado",sel.diagnostico.resultado]].filter(([,v])=>v).map(([l,v])=>(
-              <div key={l} style={{marginBottom:10,borderBottom:`1px solid ${C.linho}`,paddingBottom:8}}>
-                <div style={{fontSize:9,color:C.cafe,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>{l}</div>
-                <div style={{fontSize:13,color:C.oliva,lineHeight:1.6}}>{v}</div>
-              </div>
-            ))}
-          </Card>:<div style={{textAlign:"center",padding:"30px"}}>
-            <div style={{fontSize:13,color:C.oliva,marginBottom:12,fontStyle:"italic"}}>Diagnóstico não realizado ainda ✦</div>
-            <Btn onClick={()=>{setDiagForm({situacao:"",objetivos:"",problemas:"",pontos:"",oportunidades:"",prioridades:"",resultado:"",nivel:"Essencial"});setModal("diag");}}>+ Iniciar diagnóstico</Btn>
-          </div>}
-        </>}
-
-        {/* PLANO DE AÇÃO */}
-        {subTab==="acao"&&<>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-            <Btn onClick={()=>{setAcaoForm({acao:"",descricao:"",responsavel:"Simara",prioridade:"Alta",prazo:"",status:"Pendente",esperado:"",alcancado:"",obs:""});setModal("acao");}}>+ Nova ação</Btn>
-          </div>
-          {(sel.planoAcao||[]).length===0&&<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhuma ação cadastrada ✦</div>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {(sel.planoAcao||[]).map((a,i)=>(
-              <Card key={a.id} style={{borderLeft:`3px solid ${a.status==="Concluída"?C.verde:a.status==="Atrasada"?C.vermelho:a.prioridade==="Alta"?C.cafe:C.areia}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:700,color:C.oliva,marginBottom:2}}>{a.acao}</div>
-                    {a.descricao&&<div style={{fontSize:11,color:C.oliva,marginBottom:4}}>{a.descricao}</div>}
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      <Badge label={a.status} sm/><Badge label={a.prioridade} sm/>
-                      {a.prazo&&<span style={{fontSize:10,color:C.oliva}}>📅 {fmtDate(a.prazo)}</span>}
-                    </div>
-                  </div>
-                  <select value={a.status} onChange={e=>{const ns=e.target.value;setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,planoAcao:c.planoAcao.map((x,j)=>j===i?{...x,status:ns}:x)}:c));}} style={{fontSize:11,padding:"3px 6px",border:`1px solid ${C.areia}`,borderRadius:4,color:C.cafe}}>
-                    {STATUS_ACAO.map(s=><option key={s}>{s}</option>)}
-                  </select>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </>}
-
-        {/* ATENDIMENTOS */}
-        {subTab==="atend"&&<>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-            <Btn onClick={()=>{setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0,agendarRetorno:false,dataRetorno:"",horaRetorno:"09:00"});setModal("atend");}}>+ Registrar atendimento</Btn>
-          </div>
-          {(sel.atendimentos||[]).length===0&&<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhum atendimento registrado ✦</div>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {(sel.atendimentos||[]).slice().reverse().map(a=>(
-              <Card key={a.id} style={{borderLeft:`3px solid ${C.cafe}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
-                  <div style={{display:"flex",gap:6}}>
-                    <Badge label={a.tipo} sm/>
-                    <span style={{fontSize:11,color:C.oliva,fontWeight:600}}>{a.duracao}h</span>
-                  </div>
-                </div>
-                <div style={{fontSize:13,color:C.oliva,marginBottom:a.obs?4:0}}>{a.assunto}</div>
-                {a.obs&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>{a.obs}</div>}
-                {a.valor>0&&<div style={{fontSize:11,color:C.verde,fontWeight:600,marginTop:4}}>💰 {fmtBRL(a.valor)}</div>}
-              </Card>
-            ))}
-          </div>
-        </>}
       </>}
 
-      {/* MODAIS */}
-      {modal==="cliente"&&<Modal title={form.id?"Editar Cliente":"Novo Cliente"} onClose={()=>setModal(null)} wide>
+      {/* Modal novo pedido */}
+      {modal==="pedido"&&<Modal title={form.id?"Editar Pedido":"Novo Pedido de Consultoria"} onClose={()=>setModal(null)} wide>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <Divider label="Dados do cliente"/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Inp label="Empresa/Nome *" value={form.empresa} onChange={v=>setForm(f=>({...f,empresa:v}))}/>
-            <Inp label="Responsável" value={form.responsavel} onChange={v=>setForm(f=>({...f,responsavel:v}))}/>
-            <Inp label="CNPJ/CPF" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))}/>
-            <Inp label="WhatsApp" value={form.whatsapp} onChange={v=>setForm(f=>({...f,whatsapp:v}))}/>
-            <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))}/>
-            <Inp label="Segmento" value={form.segmento} onChange={v=>setForm(f=>({...f,segmento:v}))}/>
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Cliente</label>
+            <select value={form.clientId} onChange={e=>{const c=clients.find(x=>x.id===e.target.value);setForm(f=>({...f,clientId:e.target.value,clienteNome:c?.name||""}));}} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
+              <option value="">Selecione um cliente cadastrado...</option>
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {!clients.length&&<div style={{fontSize:11,color:C.oliva,marginTop:4}}>Nenhum cliente cadastrado. <button onClick={()=>setModal(null)} style={{color:C.cafe,background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline"}}>Cadastre em Clientes primeiro.</button></div>}
           </div>
-          <Divider label="Contrato"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Sel label="Serviço contratado" value={form.servico} onChange={v=>setForm(f=>({...f,servico:v}))} options={SERVICOS_CONSUL}/>
-            <Sel label="Nível CONTÍNUA" value={form.nivel} onChange={v=>setForm(f=>({...f,nivel:v}))} options={NIVEIS_CONTINUA}/>
-            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_CONSUL}/>
-            <Inp label="Data de entrada" type="date" value={form.dataEntrada} onChange={v=>setForm(f=>({...f,dataEntrada:v}))}/>
-            <Inp label="Início do contrato" type="date" value={form.dataInicio} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
-            <Inp label="Prazo/Término" type="date" value={form.prazo} onChange={v=>setForm(f=>({...f,prazo:v}))}/>
-            <Inp label="Valor contratado (R$)" type="number" value={form.valorContratado} onChange={v=>setForm(f=>({...f,valorContratado:v}))}/>
-            <Inp label="Horas contratadas" type="number" value={form.horasContratadas} onChange={v=>setForm(f=>({...f,horasContratadas:v}))}/>
+            <Sel label="Serviço" value={form.servico} onChange={v=>setForm(f=>({...f,servico:v}))} options={SERVICOS_CONSUL}/>
+            <Sel label="Modalidade" value={form.tipo} onChange={v=>setForm(f=>({...f,tipo:v}))} options={TIPOS_PEDIDO_CONSUL}/>
+            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_PEDIDO_CONSUL}/>
+            <Inp label="Valor (R$)" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
+            <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
+            {form.tipo==="Fixo mensal"&&<Inp label="Dia de emissão (ex: 22)" type="number" value={form.diaEmissao} onChange={v=>setForm(f=>({...f,diaEmissao:v}))}/>}
           </div>
-          <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={2}/>
+          <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={2} placeholder="Detalhes do serviço contratado..."/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={saveCliente}>Salvar</Btn>
+          <Btn onClick={savePedido}>Salvar</Btn>
         </div>
       </Modal>}
 
-      {modal==="diag"&&<Modal title="🔍 Diagnóstico" onClose={()=>setModal(null)} wide>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <Sel label="Nível identificado" value={diagForm.nivel} onChange={v=>setDiagForm(f=>({...f,nivel:v}))} options={NIVEIS_CONTINUA}/>
-          {[["situacao","Situação atual"],["objetivos","Objetivos do cliente"],["problemas","Problemas/Gargalos"],["pontos","Pontos fortes"],["oportunidades","Oportunidades"],["prioridades","Prioridades"],["resultado","Resultado do diagnóstico"]].map(([k,l])=>(
-            <Inp key={k} label={l} value={diagForm[k]} onChange={v=>setDiagForm(f=>({...f,[k]:v}))} rows={2}/>
-          ))}
-        </div>
-        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
-          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={saveDiag}>Salvar diagnóstico</Btn>
-        </div>
-      </Modal>}
-
-      {modal==="acao"&&<Modal title="🎯 Nova Ação" onClose={()=>setModal(null)} wide>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <Inp label="Ação *" value={acaoForm.acao} onChange={v=>setAcaoForm(f=>({...f,acao:v}))}/>
-          <Inp label="Descrição" value={acaoForm.descricao} onChange={v=>setAcaoForm(f=>({...f,descricao:v}))} rows={2}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Inp label="Responsável" value={acaoForm.responsavel} onChange={v=>setAcaoForm(f=>({...f,responsavel:v}))}/>
-            <Inp label="Prazo" type="date" value={acaoForm.prazo} onChange={v=>setAcaoForm(f=>({...f,prazo:v}))}/>
-            <Sel label="Prioridade" value={acaoForm.prioridade} onChange={v=>setAcaoForm(f=>({...f,prioridade:v}))} options={PRIOR_ACAO}/>
-            <Sel label="Status" value={acaoForm.status} onChange={v=>setAcaoForm(f=>({...f,status:v}))} options={STATUS_ACAO}/>
-          </div>
-          <Inp label="Resultado esperado" value={acaoForm.esperado} onChange={v=>setAcaoForm(f=>({...f,esperado:v}))} rows={2}/>
-          <Inp label="Observações" value={acaoForm.obs} onChange={v=>setAcaoForm(f=>({...f,obs:v}))} rows={2}/>
-        </div>
-        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
-          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={saveAcao}>Salvar ação</Btn>
-        </div>
-      </Modal>}
-
-      {modal==="atend"&&<Modal title="⏱ Registrar Atendimento" onClose={()=>setModal(null)} wide>
+      {/* Modal atendimento */}
+      {modal==="atend"&&sel&&<Modal title="+ Registrar Atendimento" onClose={()=>setModal(null)} wide>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Data" type="date" value={atendForm.data} onChange={v=>setAtendForm(f=>({...f,data:v}))}/>
             <Inp label="Duração (horas)" type="number" value={atendForm.duracao} onChange={v=>setAtendForm(f=>({...f,duracao:v}))}/>
             <Sel label="Tipo" value={atendForm.tipo} onChange={v=>setAtendForm(f=>({...f,tipo:v}))} options={TIPOS_ATEND}/>
-            <Inp label="Valor (R$) — opcional" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
+            <Inp label="Valor (R$) — se cobrado agora" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
           </div>
-          <Inp label="Assunto *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} placeholder="O que foi tratado nesse atendimento..."/>
+          <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva o atendimento realizado..."/>
           <Inp label="Observações" value={atendForm.obs} onChange={v=>setAtendForm(f=>({...f,obs:v}))} rows={2}/>
-          <div style={{background:C.linho,borderRadius:6,padding:"10px 12px"}}>
-            <label style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",fontSize:13,fontWeight:600,color:C.cafe}}>
-              <input type="checkbox" checked={atendForm.agendarRetorno} onChange={e=>setAtendForm(f=>({...f,agendarRetorno:e.target.checked}))}/>
-              📅 Agendar próximo retorno
-            </label>
-            {atendForm.agendarRetorno&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
-              <Inp label="Data do retorno" type="date" value={atendForm.dataRetorno} onChange={v=>setAtendForm(f=>({...f,dataRetorno:v}))}/>
-              <Inp label="Horário" value={atendForm.horaRetorno} onChange={v=>setAtendForm(f=>({...f,horaRetorno:v}))} placeholder="09:00"/>
-            </div>}
-          </div>
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={saveAtend}>Salvar atendimento</Btn>
+          <Btn onClick={()=>saveAtend(sel.id)}>Salvar atendimento</Btn>
+        </div>
+      </Modal>}
+
+      {/* Modal fechar medição */}
+      {modal==="medicao"&&sel&&<Modal title="📏 Fechar Medição" onClose={()=>setModal(null)}>
+        <div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:12}}>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:4}}>Atendimentos a incluir nesta medição:</div>
+          {(sel.atendimentos||[]).filter(a=>!a.medicaoId).map(a=>(
+            <div key={a.id} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0",borderBottom:`1px solid ${C.areia}`}}>
+              <span>{fmtDate(a.data)} — {a.assunto}</span>
+              <span style={{fontWeight:700}}>{a.duracao}h</span>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginTop:6,paddingTop:6,borderTop:`1px solid ${C.areia}`}}>
+            <span>Total</span>
+            <span>{(sel.atendimentos||[]).filter(a=>!a.medicaoId).reduce((s,a)=>s+Number(a.duracao||0),0)}h · {fmtBRL((sel.atendimentos||[]).filter(a=>!a.medicaoId).reduce((s,a)=>s+Number(a.valor||0),0))}</span>
+          </div>
+        </div>
+        <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2} placeholder="Observações da medição..."/>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn v="oliva" onClick={()=>fecharMedicao(sel)}>✓ Fechar e lançar</Btn>
         </div>
       </Modal>}
     </div>
@@ -4802,7 +4716,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
-          {view==="consultoria"  &&<Consultoria consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} config={config}/>}
+          {view==="consultoria"  &&<Consultoria consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
