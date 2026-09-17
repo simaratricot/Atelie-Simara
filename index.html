@@ -2494,7 +2494,7 @@ const Clients = ({clients,setClients,orders,config}) => {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"});
   const [filtroTipo,setFiltroTipo]=useState("todos");
-  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"};
+  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:""};
 
   const save=()=>{
     if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x).sort((a,b)=>a.name.localeCompare(b.name,"pt")));
@@ -2559,6 +2559,8 @@ const Clients = ({clients,setClients,orders,config}) => {
             </div>
           </div>
           <Inp label="Nome completo" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))}/>
+          <Inp label="CPF / CNPJ" value={form.cpfCnpj||""} onChange={v=>setForm(f=>({...f,cpfCnpj:v}))} placeholder="000.000.000-00 ou 00.000.000/0001-00"/>
+          <Inp label="Empresa (opcional)" value={form.empresa||""} onChange={v=>setForm(f=>({...f,empresa:v}))} placeholder="Nome da empresa"/>
           <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
@@ -3333,39 +3335,66 @@ const TIPOS_CONSULTORIA=["Área Fiscal e Administrativa","Gestão Financeira","M
 const TEMPO_CONSULTORIA=["Mensal","Pacote","Diária","Por hora"];
 
 // ─── CONSULTORIA — MÉTODO CONTÍNUA ───────────────────────────────────────────
-const TIPOS_PEDIDO_CONSUL=["Esporádico","Fixo mensal","Por medição"];
-const STATUS_PEDIDO_CONSUL=["Aberto","Em andamento","Finalizado","Cancelado"];
-const TIPOS_ATEND=["Consultoria","Treinamento","Implantação","Reunião","Outro"];
-const SERVICOS_CONSUL=["Área Fiscal e Administrativa","Gestão Financeira","Marketing Digital","Consultoria Geral","Outro"];
+const TIPOS_PEDIDO_CONSUL=["Esporádico","Fixo mensal","Por medição","Pacote de horas","Projeto"];
+const STATUS_PEDIDO_CONSUL=["Aguardando","Em andamento","Finalizado","Cancelado"];
+const TIPOS_ATEND_C=["Consultoria","Treinamento","Implantação","Reunião","Diagnóstico","Outro"];
+const TIPO_COBRANCA=["Por hora","Taxa única","Pacote","Mensal fixo"];
+const SERVICOS_CONSUL=["Área Fiscal e Administrativa","Gestão Financeira","Marketing Digital","Consultoria Geral","Implantação","Treinamento","Outro"];
+const CORES_CONSUL={primaria:"#6C8271",secundaria:"#C1A268",texto:"#2C3E50",fundo:"#FFFFFF",lilas:"#9B8FB5"};
 
 const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,clients,config})=>{
-  const [tab,setTab]=useState("pedidos");
+  const [tab,setTab]=useState("dashboard");
   const [selId,setSelId]=useState(null);
   const [subTab,setSubTab]=useState("hist");
   const [modal,setModal]=useState(null);
   const [busca,setBusca]=useState("");
+  const [atendSel,setAtendSel]=useState(null);
 
-  const EFP={clientId:"",clienteNome:"",servico:"Área Fiscal e Administrativa",tipo:"Fixo mensal",status:"Aberto",valor:0,diaEmissao:22,dataInicio:today,obs:""};
+  const EFP={clientId:"",clienteNome:"",clienteCpfCnpj:"",empresaTerceira:"",servico:"Área Fiscal e Administrativa",tipo:"Esporádico",tipoCobranca:"Por hora",status:"Aguardando",valor:0,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:today,dataVencimento:"",formaPag:"PIX",obs:"",lancadoFinanceiro:false};
   const [form,setForm]=useState(EFP);
-  const [atendForm,setAtendForm]=useState({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});
-  const [medForm,setMedForm]=useState({dataInicio:"",dataFim:"",obs:"",status:"Aberto"});
+  const EFA={data:today,horaInicio:"",horaFim:"",duracao:0,assunto:"",tipo:"Consultoria",obs:"",valor:0,proximosPassos:""};
+  const [atendForm,setAtendForm]=useState(EFA);
+  const [medForm,setMedForm]=useState({obs:"",status:"Finalizado"});
 
   const sel=consultoria.find(c=>c.id===selId);
 
-  // Filtra pedidos
-  const filtered=consultoria.filter(c=>{
-    if(!busca)return true;
-    return c.clienteNome?.toLowerCase().includes(busca.toLowerCase())||c.servico?.toLowerCase().includes(busca.toLowerCase());
-  });
+  // Calcula duração em horas a partir de hora início/fim
+  const calcDuracao=(ini,fim)=>{
+    if(!ini||!fim)return 0;
+    const [hI,mI]=ini.split(":").map(Number);
+    const [hF,mF]=fim.split(":").map(Number);
+    const mins=(hF*60+mF)-(hI*60+mI);
+    return Math.max(0,Math.round(mins*100/60)/100);
+  };
 
-  // Horas por medição
-  const horasMedicao=(med,pedido)=>(pedido.atendimentos||[])
-    .filter(a=>a.medicaoId===med.id)
-    .reduce((s,a)=>s+Number(a.duracao||0),0);
+  // Formata horas ex: 1.5 → "1h30"
+  const fmtHoras=(h)=>{
+    const hrs=Math.floor(h);
+    const mins=Math.round((h-hrs)*60);
+    return mins>0?`${hrs}h${String(mins).padStart(2,"0")}`:`${hrs}h`;
+  };
 
-  // Total horas do pedido
+  // Calcula valor do atendimento automaticamente
+  const calcValorAtend=(dur,p)=>{
+    if(!p)return 0;
+    if(p.tipoCobranca==="Por hora")return Math.round(Number(p.valorHora||0)*dur*100)/100;
+    if(p.tipoCobranca==="Taxa única")return Number(p.valor||0);
+    return 0;
+  };
+
   const totalHoras=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.duracao||0),0);
-  const totalValorAtend=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.valor||0),0);
+  const horasRestantes=(p)=>Math.max(0,Number(p.horasContratadas||0)-totalHoras(p));
+  const totalValorAtend=(p)=>(p.atendimentos||[]).filter(a=>!a.medicaoId||(p.medicoes||[]).find(m=>m.id===a.medicaoId)?.status!=="Aberto").reduce((s,a)=>s+Number(a.valor||0),0);
+  const atendAbertos=(p)=>(p.atendimentos||[]).filter(a=>!a.medicaoId);
+
+  // Stats para dashboard
+  const ativos=consultoria.filter(c=>c.status==="Em andamento");
+  const proxComp=compromissos.filter(c=>c.tipo==="Consultoria"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
+  const totalContratado=ativos.reduce((s,c)=>s+Number(c.valor||0),0);
+  const totalRecebido=finance.filter(f=>f.tipoReceita==="Consultoria"&&f.pago).reduce((s,f)=>s+f.value,0);
+  const totalPend=finance.filter(f=>f.tipoReceita==="Consultoria"&&!f.pago).reduce((s,f)=>s+f.value,0);
+
+  const filtered=consultoria.filter(c=>!busca||(c.clienteNome+c.servico).toLowerCase().includes(busca.toLowerCase()));
 
   const savePedido=()=>{
     if(!form.clienteNome)return;
@@ -3373,207 +3402,338 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     const novo={...form,id:form.id||uid(),atendimentos:[],medicoes:[]};
     if(isNew){
       setConsultoria(prev=>[...prev,novo]);
-      // Se fixo mensal, cria compromisso recorrente na agenda
+      // Lança no financeiro se não for por medição
+      if(novo.tipo!=="Por medição"&&Number(novo.valor)>0&&novo.dataVencimento){
+        setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
+      }
+      // Compromisso mensal
       if(novo.tipo==="Fixo mensal"&&novo.diaEmissao){
-        setCompromissos(prev=>[...prev,{id:uid(),desc:`📋 Consultoria Mensal — ${novo.clienteNome} — ${novo.servico}`,data:today,hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:novo.id,recorrente:true,diaEmissao:novo.diaEmissao}]);
+        setCompromissos(prev=>[...prev,{id:uid(),desc:`Consultoria mensal — ${novo.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:novo.id}]);
       }
     } else {
-      setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo}:x));
+      setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo,atendimentos:x.atendimentos,medicoes:x.medicoes}:x));
     }
     setModal(null);showSavedGlobal("Pedido salvo!");
   };
 
-  const saveAtend=(pedidoId,medicaoId=null)=>{
-    if(!atendForm.assunto)return;
-    const novo={...atendForm,id:uid(),medicaoId};
-    setConsultoria(prev=>prev.map(c=>c.id===pedidoId?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
-    // Lança no financeiro se tiver valor
-    const pedido=consultoria.find(c=>c.id===pedidoId);
-    if(Number(atendForm.valor)>0){
-      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${pedido?.clienteNome} — ${atendForm.assunto}`,value:Number(atendForm.valor),date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:pedido?.clienteNome}]);
+  const saveAtend=()=>{
+    if(!sel||!atendForm.assunto)return;
+    const dur=atendForm.duracao||calcDuracao(atendForm.horaInicio,atendForm.horaFim);
+    const valAuto=calcValorAtend(dur,sel);
+    const novo={...atendForm,id:uid(),duracao:dur,valor:atendForm.valor||valAuto};
+    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
+    // Se esporádico ou fixo → lança no financeiro imediatamente
+    if((sel.tipo==="Esporádico"||sel.tipo==="Fixo mensal")&&novo.valor>0){
+      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:novo.valor,date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     }
-    setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});
-    setModal(null);showSavedGlobal("Atendimento salvo!");
+    setAtendForm(EFA);setModal(null);showSavedGlobal("Atendimento salvo!");
   };
 
-  const lancarMensalidade=(p)=>{
-    if(!p.valor||Number(p.valor)===0){alert("Cadastre o valor do pedido.");return;}
-    const mes=today.slice(0,7);
-    const jaLancou=finance.some(f=>f.tipoReceita==="Consultoria"&&f.clientName===p.clienteNome&&f.dataVencimento?.startsWith(mes));
-    if(jaLancou&&!window.confirm("Já existe lançamento deste mês. Lançar mesmo assim?"))return;
-    const venc=`${mes}-${String(p.diaEmissao||22).padStart(2,"0")}`;
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria ${mes} — ${p.clienteNome} — ${p.servico}`,value:Number(p.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:p.clienteNome}]);
-    showSavedGlobal(`Mensalidade ${fmtBRL(Number(p.valor))} lançada!`);
-  };
-
-  const fecharMedicao=(p)=>{
-    const hrs=totalHoras(p);
-    const val=totalValorAtend(p);
-    const nova={id:uid(),dataFim:today,horas:hrs,valor:val,status:"Finalizado",obs:medForm.obs};
-    setConsultoria(prev=>prev.map(c=>c.id===p.id?{...c,medicoes:[...(c.medicoes||[]),nova]}:c));
+  const fecharMedicao=()=>{
+    if(!sel)return;
+    const abertos=atendAbertos(sel);
+    const hrs=abertos.reduce((s,a)=>s+Number(a.duracao||0),0);
+    const val=abertos.reduce((s,a)=>s+Number(a.valor||0),0);
+    const medId=uid();
+    const nova={id:medId,dataFim:today,horas:hrs,valor:val,status:"Finalizado",obs:medForm.obs};
+    // Vincula atendimentos à medição
+    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,
+      medicoes:[...(c.medicoes||[]),nova],
+      atendimentos:(c.atendimentos||[]).map(a=>!a.medicaoId?{...a,medicaoId:medId}:a)
+    }:c));
     if(val>0){
-      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${p.clienteNome} — ${hrs}h`,value:val,date:today,dataVencimento:today,pago:false,category:"Consultoria",clientName:p.clienteNome}]);
+      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     }
-    setMedForm({obs:"",status:"Aberto"});
-    setModal(null);showSavedGlobal("Medição fechada!");
+    setMedForm({obs:"",status:"Finalizado"});setModal(null);showSavedGlobal("Medição fechada!");
   };
 
-  const gerarContrato=(p)=>{
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contrato — ${p.clienteNome}</title>
-    <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#1A1A2E;padding:30px;line-height:1.8;}
-    .header{text-align:center;border-bottom:2px solid #7B4FA6;padding-bottom:20px;margin-bottom:30px;}
-    h1{color:#7B4FA6;font-size:22px;margin:0;}
-    .sub{color:#3D5A8A;font-size:13px;letter-spacing:2px;text-transform:uppercase;}
-    h2{color:#3D5A8A;font-size:15px;border-left:4px solid #7B4FA6;padding-left:10px;margin-top:24px;}
-    .campo{margin-bottom:8px;font-size:13px;}.campo b{color:#3D5A8A;}
-    .ass{display:flex;justify-content:space-between;margin-top:60px;gap:40px;}
-    .ass-box{flex:1;border-top:1px solid #333;padding-top:8px;text-align:center;font-size:11px;}
-    .footer{margin-top:30px;text-align:center;color:#999;font-size:11px;border-top:1px solid #E0C8F0;padding-top:12px;}
-    </style></head><body>
-    <div class="header"><h1>PEDIDO DE SERVIÇO — CONSULTORIA</h1><div class="sub">Simara Lobui · Consultoria Comercial e Administrativa</div></div>
-    <h2>Prestadora</h2>
-    <div class="campo"><b>Nome:</b> Simara Lobui</div>
+  const lancarMensal=()=>{
+    if(!sel||!sel.valor)return;
+    const mes=today.slice(0,7);
+    const venc=`${mes}-${String(sel.diaEmissao||22).padStart(2,"0")}`;
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mes} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
+  };
+
+  const CC=CORES_CONSUL;
+  const docStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:${CC.texto};padding:30px;line-height:1.75;}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ${CC.primaria};padding-bottom:16px;margin-bottom:24px;}
+  .hdr-nome{font-size:22px;font-weight:bold;color:${CC.primaria};letter-spacing:1px;}
+  .hdr-sub{font-size:11px;color:${CC.secundaria};letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+  .hdr-doc{text-align:right;font-size:12px;color:#666;}
+  h2{color:${CC.primaria};font-size:14px;text-transform:uppercase;letter-spacing:2px;border-left:4px solid ${CC.secundaria};padding-left:10px;margin:22px 0 10px;}
+  .campo{margin-bottom:7px;font-size:13px;}.campo b{color:${CC.primaria};}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;}
+  th{background:${CC.primaria};color:#fff;padding:7px 10px;text-align:left;font-size:11px;letter-spacing:1px;}
+  td{padding:7px 10px;border-bottom:1px solid #E8EAE6;}
+  tr:nth-child(even)td{background:#F7F8F6;}
+  .total td{background:#F0F2EE;font-weight:bold;}
+  .ass{display:flex;gap:40px;margin-top:50px;}
+  .ass-box{flex:1;border-top:2px solid ${CC.primaria};padding-top:10px;font-size:11px;text-align:center;color:#555;}
+  .ftr{margin-top:30px;text-align:center;color:#999;font-size:10px;border-top:1px solid #ddd;padding-top:12px;letter-spacing:1px;}
+  .badge{display:inline-block;background:${CC.primaria};color:#fff;font-size:10px;padding:2px 10px;border-radius:12px;letter-spacing:1px;margin-bottom:12px;}
+  @media print{body{padding:20px;}}`;
+
+  const gerarContrato=()=>{
+    if(!sel)return;
+    const cli=clients.find(c=>c.id===sel.clientId)||{};
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contrato — ${sel.clienteNome}</title><style>${docStyles}</style></head><body>
+    <div class="hdr">
+      <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
+      <div class="hdr-doc"><b>CONTRATO DE CONSULTORIA</b><br>Nº ${sel.id?.slice(-6).toUpperCase()}<br>Data: ${new Date().toLocaleDateString("pt-BR")}</div>
+    </div>
+    <h2>Identificação das Partes</h2>
+    <div class="campo"><b>Contratada:</b> Simara Lobui — Consultoria Comercial e Administrativa</div>
     <div class="campo"><b>WhatsApp:</b> ${config?.whatsapp||"(19) 98871-7228"}</div>
+    <div class="campo"><b>Contratante:</b> ${sel.clienteNome}</div>
+    ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
+    ${cli.empresa?`<div class="campo"><b>Empresa:</b> ${cli.empresa}</div>`:""}
+    ${sel.empresaTerceira?`<div class="campo"><b>Empresa atendida:</b> ${sel.empresaTerceira}</div>`:""}
+    ${cli.email?`<div class="campo"><b>E-mail:</b> ${cli.email}</div>`:""}
+    ${cli.phone?`<div class="campo"><b>WhatsApp contratante:</b> ${cli.phone}</div>`:""}
+    <h2>Objeto do Contrato</h2>
+    <div class="campo">Prestação de serviços de consultoria, orientação, treinamento e/ou implantação, conforme diagnóstico e plano de trabalho definido entre as partes.</div>
+    <div class="campo"><b>Serviço:</b> ${sel.servico}</div>
+    <div class="campo"><b>Modalidade:</b> ${sel.tipo}</div>
+    ${sel.obs?`<div class="campo"><b>Escopo:</b> ${sel.obs}</div>`:""}
+    <h2>Investimento</h2>
+    <div class="campo"><b>Valor:</b> ${fmtBRL(Number(sel.valor||0))}${sel.tipo==="Fixo mensal"?" / mês":sel.tipoCobranca==="Por hora"?" / hora":""}</div>
+    ${sel.tipoCobranca==="Por hora"?`<div class="campo"><b>Valor por hora:</b> ${fmtBRL(Number(sel.valorHora||0))}</div>`:""}
+    ${sel.horasContratadas>0?`<div class="campo"><b>Horas contratadas:</b> ${fmtHoras(Number(sel.horasContratadas))}</div>`:""}
+    <div class="campo"><b>Forma de pagamento:</b> ${sel.formaPag||"PIX"}</div>
+    ${sel.tipo==="Fixo mensal"?`<div class="campo"><b>Vencimento:</b> Todo dia ${sel.diaEmissao} de cada mês</div>`:""}
+    ${sel.dataVencimento?`<div class="campo"><b>Vencimento:</b> ${new Date(sel.dataVencimento+"T00:00").toLocaleDateString("pt-BR")}</div>`:""}
+    <h2>Prazo</h2>
+    <div class="campo"><b>Início:</b> ${new Date(sel.dataInicio+"T00:00").toLocaleDateString("pt-BR")}</div>
+    <div class="campo"><b>Término:</b> ${sel.tipo==="Fixo mensal"?"Indeterminado, com aviso prévio de 30 dias":"Conforme escopo acordado"}</div>
+    <h2>Disposições Gerais</h2>
+    <p style="font-size:12px;color:#555">As informações tratadas durante a prestação de serviços serão mantidas em sigilo. Qualquer alteração nas condições deverá ser acordada previamente por escrito. Os atendimentos serão registrados no sistema de gestão com hora de início, término e atividades realizadas.</p>
+    <div class="ass">
+      <div class="ass-box">Simara Lobui<br>Consultoria Comercial e Administrativa<br>Contratada</div>
+      <div class="ass-box">${sel.clienteNome}${cli.cpfCnpj?`<br>${cli.cpfCnpj}`:""}${cli.empresa?`<br>${cli.empresa}`:""}<br>Contratante</div>
+    </div>
+    <div class="ftr">SIMARA LOBUI · CONSULTORIA COMERCIAL E ADMINISTRATIVA · ${config?.whatsapp||""}</div>
+    </body></html>`;
+    const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
+  };
+
+  const gerarPedido=()=>{
+    if(!sel)return;
+    const cli=clients.find(c=>c.id===sel.clientId)||{};
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido — ${sel.clienteNome}</title><style>${docStyles}</style></head><body>
+    <div class="hdr">
+      <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
+      <div class="hdr-doc"><b>PEDIDO DE ATENDIMENTO</b><br>Nº ${sel.id?.slice(-6).toUpperCase()}<br>Data: ${new Date().toLocaleDateString("pt-BR")}</div>
+    </div>
+    <div class="badge">${sel.status}</div>
     <h2>Cliente</h2>
-    <div class="campo"><b>Empresa/Cliente:</b> ${p.clienteNome}</div>
-    <h2>Serviço</h2>
-    <div class="campo"><b>Tipo:</b> ${p.servico}</div>
-    <div class="campo"><b>Modalidade:</b> ${p.tipo}</div>
-    ${p.tipo==="Fixo mensal"?`<div class="campo"><b>Dia de emissão:</b> Todo dia ${p.diaEmissao} de cada mês</div>`:""}
-    <div class="campo"><b>Valor:</b> ${fmtBRL(Number(p.valor||0))}${p.tipo==="Fixo mensal"?" / mês":p.tipo==="Por medição"?" / medição":""}</div>
-    <div class="campo"><b>Início:</b> ${fmtDate(p.dataInicio)}</div>
-    <div class="campo"><b>Status:</b> ${p.status}</div>
-    ${p.obs?`<div class="campo"><b>Observações:</b> ${p.obs}</div>`:""}
+    <div class="campo"><b>Nome:</b> ${sel.clienteNome}</div>
+    ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
+    ${cli.empresa||sel.empresaTerceira?`<div class="campo"><b>Empresa:</b> ${sel.empresaTerceira||cli.empresa}</div>`:""}
+    ${cli.phone?`<div class="campo"><b>WhatsApp:</b> ${cli.phone}</div>`:""}
+    <h2>Serviço Solicitado</h2>
+    <div class="campo"><b>Tipo:</b> ${sel.servico}</div>
+    <div class="campo"><b>Modalidade:</b> ${sel.tipo}</div>
+    ${sel.obs?`<div class="campo"><b>Descrição:</b> ${sel.obs}</div>`:""}
+    <div class="campo"><b>Data de início:</b> ${new Date(sel.dataInicio+"T00:00").toLocaleDateString("pt-BR")}</div>
+    ${sel.horasContratadas>0?`<div class="campo"><b>Horas estimadas:</b> ${fmtHoras(Number(sel.horasContratadas))}</div>`:""}
+    <h2>Investimento</h2>
+    <div class="campo"><b>Valor:</b> ${fmtBRL(Number(sel.valor||0))}${sel.tipoCobranca==="Por hora"?" / hora":""}</div>
+    <div class="campo"><b>Forma de pagamento:</b> ${sel.formaPag||"PIX"}</div>
+    ${sel.dataVencimento?`<div class="campo"><b>Vencimento:</b> ${new Date(sel.dataVencimento+"T00:00").toLocaleDateString("pt-BR")}</div>`:""}
+    ${(sel.atendimentos||[]).length>0?`
     <h2>Histórico de Atendimentos</h2>
-    ${(p.atendimentos||[]).length===0?"<p style='color:#999;font-size:12px'>Nenhum atendimento ainda.</p>":`
-    <table style="width:100%;border-collapse:collapse;font-size:12px;">
-    <tr style="background:#F5EFF9"><th style="padding:6px;text-align:left">Data</th><th style="text-align:left">Tipo</th><th style="text-align:left">Assunto</th><th style="text-align:right">Horas</th><th style="text-align:right">Valor</th></tr>
-    ${(p.atendimentos||[]).map(a=>`<tr style="border-bottom:1px solid #F0E8F8"><td style="padding:5px">${fmtDate(a.data)}</td><td>${a.tipo}</td><td>${a.assunto}</td><td style="text-align:right">${a.duracao}h</td><td style="text-align:right">${a.valor>0?fmtBRL(a.valor):"—"}</td></tr>`).join("")}
-    <tr style="background:#F5EFF9;font-weight:bold"><td colspan="3">Total</td><td style="text-align:right">${totalHoras(p)}h</td><td style="text-align:right">${totalValorAtend(p)>0?fmtBRL(totalValorAtend(p)):"—"}</td></tr>
-    </table>`}
-    <div class="ass"><div class="ass-box">Simara Lobui<br>Prestadora</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
-    <div class="footer">Emitido em ${new Date().toLocaleDateString("pt-BR")}</div>
+    <table><tr><th>Data</th><th>Início</th><th>Fim</th><th>Tipo</th><th>Assunto</th><th>Horas</th><th>Valor</th></tr>
+    ${(sel.atendimentos||[]).map(a=>`<tr><td>${new Date(a.data+"T00:00").toLocaleDateString("pt-BR")}</td><td>${a.horaInicio||"—"}</td><td>${a.horaFim||"—"}</td><td>${a.tipo}</td><td>${a.assunto}</td><td>${fmtHoras(a.duracao)}</td><td>${a.valor>0?fmtBRL(a.valor):"—"}</td></tr>`).join("")}
+    <tr class="total"><td colspan="5">Total</td><td>${fmtHoras(totalHoras(sel))}</td><td>${fmtBRL(totalValorAtend(sel))}</td></tr>
+    </table>`:""}
+    <div class="ass">
+      <div class="ass-box">Simara Lobui<br>Consultora</div>
+      <div class="ass-box">${sel.clienteNome}<br>Contratante</div>
+    </div>
+    <div class="ftr">SIMARA LOBUI · CONSULTORIA COMERCIAL E ADMINISTRATIVA · ${config?.whatsapp||""}</div>
+    </body></html>`;
+    const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
+  };
+
+  const gerarMedicao=(med)=>{
+    if(!sel||!med)return;
+    const cli=clients.find(c=>c.id===sel.clientId)||{};
+    const atendsMed=(sel.atendimentos||[]).filter(a=>a.medicaoId===med.id);
+    const numMed=(sel.medicoes||[]).findIndex(m=>m.id===med.id)+1;
+    const hrasAnt=(sel.medicoes||[]).slice(0,(sel.medicoes||[]).findIndex(m=>m.id===med.id)).reduce((s,m)=>s+Number(m.horas||0),0);
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Medição — ${sel.clienteNome}</title><style>${docStyles}</style></head><body>
+    <div class="hdr">
+      <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
+      <div class="hdr-doc"><b>MEDIÇÃO DE CONSULTORIA</b><br>Nº ${numMed.toString().padStart(3,"0")}<br>Data: ${new Date(med.dataFim+"T00:00").toLocaleDateString("pt-BR")}</div>
+    </div>
+    <h2>Cliente</h2>
+    <div class="campo"><b>Cliente:</b> ${sel.clienteNome}</div>
+    ${sel.empresaTerceira||cli.empresa?`<div class="campo"><b>Empresa:</b> ${sel.empresaTerceira||cli.empresa}</div>`:""}
+    ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
+    <div class="campo"><b>Serviço:</b> ${sel.servico}</div>
+    <h2>Atendimentos desta Medição</h2>
+    <table><tr><th>Data</th><th>Início</th><th>Fim</th><th>Tipo</th><th>Atividades realizadas</th><th>Horas</th></tr>
+    ${atendsMed.map(a=>`<tr><td>${new Date(a.data+"T00:00").toLocaleDateString("pt-BR")}</td><td>${a.horaInicio||"—"}</td><td>${a.horaFim||"—"}</td><td>${a.tipo}</td><td>${a.assunto}${a.proximosPassos?`<br><i style="font-size:11px;color:#666">Próx: ${a.proximosPassos}</i>`:""}</td><td>${fmtHoras(a.duracao)}</td></tr>`).join("")}
+    <tr class="total"><td colspan="5">Total desta medição</td><td><b>${fmtHoras(med.horas)}</b></td></tr>
+    </table>
+    <h2>Resumo de Horas</h2>
+    <table><tr><th>Item</th><th>Horas</th></tr>
+    <tr><td>Horas contratadas</td><td>${sel.horasContratadas>0?fmtHoras(Number(sel.horasContratadas)):"Ilimitado"}</td></tr>
+    <tr><td>Horas anteriores</td><td>${fmtHoras(hrasAnt)}</td></tr>
+    <tr><td>Horas desta medição</td><td>${fmtHoras(med.horas)}</td></tr>
+    <tr class="total"><td>Horas acumuladas</td><td>${fmtHoras(hrasAnt+Number(med.horas))}</td></tr>
+    ${sel.horasContratadas>0?`<tr><td>Horas restantes</td><td>${fmtHoras(Math.max(0,Number(sel.horasContratadas)-(hrasAnt+Number(med.horas))))}</td></tr>`:""}
+    </table>
+    ${med.valor>0?`<h2>Valor</h2><div class="campo" style="font-size:16px"><b>Valor desta medição: ${fmtBRL(med.valor)}</b></div>`:""}
+    ${med.obs?`<h2>Observações</h2><div class="campo">${med.obs}</div>`:""}
+    <div class="ass">
+      <div class="ass-box">Simara Lobui<br>Consultora</div>
+      <div class="ass-box">${sel.clienteNome}<br>Contratante</div>
+    </div>
+    <div class="ftr">SIMARA LOBUI · CONSULTORIA COMERCIAL E ADMINISTRATIVA · ${config?.whatsapp||""}</div>
     </body></html>`;
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
   };
 
   return(
     <div className="fade" style={{padding:"16px"}}>
-      <div style={{background:"linear-gradient(135deg,#23355A,#2D1B69)",borderRadius:8,padding:"14px 18px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+      <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:8,color:"#D8B4CE",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria · Pedidos de Serviço</div>
+          <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa</div>
         </div>
         <Btn onClick={()=>{setForm(EFP);setModal("pedido");}}>+ Novo pedido</Btn>
       </div>
 
       {!selId&&<>
-        <div style={{marginBottom:12}}><Inp value={busca} onChange={setBusca} placeholder="Buscar por cliente ou serviço..."/></div>
-        {filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum pedido ainda ✦<br/>Clique em "+ Novo pedido" para começar</div>}
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {filtered.map(p=>(
-            <Card key={p.id} hover onClick={()=>{setSelId(p.id);setSubTab("hist");}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
-                    <span style={{fontSize:14,fontWeight:700,color:C.oliva}}>{p.clienteNome}</span>
-                    <span style={{fontSize:9,background:p.status==="Aberto"?"#D4E8D4":p.status==="Finalizado"?C.linho:"#FEE",color:p.status==="Aberto"?C.verde:p.status==="Finalizado"?C.oliva:C.vermelho,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.status}</span>
-                    <span style={{fontSize:9,background:"rgba(123,79,166,0.1)",color:C.cafe,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.tipo}</span>
-                  </div>
-                  <div style={{fontSize:11,color:C.cafe}}>{p.servico}</div>
-                  <div style={{fontSize:11,color:C.oliva,marginTop:2}}>
-                    {p.tipo==="Fixo mensal"&&`Emissão: dia ${p.diaEmissao} · `}
-                    {fmtBRL(Number(p.valor||0))}{p.tipo==="Fixo mensal"?" /mês":p.tipo==="Por medição"?" /medição":""}
-                  </div>
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.cafe}}>{totalHoras(p)}h</div>
-                  <div style={{fontSize:10,color:C.oliva}}>{(p.atendimentos||[]).length} atend.</div>
-                </div>
+        <Tabs tabs={[{k:"dashboard",l:"📊 Dashboard"},{k:"pedidos",l:"📋 Pedidos"}]} active={tab} set={setTab}/>
+
+        {tab==="dashboard"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
+            {[["Em andamento",ativos.length,"🔵"],["Próx. atend.",proxComp.length,"📅"],["Recebido",fmtBRL(totalRecebido),"✅"],["Pendente",fmtBRL(totalPend),"⏳"]].map(([l,v,i])=>(
+              <Card key={l} style={{textAlign:"center",padding:"12px 8px"}}>
+                <div style={{fontSize:20,marginBottom:4}}>{i}</div>
+                <div style={{fontSize:18,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+                <div style={{fontSize:10,color:C.oliva}}>{l}</div>
+              </Card>
+            ))}
+          </div>
+          {proxComp.length>0&&<Card>
+            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📅 Próximos atendimentos</div>
+            {proxComp.map(a=>(
+              <div key={a.id} style={{display:"flex",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}>
+                <span style={{color:C.cafe,fontWeight:600,minWidth:80}}>{fmtDate(a.data)}</span>
+                <span style={{color:C.oliva,minWidth:40}}>{a.hora}</span>
+                <span style={{flex:1}}>{a.desc}</span>
               </div>
-            </Card>
-          ))}
-        </div>
+            ))}
+          </Card>}
+        </div>}
+
+        {tab==="pedidos"&&<>
+          <div style={{marginBottom:10}}><Inp value={busca} onChange={setBusca} placeholder="Buscar por cliente ou serviço..."/></div>
+          {filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontStyle:"italic",fontSize:13}}>Nenhum pedido ainda ✦<br/>Clique em "+ Novo pedido"</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {filtered.map(p=>(
+              <Card key={p.id} hover onClick={()=>{setSelId(p.id);setSubTab("hist");}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:3}}>
+                      <span style={{fontSize:14,fontWeight:700,color:C.oliva}}>{p.clienteNome}</span>
+                      {p.empresaTerceira&&<span style={{fontSize:11,color:C.cafe}}>({p.empresaTerceira})</span>}
+                      <span style={{fontSize:9,background:p.status==="Em andamento"?"#D4E8D4":p.status==="Finalizado"?C.linho:"#FEE",color:p.status==="Em andamento"?C.verde:C.oliva,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.status}</span>
+                      <span style={{fontSize:9,background:"rgba(108,130,113,0.1)",color:CC.primaria,padding:"2px 8px",borderRadius:10,fontWeight:700}}>{p.tipo}</span>
+                    </div>
+                    <div style={{fontSize:11,color:C.cafe}}>{p.servico}</div>
+                    <div style={{fontSize:11,color:C.oliva}}>{p.tipoCobranca} · {fmtBRL(Number(p.tipo==="Por medição"||p.tipoCobranca==="Por hora"?p.valorHora||0:p.valor||0))}{p.tipoCobranca==="Por hora"?"/h":p.tipo==="Fixo mensal"?"/mês":""}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>{fmtHoras(totalHoras(p))}</div>
+                    <div style={{fontSize:10,color:C.oliva}}>{(p.atendimentos||[]).length} atend.</div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>}
       </>}
 
       {selId&&sel&&<>
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
           <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:C.cafe}}>←</button>
-          <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:700,color:C.oliva}}>{sel.clienteNome}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.oliva,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.clienteNome}{sel.empresaTerceira&&` · ${sel.empresaTerceira}`}</div>
             <div style={{fontSize:11,color:C.cafe}}>{sel.servico} · {sel.tipo}</div>
           </div>
-          <Btn sm v="ghost" onClick={()=>gerarContrato(sel)}>📋 Contrato</Btn>
-          {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={()=>lancarMensalidade(sel)}>💰 Lançar mês</Btn>}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+          <Btn sm v="ghost" onClick={gerarContrato}>📋 Contrato</Btn>
+          <Btn sm v="ghost" onClick={gerarPedido}>📄 Pedido</Btn>
+          {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
           {sel.tipo==="Por medição"&&<Btn sm v="oliva" onClick={()=>setModal("medicao")}>📏 Fechar medição</Btn>}
+          <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
           <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
         </div>
 
-        {/* Resumo */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
-          {[["Valor",fmtBRL(Number(sel.valor||0))+(sel.tipo==="Fixo mensal"?"/mês":"")],["Horas",totalHoras(sel)+"h"],["Atend.",(sel.atendimentos||[]).length]].map(([l,v])=>(
-            <div key={l} style={{background:C.linho,borderRadius:6,padding:"8px",textAlign:"center"}}>
-              <div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>{l}</div>
-              <div style={{fontSize:16,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:12}}>
+          {[["Valor",`${fmtBRL(Number(sel.tipoCobranca==="Por hora"?sel.valorHora||0:sel.valor||0))}${sel.tipoCobranca==="Por hora"?"/h":""}`],["Horas",fmtHoras(totalHoras(sel))],["Restantes",sel.horasContratadas>0?fmtHoras(horasRestantes(sel)):"∞"],["Atend.",(sel.atendimentos||[]).length]].map(([l,v])=>(
+            <div key={l} style={{background:C.linho,borderRadius:6,padding:"7px",textAlign:"center"}}>
+              <div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>{l}</div>
+              <div style={{fontSize:14,fontWeight:700,color:C.cafe}}>{v}</div>
             </div>
           ))}
         </div>
 
         <Tabs tabs={[{k:"hist",l:"📋 Histórico"},{k:"med",l:"📏 Medições"},{k:"dados",l:"⚙️ Dados"}]} active={subTab} set={setSubTab}/>
 
-        {subTab==="hist"&&<>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
-            <Btn sm onClick={()=>{setAtendForm({data:today,duracao:1,assunto:"",tipo:"Consultoria",obs:"",valor:0});setModal("atend");}}>+ Atendimento</Btn>
-          </div>
+        {subTab==="hist"&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
           {(sel.atendimentos||[]).length===0&&<div style={{textAlign:"center",padding:"24px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhum atendimento ainda ✦</div>}
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {(sel.atendimentos||[]).slice().reverse().map(a=>(
-              <div key={a.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${C.cafe}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
-                  <div style={{display:"flex",gap:6}}>
-                    <span style={{fontSize:10,background:C.linho,color:C.oliva,padding:"1px 7px",borderRadius:8}}>{a.tipo}</span>
-                    <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>{a.duracao}h</span>
-                    {a.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(a.valor)}</span>}
-                  </div>
+          {(sel.atendimentos||[]).slice().reverse().map(a=>(
+            <div key={a.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${CC.primaria}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,flexWrap:"wrap",gap:4}}>
+                <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
+                <div style={{display:"flex",gap:6}}>
+                  {a.horaInicio&&<span style={{fontSize:10,color:C.oliva}}>{a.horaInicio}→{a.horaFim}</span>}
+                  <span style={{fontSize:10,background:C.linho,color:C.oliva,padding:"1px 7px",borderRadius:8}}>{a.tipo}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtHoras(a.duracao)}</span>
+                  {a.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(a.valor)}</span>}
                 </div>
-                <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
-                {a.obs&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginTop:2}}>{a.obs}</div>}
               </div>
-            ))}
-          </div>
-        </>}
+              <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
+              {a.proximosPassos&&<div style={{fontSize:11,color:C.cafe,fontStyle:"italic",marginTop:3}}>→ {a.proximosPassos}</div>}
+              {a.obs&&<div style={{fontSize:11,color:C.oliva,marginTop:2,fontStyle:"italic"}}>{a.obs}</div>}
+            </div>
+          ))}
+        </div>}
 
-        {subTab==="med"&&<>
-          {sel.tipo!=="Por medição"&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Medições disponíveis apenas para pedidos "Por medição".</div>}
+        {subTab==="med"&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {sel.tipo!=="Por medição"&&<div style={{textAlign:"center",padding:"16px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Medições disponíveis para pedidos "Por medição".</div>}
           {sel.tipo==="Por medição"&&<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <span style={{fontSize:12,color:C.oliva}}>Atendimentos não fechados: {(sel.atendimentos||[]).filter(a=>!a.medicaoId).length}</span>
-              <Btn sm v="oliva" onClick={()=>setModal("medicao")}>📏 Fechar medição</Btn>
+              <span style={{fontSize:12,color:C.oliva}}>Abertos: {atendAbertos(sel).length} atend. · {fmtHoras(atendAbertos(sel).reduce((s,a)=>s+Number(a.duracao||0),0))}</span>
+              <Btn sm v="oliva" onClick={()=>setModal("medicao")}>📏 Fechar</Btn>
             </div>
-            {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ainda ✦</div>}
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {(sel.medicoes||[]).slice().reverse().map((m,i)=>(
-                <div key={m.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${C.dourado}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>Medição {(sel.medicoes||[]).length-i}</span>
-                    <span style={{fontSize:10,background:m.status==="Finalizado"?"#D4E8D4":C.linho,color:m.status==="Finalizado"?C.verde:C.oliva,padding:"2px 8px",borderRadius:8,fontWeight:700}}>{m.status}</span>
+            {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ✦</div>}
+            {(sel.medicoes||[]).slice().reverse().map((m,i)=>(
+              <div key={m.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${CC.secundaria}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>Medição {(sel.medicoes||[]).length-i}</span>
+                  <div style={{display:"flex",gap:6}}>
+                    <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>{fmtHoras(m.horas)}</span>
+                    {m.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(m.valor)}</span>}
+                    <Btn sm v="ghost" onClick={()=>gerarMedicao(m)}>📄</Btn>
                   </div>
-                  <div style={{display:"flex",gap:12,fontSize:11,color:C.oliva}}>
-                    <span>📅 {fmtDate(m.dataFim)}</span>
-                    <span>⏱ {m.horas}h</span>
-                    {m.valor>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(m.valor)}</span>}
-                  </div>
-                  {m.obs&&<div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginTop:3}}>{m.obs}</div>}
                 </div>
-              ))}
-            </div>
+                <div style={{fontSize:11,color:C.oliva}}>{fmtDate(m.dataFim)}{m.obs?` · ${m.obs}`:""}</div>
+              </div>
+            ))}
           </>}
-        </>}
+        </div>}
 
         {subTab==="dados"&&<Card>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 12px"}}>
-            {[["Cliente",sel.clienteNome],["Serviço",sel.servico],["Modalidade",sel.tipo],["Status",sel.status],["Valor",fmtBRL(Number(sel.valor||0))],["Início",fmtDate(sel.dataInicio)],sel.tipo==="Fixo mensal"?["Dia emissão",`Dia ${sel.diaEmissao}`]:["",""]].filter(([l])=>l).map(([l,v])=>(
+            {[["Cliente",sel.clienteNome],sel.empresaTerceira?["Empresa atendida",sel.empresaTerceira]:null,["Serviço",sel.servico],["Modalidade",sel.tipo],["Cobrança",sel.tipoCobranca],["Status",sel.status],["Valor",`${fmtBRL(Number(sel.valor||0))}${sel.tipo==="Fixo mensal"?"/mês":""}`],sel.valorHora>0?["Valor/hora",fmtBRL(Number(sel.valorHora))]:null,sel.horasContratadas>0?["Horas contrat.",fmtHoras(Number(sel.horasContratadas))]:null,["Pagamento",sel.formaPag||"PIX"],["Início",fmtDate(sel.dataInicio)],sel.dataVencimento?["Vencimento",fmtDate(sel.dataVencimento)]:null,sel.diaEmissao&&sel.tipo==="Fixo mensal"?["Dia emissão",`Dia ${sel.diaEmissao}`]:null].filter(Boolean).map(([l,v])=>(
               <div key={l} style={{borderBottom:`1px solid ${C.linho}`,paddingBottom:4}}>
                 <div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>{l}</div>
                 <div style={{fontSize:12,fontWeight:600,color:C.cafe}}>{v}</div>
@@ -3585,29 +3745,34 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       </>}
 
       {/* Modal novo pedido */}
-      {modal==="pedido"&&<Modal title={form.id?"Editar Pedido":"Novo Pedido de Consultoria"} onClose={()=>setModal(null)} wide>
+      {modal==="pedido"&&<Modal title={form.id?"Editar Pedido":"Novo Pedido"} onClose={()=>setModal(null)} wide>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div>
-            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Cliente</label>
-            <select value={form.clientId} onChange={e=>{const c=clients.find(x=>x.id===e.target.value);setForm(f=>({...f,clientId:e.target.value,clienteNome:c?.name||""}));}} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
-              <option value="">Selecione um cliente cadastrado...</option>
-              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Cliente *</label>
+            <select value={form.clientId} onChange={e=>{const c=clients.find(x=>x.id===e.target.value);setForm(f=>({...f,clientId:e.target.value,clienteNome:c?.name||"",clienteCpfCnpj:c?.cpfCnpj||""}));}} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
+              <option value="">Selecione um cliente...</option>
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}{c.empresa?` (${c.empresa})`:""}</option>)}
             </select>
-            {!clients.length&&<div style={{fontSize:11,color:C.oliva,marginTop:4}}>Nenhum cliente cadastrado. <button onClick={()=>setModal(null)} style={{color:C.cafe,background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline"}}>Cadastre em Clientes primeiro.</button></div>}
           </div>
+          <Inp label="Empresa atendida (terceirizada, se houver)" value={form.empresaTerceira} onChange={v=>setForm(f=>({...f,empresaTerceira:v}))} placeholder="Ex: Next Contabilidade"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Sel label="Serviço" value={form.servico} onChange={v=>setForm(f=>({...f,servico:v}))} options={SERVICOS_CONSUL}/>
             <Sel label="Modalidade" value={form.tipo} onChange={v=>setForm(f=>({...f,tipo:v}))} options={TIPOS_PEDIDO_CONSUL}/>
-            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_PEDIDO_CONSUL}/>
-            <Inp label="Valor (R$)" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
+            <Sel label="Tipo de cobrança" value={form.tipoCobranca} onChange={v=>setForm(f=>({...f,tipoCobranca:v}))} options={TIPO_COBRANCA}/>
+            <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>setForm(f=>({...f,formaPag:v}))} options={["PIX","Boleto","Transferência","Dinheiro","Cartão"]}/>
+            {form.tipoCobranca==="Por hora"&&<Inp label="Valor por hora (R$)" type="number" value={form.valorHora} onChange={v=>setForm(f=>({...f,valorHora:v}))}/>}
+            {form.tipo!=="Por medição"&&<Inp label="Valor total (R$)" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>}
+            {form.tipoCobranca==="Pacote"&&<Inp label="Horas do pacote" type="number" value={form.horasContratadas} onChange={v=>setForm(f=>({...f,horasContratadas:v}))}/>}
             <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
-            {form.tipo==="Fixo mensal"&&<Inp label="Dia de emissão (ex: 22)" type="number" value={form.diaEmissao} onChange={v=>setForm(f=>({...f,diaEmissao:v}))}/>}
+            {form.tipo!=="Por medição"&&form.tipo!=="Fixo mensal"&&<Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>}
+            {form.tipo==="Fixo mensal"&&<Inp label="Dia de emissão mensal" type="number" value={form.diaEmissao} onChange={v=>setForm(f=>({...f,diaEmissao:v}))}/>}
+            <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_PEDIDO_CONSUL}/>
           </div>
-          <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={2} placeholder="Detalhes do serviço contratado..."/>
+          <Inp label="Observações / Escopo" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={2}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={savePedido}>Salvar</Btn>
+          <Btn onClick={savePedido}>Salvar pedido</Btn>
         </div>
       </Modal>}
 
@@ -3616,38 +3781,46 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Data" type="date" value={atendForm.data} onChange={v=>setAtendForm(f=>({...f,data:v}))}/>
-            <Inp label="Duração (horas)" type="number" value={atendForm.duracao} onChange={v=>setAtendForm(f=>({...f,duracao:v}))}/>
-            <Sel label="Tipo" value={atendForm.tipo} onChange={v=>setAtendForm(f=>({...f,tipo:v}))} options={TIPOS_ATEND}/>
-            <Inp label="Valor (R$) — se cobrado agora" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
+            <Sel label="Tipo" value={atendForm.tipo} onChange={v=>setAtendForm(f=>({...f,tipo:v}))} options={TIPOS_ATEND_C}/>
+            <Inp label="Hora início" value={atendForm.horaInicio} onChange={v=>{const d=calcDuracao(v,atendForm.horaFim);const val=calcValorAtend(d,sel);setAtendForm(f=>({...f,horaInicio:v,duracao:d||f.duracao,valor:f.valor||val}));}} placeholder="09:00"/>
+            <Inp label="Hora fim" value={atendForm.horaFim} onChange={v=>{const d=calcDuracao(atendForm.horaInicio,v);const val=calcValorAtend(d,sel);setAtendForm(f=>({...f,horaFim:v,duracao:d||f.duracao,valor:f.valor||val}));}} placeholder="10:30"/>
           </div>
-          <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva o atendimento realizado..."/>
-          <Inp label="Observações" value={atendForm.obs} onChange={v=>setAtendForm(f=>({...f,obs:v}))} rows={2}/>
+          {atendForm.horaInicio&&atendForm.horaFim&&<div style={{background:C.linho,borderRadius:4,padding:"8px 12px",fontSize:12}}>
+            <span style={{color:C.cafe,fontWeight:700}}>⏱ {fmtHoras(calcDuracao(atendForm.horaInicio,atendForm.horaFim))}</span>
+            {sel.tipoCobranca==="Por hora"&&Number(sel.valorHora)>0&&<span style={{color:C.verde,fontWeight:700,marginLeft:12}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} calculado automaticamente</span>}
+          </div>}
+          <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva as atividades realizadas..."/>
+          <Inp label="Próximos passos" value={atendForm.proximosPassos} onChange={v=>setAtendForm(f=>({...f,proximosPassos:v}))} placeholder="Ações definidas para o próximo atendimento..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Valor (R$) — deixe 0 para calcular" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
+            <Inp label="Observações" value={atendForm.obs} onChange={v=>setAtendForm(f=>({...f,obs:v}))}/>
+          </div>
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={()=>saveAtend(sel.id)}>Salvar atendimento</Btn>
+          <Btn onClick={saveAtend}>Salvar atendimento</Btn>
         </div>
       </Modal>}
 
       {/* Modal fechar medição */}
       {modal==="medicao"&&sel&&<Modal title="📏 Fechar Medição" onClose={()=>setModal(null)}>
         <div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:12}}>
-          <div style={{fontSize:12,color:C.oliva,marginBottom:4}}>Atendimentos a incluir nesta medição:</div>
-          {(sel.atendimentos||[]).filter(a=>!a.medicaoId).map(a=>(
+          <div style={{fontSize:11,color:C.oliva,marginBottom:6,fontWeight:600}}>Atendimentos a fechar:</div>
+          {atendAbertos(sel).map(a=>(
             <div key={a.id} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0",borderBottom:`1px solid ${C.areia}`}}>
-              <span>{fmtDate(a.data)} — {a.assunto}</span>
-              <span style={{fontWeight:700}}>{a.duracao}h</span>
+              <span>{fmtDate(a.data)} — {a.assunto?.slice(0,40)}</span>
+              <span style={{fontWeight:700}}>{fmtHoras(a.duracao)}{a.valor>0?` · ${fmtBRL(a.valor)}`:""}</span>
             </div>
           ))}
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginTop:6,paddingTop:6,borderTop:`1px solid ${C.areia}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:700,marginTop:8,paddingTop:6,borderTop:`1px solid ${C.areia}`}}>
             <span>Total</span>
-            <span>{(sel.atendimentos||[]).filter(a=>!a.medicaoId).reduce((s,a)=>s+Number(a.duracao||0),0)}h · {fmtBRL((sel.atendimentos||[]).filter(a=>!a.medicaoId).reduce((s,a)=>s+Number(a.valor||0),0))}</span>
+            <span>{fmtHoras(atendAbertos(sel).reduce((s,a)=>s+Number(a.duracao||0),0))} · {fmtBRL(atendAbertos(sel).reduce((s,a)=>s+Number(a.valor||0),0))}</span>
           </div>
         </div>
-        <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2} placeholder="Observações da medição..."/>
+        <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2} placeholder="Resumo da medição..."/>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn v="oliva" onClick={()=>fecharMedicao(sel)}>✓ Fechar e lançar</Btn>
+          <Btn v="oliva" onClick={fecharMedicao}>✓ Fechar e lançar no financeiro</Btn>
         </div>
       </Modal>}
     </div>
