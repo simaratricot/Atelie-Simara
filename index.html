@@ -3418,15 +3418,31 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
 
   const saveAtend=()=>{
     if(!sel||!atendForm.assunto)return;
-    const dur=atendForm.duracao||calcDuracao(atendForm.horaInicio,atendForm.horaFim);
+    const dur=Number(atendForm.duracao)||calcDuracao(atendForm.horaInicio,atendForm.horaFim)||0;
+    // Calcula valor automaticamente se zero
     const valAuto=calcValorAtend(dur,sel);
-    const novo={...atendForm,id:uid(),duracao:dur,valor:atendForm.valor||valAuto};
-    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
-    // Se esporádico ou fixo → lança no financeiro imediatamente
-    if((sel.tipo==="Esporádico"||sel.tipo==="Fixo mensal")&&novo.valor>0){
-      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:novo.valor,date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    const valFinal=Number(atendForm.valor)>0?Number(atendForm.valor):valAuto;
+    const novo={...atendForm,id:atendForm.id||uid(),duracao:dur,valor:valFinal};
+    
+    if(atendForm.id){
+      // Edição
+      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:(c.atendimentos||[]).map(a=>a.id===novo.id?novo:a)}:c));
+    } else {
+      // Novo
+      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
+      // Lança no financeiro se esporádico ou fixo e tiver valor
+      if((sel.tipo==="Esporádico"||sel.tipo==="Fixo mensal")&&valFinal>0){
+        setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:valFinal,date:atendForm.data,dataVencimento:atendForm.data,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+      }
     }
-    setAtendForm(EFA);setModal(null);showSavedGlobal("Atendimento salvo!");
+    // Agenda próximo atendimento se informado
+    if(atendForm.proximaData){
+      setCompromissos(prev=>[...prev,{id:uid(),desc:`Consultoria — ${sel.clienteNome}${sel.empresaTerceira?` (${sel.empresaTerceira})`:""} `,data:atendForm.proximaData,hora:atendForm.proximaHora||"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:sel.id}]);
+      showSavedGlobal("Atendimento salvo e próxima data agendada!");
+    } else {
+      showSavedGlobal("Atendimento salvo!");
+    }
+    setAtendForm(EFA);setModal(null);
   };
 
   const fecharMedicao=()=>{
@@ -3455,7 +3471,19 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
   };
 
-  const CC=CORES_CONSUL;
+  const numContrato=(id)=>{
+    const idx=consultoria.findIndex(c=>c.id===id);
+    return String((idx>=0?idx:0)+5).padStart(3,"0");
+  };
+  const [verFaturamento,setVerFaturamento]=useState(false);
+  // Faturamento consultoria do mês atual
+  const mesFmt2=today.slice(0,7);
+  const fatMes=finance.filter(f=>f.tipoReceita==="Consultoria"&&f.date?.startsWith(mesFmt2)&&f.pago).reduce((s,f)=>s+f.value,0);
+  const aMedir=consultoria.filter(c=>c.tipo==="Por medição").reduce((s,c)=>s+(c.atendimentos||[]).filter(a=>!a.medicaoId).reduce((ss,a)=>ss+Number(a.valor||0),0),0);
+  const aReceberConsul=finance.filter(f=>f.tipoReceita==="Consultoria"&&!f.pago&&!isVencido(f)).reduce((s,f)=>s+f.value,0);
+  const vencidoConsul=finance.filter(f=>f.tipoReceita==="Consultoria"&&isVencido(f)).reduce((s,f)=>s+f.value,0);
+
+  const configConsul=config?.consultoria||{telefone:"",email:"",pixChave:"357.252.138.62",pixNome:"Simara Ap. de Souza Lobui"};
   const docStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:${CC.texto};padding:30px;line-height:1.75;}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid ${CC.primaria};padding-bottom:16px;margin-bottom:24px;}
   .hdr-nome{font-size:22px;font-weight:bold;color:${CC.primaria};letter-spacing:1px;}
@@ -3463,6 +3491,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   .hdr-doc{text-align:right;font-size:12px;color:#666;}
   h2{color:${CC.primaria};font-size:14px;text-transform:uppercase;letter-spacing:2px;border-left:4px solid ${CC.secundaria};padding-left:10px;margin:22px 0 10px;}
   .campo{margin-bottom:7px;font-size:13px;}.campo b{color:${CC.primaria};}
+  .pix{background:#F7F8F6;border:1px solid #ddd;border-radius:4px;padding:10px 14px;font-size:12px;margin-top:6px;}
   table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;}
   th{background:${CC.primaria};color:#fff;padding:7px 10px;text-align:left;font-size:11px;letter-spacing:1px;}
   td{padding:7px 10px;border-bottom:1px solid #E8EAE6;}
@@ -3474,45 +3503,51 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   .badge{display:inline-block;background:${CC.primaria};color:#fff;font-size:10px;padding:2px 10px;border-radius:12px;letter-spacing:1px;margin-bottom:12px;}
   @media print{body{padding:20px;}}`;
 
+  const rodapeDoc=()=>`<div class="ftr">SIMARA LOBUI · CONSULTORIA COMERCIAL E ADMINISTRATIVA${configConsul.telefone?` · ${configConsul.telefone}`:(config?.whatsapp?` · ${config.whatsapp}`:"")}</div>`;
+
   const gerarContrato=()=>{
     if(!sel)return;
     const cli=clients.find(c=>c.id===sel.clientId)||{};
+    const nC=numContrato(sel.id);
+    const isPorHora=sel.tipoCobranca==="Por hora";
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contrato — ${sel.clienteNome}</title><style>${docStyles}</style></head><body>
     <div class="hdr">
       <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
-      <div class="hdr-doc"><b>CONTRATO DE CONSULTORIA</b><br>Nº ${sel.id?.slice(-6).toUpperCase()}<br>Data: ${new Date().toLocaleDateString("pt-BR")}</div>
+      <div class="hdr-doc"><b>CONTRATO DE CONSULTORIA</b><br>Nº ${nC}<br>Data: ${new Date().toLocaleDateString("pt-BR")}</div>
     </div>
     <h2>Identificação das Partes</h2>
-    <div class="campo"><b>Contratada:</b> Simara Lobui — Consultoria Comercial e Administrativa</div>
-    <div class="campo"><b>WhatsApp:</b> ${config?.whatsapp||"(19) 98871-7228"}</div>
+    <div class="campo"><b>Contratada:</b> Simara Ap. de Souza Lobui — Consultoria Comercial e Administrativa</div>
+    <div class="campo"><b>Contato:</b> ${configConsul.telefone||config?.whatsapp||"(19) 98871-7228"}</div>
+    ${configConsul.email?`<div class="campo"><b>E-mail:</b> ${configConsul.email}</div>`:""}
     <div class="campo"><b>Contratante:</b> ${sel.clienteNome}</div>
     ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
-    ${cli.empresa?`<div class="campo"><b>Empresa:</b> ${cli.empresa}</div>`:""}
-    ${sel.empresaTerceira?`<div class="campo"><b>Empresa atendida:</b> ${sel.empresaTerceira}</div>`:""}
-    ${cli.email?`<div class="campo"><b>E-mail:</b> ${cli.email}</div>`:""}
-    ${cli.phone?`<div class="campo"><b>WhatsApp contratante:</b> ${cli.phone}</div>`:""}
+    ${cli.empresa||sel.empresaTerceira?`<div class="campo"><b>Empresa:</b> ${sel.empresaTerceira||cli.empresa}</div>`:""}
+    ${cli.email?`<div class="campo"><b>E-mail contratante:</b> ${cli.email}</div>`:""}
+    ${cli.phone?`<div class="campo"><b>Contato contratante:</b> ${cli.phone}</div>`:""}
     <h2>Objeto do Contrato</h2>
     <div class="campo">Prestação de serviços de consultoria, orientação, treinamento e/ou implantação, conforme diagnóstico e plano de trabalho definido entre as partes.</div>
     <div class="campo"><b>Serviço:</b> ${sel.servico}</div>
     <div class="campo"><b>Modalidade:</b> ${sel.tipo}</div>
     ${sel.obs?`<div class="campo"><b>Escopo:</b> ${sel.obs}</div>`:""}
     <h2>Investimento</h2>
-    <div class="campo"><b>Valor:</b> ${fmtBRL(Number(sel.valor||0))}${sel.tipo==="Fixo mensal"?" / mês":sel.tipoCobranca==="Por hora"?" / hora":""}</div>
-    ${sel.tipoCobranca==="Por hora"?`<div class="campo"><b>Valor por hora:</b> ${fmtBRL(Number(sel.valorHora||0))}</div>`:""}
+    <div class="campo"><b>Tipo de cobrança:</b> ${sel.tipoCobranca}</div>
+    ${isPorHora?`<div class="campo"><b>Valor por hora:</b> ${fmtBRL(Number(sel.valorHora||0))}</div>`:
+    `<div class="campo"><b>Valor ${sel.tipo==="Fixo mensal"?"mensal":"total"}:</b> ${fmtBRL(Number(sel.valor||0))}</div>`}
     ${sel.horasContratadas>0?`<div class="campo"><b>Horas contratadas:</b> ${fmtHoras(Number(sel.horasContratadas))}</div>`:""}
     <div class="campo"><b>Forma de pagamento:</b> ${sel.formaPag||"PIX"}</div>
+    ${(!sel.formaPag||sel.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${configConsul.pixNome||"Simara Ap. de Souza Lobui"} · Chave CPF: ${configConsul.pixChave||"357.252.138.62"}</div>`:""}
     ${sel.tipo==="Fixo mensal"?`<div class="campo"><b>Vencimento:</b> Todo dia ${sel.diaEmissao} de cada mês</div>`:""}
     ${sel.dataVencimento?`<div class="campo"><b>Vencimento:</b> ${new Date(sel.dataVencimento+"T00:00").toLocaleDateString("pt-BR")}</div>`:""}
     <h2>Prazo</h2>
     <div class="campo"><b>Início:</b> ${new Date(sel.dataInicio+"T00:00").toLocaleDateString("pt-BR")}</div>
     <div class="campo"><b>Término:</b> ${sel.tipo==="Fixo mensal"?"Indeterminado, com aviso prévio de 30 dias":"Conforme escopo acordado"}</div>
     <h2>Disposições Gerais</h2>
-    <p style="font-size:12px;color:#555">As informações tratadas durante a prestação de serviços serão mantidas em sigilo. Qualquer alteração nas condições deverá ser acordada previamente por escrito. Os atendimentos serão registrados no sistema de gestão com hora de início, término e atividades realizadas.</p>
+    <p style="font-size:12px;color:#555">As informações tratadas durante a prestação de serviços serão mantidas em sigilo. Qualquer alteração nas condições deverá ser acordada previamente por escrito. Os atendimentos serão registrados com hora de início, término e atividades realizadas.</p>
     <div class="ass">
-      <div class="ass-box">Simara Lobui<br>Consultoria Comercial e Administrativa<br>Contratada</div>
+      <div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria Comercial e Administrativa<br>Contratada</div>
       <div class="ass-box">${sel.clienteNome}${cli.cpfCnpj?`<br>${cli.cpfCnpj}`:""}${cli.empresa?`<br>${cli.empresa}`:""}<br>Contratante</div>
     </div>
-    <div class="ftr">SIMARA LOBUI · CONSULTORIA COMERCIAL E ADMINISTRATIVA · ${config?.whatsapp||""}</div>
+    ${rodapeDoc()}
     </body></html>`;
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
   };
@@ -3610,24 +3645,47 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         <Tabs tabs={[{k:"dashboard",l:"📊 Dashboard"},{k:"pedidos",l:"📋 Pedidos"}]} active={tab} set={setTab}/>
 
         {tab==="dashboard"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
-            {[["Em andamento",ativos.length,"🔵"],["Próx. atend.",proxComp.length,"📅"],["Recebido",fmtBRL(totalRecebido),"✅"],["Pendente",fmtBRL(totalPend),"⏳"]].map(([l,v,i])=>(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
+            {[["Em andamento",ativos.length,"🔵"],["Próx. atend.",proxComp.length,"📅"]].map(([l,v,i])=>(
               <Card key={l} style={{textAlign:"center",padding:"12px 8px"}}>
-                <div style={{fontSize:20,marginBottom:4}}>{i}</div>
-                <div style={{fontSize:18,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+                <div style={{fontSize:22,marginBottom:4}}>{i}</div>
+                <div style={{fontSize:22,fontWeight:700,color:C.cafe,fontFamily:"'Playfair Display',serif"}}>{v}</div>
                 <div style={{fontSize:10,color:C.oliva}}>{l}</div>
               </Card>
             ))}
+            <Card style={{textAlign:"center",padding:"12px 8px",cursor:"pointer"}} onClick={()=>setVerFaturamento(v=>!v)}>
+              <div style={{fontSize:22,marginBottom:4}}>💰</div>
+              <div style={{fontSize:12,fontWeight:700,color:C.cafe}}>Ver projeção</div>
+              <div style={{fontSize:10,color:C.oliva}}>faturamento</div>
+            </Card>
           </div>
-          {proxComp.length>0&&<Card>
-            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📅 Próximos atendimentos</div>
-            {proxComp.map(a=>(
-              <div key={a.id} style={{display:"flex",gap:8,padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}>
-                <span style={{color:C.cafe,fontWeight:600,minWidth:80}}>{fmtDate(a.data)}</span>
-                <span style={{color:C.oliva,minWidth:40}}>{a.hora}</span>
-                <span style={{flex:1}}>{a.desc}</span>
+
+          {/* Modal faturamento */}
+          {verFaturamento&&<div style={{background:C.branco,border:`2px solid ${CC.primaria}`,borderRadius:8,padding:"14px 16px",position:"relative"}}>
+            <button onClick={()=>setVerFaturamento(false)} style={{position:"absolute",top:8,right:10,background:"none",border:"none",cursor:"pointer",fontSize:16,color:C.oliva}}>✕</button>
+            <div style={{fontSize:10,color:CC.primaria,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:10}}>Projeção de Faturamento</div>
+            {[["Faturado este mês",fatMes,C.verde],["A medir (medições abertas)",aMedir,CC.secundaria],["A receber",aReceberConsul,C.cafe],["Vencido",vencidoConsul,C.vermelho]].map(([l,v,cor])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}>
+                <span style={{color:C.oliva}}>{l}</span>
+                <span style={{fontWeight:700,color:cor}}>{fmtBRL(v)}</span>
               </div>
             ))}
+          </div>}
+
+          {proxComp.length>0&&<Card>
+            <div style={{fontSize:9,color:C.oliva,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>📅 Próximos atendimentos ({proxComp.length})</div>
+            {proxComp.map(a=>{
+              // Tenta achar empresa vinculada
+              const pedido=consultoria.find(c=>c.id===a.pedidoId);
+              return(
+                <div key={a.id} style={{display:"flex",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12,flexWrap:"wrap"}}>
+                  <span style={{color:C.cafe,fontWeight:600,minWidth:80}}>{fmtDate(a.data)}</span>
+                  <span style={{color:C.oliva,minWidth:40}}>{a.hora}</span>
+                  <span style={{flex:1,color:C.cafe}}>{a.desc}</span>
+                  {pedido?.empresaTerceira&&<span style={{fontSize:10,color:C.oliva,fontStyle:"italic"}}>{pedido.empresaTerceira}</span>}
+                </div>
+              );
+            })}
           </Card>}
         </div>}
 
@@ -3693,11 +3751,12 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
             <div key={a.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${CC.primaria}`}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,flexWrap:"wrap",gap:4}}>
                 <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
-                <div style={{display:"flex",gap:6}}>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
                   {a.horaInicio&&<span style={{fontSize:10,color:C.oliva}}>{a.horaInicio}→{a.horaFim}</span>}
                   <span style={{fontSize:10,background:C.linho,color:C.oliva,padding:"1px 7px",borderRadius:8}}>{a.tipo}</span>
                   <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtHoras(a.duracao)}</span>
                   {a.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(a.valor)}</span>}
+                  <button onClick={()=>{setAtendForm({...a});setModal("atend");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
                 </div>
               </div>
               <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
@@ -3776,29 +3835,36 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         </div>
       </Modal>}
 
-      {/* Modal atendimento */}
-      {modal==="atend"&&sel&&<Modal title="+ Registrar Atendimento" onClose={()=>setModal(null)} wide>
+      {modal==="atend"&&sel&&<Modal title={atendForm.id?"✎ Editar Atendimento":"+ Registrar Atendimento"} onClose={()=>setModal(null)} wide>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Data" type="date" value={atendForm.data} onChange={v=>setAtendForm(f=>({...f,data:v}))}/>
             <Sel label="Tipo" value={atendForm.tipo} onChange={v=>setAtendForm(f=>({...f,tipo:v}))} options={TIPOS_ATEND_C}/>
-            <Inp label="Hora início" value={atendForm.horaInicio} onChange={v=>{const d=calcDuracao(v,atendForm.horaFim);const val=calcValorAtend(d,sel);setAtendForm(f=>({...f,horaInicio:v,duracao:d||f.duracao,valor:f.valor||val}));}} placeholder="09:00"/>
-            <Inp label="Hora fim" value={atendForm.horaFim} onChange={v=>{const d=calcDuracao(atendForm.horaInicio,v);const val=calcValorAtend(d,sel);setAtendForm(f=>({...f,horaFim:v,duracao:d||f.duracao,valor:f.valor||val}));}} placeholder="10:30"/>
+            <Inp label="Hora início" value={atendForm.horaInicio} onChange={v=>{const d=calcDuracao(v,atendForm.horaFim);const val=d>0?calcValorAtend(d,sel):0;setAtendForm(f=>({...f,horaInicio:v,duracao:d||f.duracao,valor:f.valor||val}));}} placeholder="09:00"/>
+            <Inp label="Hora fim" value={atendForm.horaFim} onChange={v=>{const d=calcDuracao(atendForm.horaInicio,v);const val=d>0?calcValorAtend(d,sel):0;setAtendForm(f=>({...f,horaFim:v,duracao:d||f.duracao,valor:f.valor>0?f.valor:val}));}} placeholder="10:30"/>
           </div>
-          {atendForm.horaInicio&&atendForm.horaFim&&<div style={{background:C.linho,borderRadius:4,padding:"8px 12px",fontSize:12}}>
+          {atendForm.horaInicio&&atendForm.horaFim&&<div style={{background:C.linho,borderRadius:4,padding:"8px 12px",fontSize:12,display:"flex",gap:12,flexWrap:"wrap"}}>
             <span style={{color:C.cafe,fontWeight:700}}>⏱ {fmtHoras(calcDuracao(atendForm.horaInicio,atendForm.horaFim))}</span>
-            {sel.tipoCobranca==="Por hora"&&Number(sel.valorHora)>0&&<span style={{color:C.verde,fontWeight:700,marginLeft:12}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} calculado automaticamente</span>}
+            {sel.tipoCobranca==="Por hora"&&Number(sel.valorHora)>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} (automático)</span>}
           </div>}
           <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva as atividades realizadas..."/>
           <Inp label="Próximos passos" value={atendForm.proximosPassos} onChange={v=>setAtendForm(f=>({...f,proximosPassos:v}))} placeholder="Ações definidas para o próximo atendimento..."/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Inp label="Valor (R$) — deixe 0 para calcular" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
+            <Inp label="Valor (R$) — 0 = calcular automático" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
             <Inp label="Observações" value={atendForm.obs} onChange={v=>setAtendForm(f=>({...f,obs:v}))}/>
+          </div>
+          <div style={{background:C.linho,borderRadius:6,padding:"10px 12px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.cafe,marginBottom:6}}>📅 Agendar próximo atendimento</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Data" type="date" value={atendForm.proximaData||""} onChange={v=>setAtendForm(f=>({...f,proximaData:v}))}/>
+              <Inp label="Horário" value={atendForm.proximaHora||""} onChange={v=>setAtendForm(f=>({...f,proximaHora:v}))} placeholder="09:00"/>
+            </div>
+            {atendForm.proximaData&&<div style={{fontSize:10,color:C.verde,marginTop:4}}>✓ Será adicionado aos compromissos da agenda</div>}
           </div>
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
-          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={saveAtend}>Salvar atendimento</Btn>
+          <Btn v="ghost" onClick={()=>{setAtendForm(EFA);setModal(null);}}>Cancelar</Btn>
+          <Btn onClick={saveAtend}>{atendForm.id?"Salvar edição":"Salvar atendimento"}</Btn>
         </div>
       </Modal>}
 
@@ -4028,6 +4094,15 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
             <Inp label="WhatsApp (com DDI, ex: 5519...)" value={config.whatsapp} onChange={v=>setConfig(c=>({...c,whatsapp:v}))} placeholder="5519999999999"/>
             <Inp label="Instagram" value={config.instagram} onChange={v=>setConfig(c=>({...c,instagram:v}))} placeholder="@simaralobui"/>
             <Inp label="Sobre mim (texto do site)" value={config.sobreMim} onChange={v=>setConfig(c=>({...c,sobreMim:v}))} rows={5}/>
+          <Divider label="💼 Dados da Consultoria (rodapé dos documentos)"/>
+          <Card style={{marginBottom:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Telefone/WhatsApp consultoria" value={config.consultoria?.telefone||""} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),telefone:v}}))} placeholder="(19) 98871-7228"/>
+              <Inp label="E-mail consultoria" value={config.consultoria?.email||""} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),email:v}}))} placeholder="simara@email.com"/>
+              <Inp label="Nome para PIX" value={config.consultoria?.pixNome||"Simara Ap. de Souza Lobui"} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),pixNome:v}}))}/>
+              <Inp label="Chave PIX (CPF)" value={config.consultoria?.pixChave||"357.252.138.62"} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),pixChave:v}}))}/>
+            </div>
+          </Card>
           </div>
         </Card>
         <Card style={{marginBottom:14}}>
