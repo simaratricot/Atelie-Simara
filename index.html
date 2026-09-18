@@ -3481,7 +3481,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const fatMes=finance.filter(f=>f.tipoReceita==="Consultoria"&&f.date?.startsWith(mesFmt2)&&f.pago).reduce((s,f)=>s+f.value,0);
   const aMedir=consultoria.filter(c=>c.tipo==="Por medição").reduce((s,c)=>s+(c.atendimentos||[]).filter(a=>!a.medicaoId).reduce((ss,a)=>ss+Number(a.valor||0),0),0);
   const aReceberConsul=finance.filter(f=>f.tipoReceita==="Consultoria"&&!f.pago&&!isVencido(f)).reduce((s,f)=>s+f.value,0);
-  const vencidoConsul=finance.filter(f=>f.tipoReceita==="Consultoria"&&!f.pago&&f.dataVencimento&&f.dataVencimento<today).reduce((s,f)=>s+f.value,0);
+  const vencidoConsul=finance.filter(f=>f.tipoReceita==="Consultoria"&&isVencido(f)).reduce((s,f)=>s+f.value,0);
 
   const configConsul=config?.consultoria||{telefone:"",email:"",pixChave:"357.252.138.62",pixNome:"Simara Ap. de Souza Lobui"};
   const docStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:${CC.texto};padding:30px;line-height:1.75;}
@@ -3775,33 +3775,13 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
             </div>
             {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ✦</div>}
             {(sel.medicoes||[]).slice().reverse().map((m,i)=>(
-              <div key={m.id} style={{padding:"10px 12px",background:m.status==="Cancelado"?"#FEF2F2":C.branco,border:`1px solid ${m.status==="Cancelado"?C.vermelho:C.areia}`,borderRadius:6,borderLeft:`3px solid ${m.status==="Cancelado"?C.vermelho:CC.secundaria}`,opacity:m.status==="Cancelado"?0.7:1}}>
+              <div key={m.id} style={{padding:"10px 12px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${CC.secundaria}`}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>Medição {(sel.medicoes||[]).length-i}</span>
-                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <div style={{display:"flex",gap:6}}>
                     <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>{fmtHoras(m.horas)}</span>
                     {m.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(m.valor)}</span>}
                     <Btn sm v="ghost" onClick={()=>gerarMedicao(m)}>📄</Btn>
-                    <button onClick={()=>{
-                      const novoVal=window.prompt("Editar valor da medição (R$):",m.valor||0);
-                      if(novoVal===null)return;
-                      const novaObs=window.prompt("Editar observação:",m.obs||"");
-                      if(novaObs===null)return;
-                      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,medicoes:c.medicoes.map(x=>x.id===m.id?{...x,valor:Number(novoVal)||x.valor,obs:novaObs}:x)}:c));
-                      showSavedGlobal("Medição atualizada!");
-                    }} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
-                    <button onClick={()=>{
-                      if(!window.confirm("Cancelar esta medição? Os atendimentos voltarão para abertos."))return;
-                      // Remove lançamento do financeiro desta medição
-                      setFinance(prev=>prev.filter(f=>!(f.tipoReceita==="Consultoria"&&f.clientName===sel.clienteNome&&f.desc?.includes("Medição")&&f.date===m.dataFim)));
-                      // Marca medição como cancelada e reabre atendimentos
-                      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{
-                        ...c,
-                        medicoes:c.medicoes.map(x=>x.id===m.id?{...x,status:"Cancelado"}:x),
-                        atendimentos:c.atendimentos.map(a=>a.medicaoId===m.id?{...a,medicaoId:null}:a)
-                      }:c));
-                      showSavedGlobal("Medição cancelada — atendimentos reabertos.");
-                    }} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
                   </div>
                 </div>
                 <div style={{fontSize:11,color:C.oliva}}>{fmtDate(m.dataFim)}{m.obs?` · ${m.obs}`:""}</div>
