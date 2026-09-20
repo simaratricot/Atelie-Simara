@@ -3351,6 +3351,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const [filtStatus,setFiltStatus]=useState("Em andamento");
   const [verFat,setVerFat]=useState(false);
   const [selAtends,setSelAtends]=useState([]);
+  const [medHora,setMedHora]=useState("");
+  const [medSalvaHora,setMedSalvaHora]=useState(true);
   const [wppView,setWppView]=useState("menu");
   const [wppFmt,setWppFmt]=useState("pdf");
   const [wppBusy,setWppBusy]=useState(false);
@@ -3371,9 +3373,13 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
 
   const calcDuracao=(ini,fim)=>{if(!ini||!fim)return 0;const[hI,mI]=ini.split(":").map(Number);const[hF,mF]=fim.split(":").map(Number);return Math.max(0,Math.round(((hF*60+mF)-(hI*60+mI))*100/60)/100);};
   const fmtHoras=(h)=>{if(!h||h===0)return "0h";const hrs=Math.floor(h);const mins=Math.round((h-hrs)*60);return mins>0?`${hrs}h${String(mins).padStart(2,"0")}`:`${hrs}h`;};
-  const taxaHora=(p)=>{if(!p)return 0;const vh=Number(p.valorHora||0);if(vh<=0)return 0;return(p.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(p.tipo))?vh:0;};
+  const num=(v)=>{const n=Number(String(v==null?"":v).replace(",","."));return isNaN(n)?0:n;};
+  const taxaHora=(p)=>{if(!p)return 0;const vh=num(p.valorHora);if(vh<=0)return 0;return(p.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(p.tipo))?vh:0;};
   const calcValorAtend=(dur,p)=>Math.round(taxaHora(p)*Number(dur||0)*100)/100;
   // valor efetivo: usa o valor gravado; se estiver zerado, calcula pelas horas x valor/hora do pedido
+  // valor de um atendimento numa taxa informada (usa o valor gravado; se zerado, horas x taxa)
+  const vRate=(a,rate)=>Number(a.valor||0)>0?Number(a.valor):Math.round(Number(rate||0)*Number(a.duracao||0)*100)/100;
+  const taxaMed=()=>num(medHora)>0?num(medHora):taxaHora(sel);
   const vEf=(a,p)=>Number(a.valor||0)>0?Number(a.valor):calcValorAtend(a.duracao,p);
   const totalHoras=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.duracao||0),0);
   const horasRestantes=(p)=>Math.max(0,Number(p.horasContratadas||0)-totalHoras(p));
@@ -3455,22 +3461,39 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     showSavedGlobal(lancar?`Atendimento salvo e lançado no financeiro (venc. ${fmtDate(vencFin)})!`:"Atendimento salvo!");
   };
 
-  const fecharMedicao=()=>{
+  const fecharMedicao=(lancar)=>{
     if(!sel)return;
     const atends=selAtends.length>0?(sel.atendimentos||[]).filter(a=>selAtends.includes(a.id)):atendAbertos(sel);
     const hrs=atends.reduce((s,a)=>s+Number(a.duracao||0),0);
-    const val=atends.reduce((s,a)=>s+vEf(a,sel),0);
-    if(hrs>0&&val<=0&&!window.confirm("Estes atendimentos estão sem valor. A medição será fechada SEM lançar no financeiro. Deseja continuar?"))return;
+    const rate=taxaMed();
+    const val=atends.reduce((s,a)=>s+vRate(a,rate),0);
+    const quer=lancar===true;
+    if(quer&&val<=0){alert("Não há valor para lançar no financeiro. Informe o \"Valor da hora\" ou use \"Salvar só no pedido\".");return;}
+    if(quer&&atends.some(a=>a.financeiroId&&finance.some(f=>f.id===a.financeiroId))&&!window.confirm("Alguns atendimentos desta medição já foram lançados no financeiro individualmente. Lançar a medição vai contar esses valores de novo. Continuar?"))return;
     const medId=uid();
-    const nova={id:medId,dataFim:today,horas:hrs,valor:val,status:"Finalizado",obs:medForm.obs,dataVencimento:medForm.dataVencimento,formaPag:medForm.formaPag};
+    const finId=quer?uid():null;
+    const nova={id:medId,dataFim:today,horas:hrs,valor:val,status:"Finalizado",obs:medForm.obs,dataVencimento:medForm.dataVencimento,formaPag:medForm.formaPag,lancado:quer,financeiroId:finId};
     setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,
+      valorHora:(medSalvaHora&&num(medHora)>0)?num(medHora):c.valorHora,
       medicoes:[...(c.medicoes||[]),nova],
-      atendimentos:(c.atendimentos||[]).map(a=>atends.find(x=>x.id===a.id)?{...a,valor:vEf(a,c),medicaoId:medId}:a)
+      atendimentos:(c.atendimentos||[]).map(a=>atends.find(x=>x.id===a.id)?{...a,valor:vRate(a,rate),medicaoId:medId}:a)
     }:c));
-    if(val>0){
-      setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    if(quer){
+      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     }
-    setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setSelAtends([]);setModal(null);showSavedGlobal("Medição fechada!");
+    setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setSelAtends([]);setModal(null);
+    showSavedGlobal(quer?"Medição fechada e lançada no financeiro!":"Medição salva no pedido (não foi para o financeiro).");
+  };
+
+  // lançar no financeiro uma medição que ficou só no pedido
+  const lancarMedicaoFin=(m)=>{
+    if(!sel)return;
+    if(!(Number(m.valor)>0)){alert("Esta medição está sem valor. Edite o valor (✎) antes de lançar.");return;}
+    if(!window.confirm(`Lançar ${fmtBRL(m.valor)} desta medição no financeiro?`))return;
+    const finId=uid();
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(m.horas)}`,value:Number(m.valor),date:today,dataVencimento:m.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,medicoes:c.medicoes.map(x=>x.id===m.id?{...x,lancado:true,financeiroId:finId}:x)}:c));
+    showSavedGlobal("Medição lançada no financeiro!");
   };
 
   const lancarMensal=()=>{
@@ -3903,7 +3926,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           <Btn sm v="ghost" onClick={()=>gerarPedido(sel)}>📄 Pedido</Btn>
           <Btn sm v="ghost" onClick={()=>{setWppView("menu");setWppMes(today.slice(0,7));setWppDia(sel.diaEmissao||22);setModal("wpp");}}>💬 WhatsApp</Btn>
           {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
-          {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setModal("medicao");}}>📏 Fechar medição</Btn>}
+          {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar medição</Btn>}
           <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
           <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
         </div>
@@ -3944,7 +3967,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <span style={{fontSize:12,color:C.oliva}}>Abertos: {atendAbertos(sel).length} · {fmtHoras(atendAbertos(sel).reduce((s,a)=>s+Number(a.duracao||0),0))}{atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0)>0?` · ${fmtBRL(atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0))}`:""}</span>
-              <Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setModal("medicao");}}>📏 Fechar</Btn>
+              <Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar</Btn>
             </div>
             {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"16px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ✦</div>}
             {(sel.medicoes||[]).slice().reverse().map((m,i)=>(
@@ -3954,7 +3977,10 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
                   <div style={{display:"flex",gap:5,alignItems:"center"}}>
                     <span style={{fontSize:11,fontWeight:700,color:C.oliva}}>{fmtHoras(m.horas)}</span>
                     {m.valor>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(m.valor)}</span>}
+                    {m.status!=="Cancelado"&&m.lancado===true&&<span style={{fontSize:10,color:C.verde}} title="Lançada no financeiro">💰 no financeiro</span>}
+                    {m.status!=="Cancelado"&&m.lancado===false&&<span style={{fontSize:10,color:C.oliva}} title="Só no pedido">📌 só no pedido</span>}
                     {m.status!=="Cancelado"&&<>
+                      {m.lancado===false&&m.valor>0&&<Btn sm v="ghost" onClick={()=>lancarMedicaoFin(m)}>💰 Lançar</Btn>}
                       <Btn sm v="ghost" onClick={()=>gerarMedicao(m,sel)}>📄</Btn>
                       <button onClick={()=>enviarWhatsApp(sel,"medicao",m)} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.verde}}>💬</button>
                       <button onClick={()=>{
@@ -3967,7 +3993,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
                       }} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
                       <button onClick={()=>{
                         if(!window.confirm("Cancelar medição? Atendimentos voltarão para abertos."))return;
-                        setFinance(prev=>prev.filter(f=>!(f.tipoReceita==="Consultoria"&&f.clientName===sel.clienteNome&&f.date===m.dataFim&&f.desc?.includes("Medição"))));
+                        if(m.financeiroId){setFinance(prev=>prev.filter(f=>f.id!==m.financeiroId));}
+                        else if(m.lancado!==false){setFinance(prev=>prev.filter(f=>!(f.tipoReceita==="Consultoria"&&f.clientName===sel.clienteNome&&f.date===m.dataFim&&f.desc?.includes("Medição"))));}
                         setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,medicoes:c.medicoes.map(x=>x.id===m.id?{...x,status:"Cancelado"}:x),atendimentos:c.atendimentos.map(a=>a.medicaoId===m.id?{...a,medicaoId:null}:a)}:c));
                         showSavedGlobal("Medição cancelada.");
                       }} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.vermelho}}>✕</button>
@@ -4149,21 +4176,25 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           {atendAbertos(sel).map(a=>(
             <div key={a.id} onClick={()=>setSelAtends(prev=>prev.includes(a.id)?prev.filter(x=>x!==a.id):[...prev,a.id])} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",cursor:"pointer",borderRadius:4,background:selAtends.includes(a.id)?C.linho:"transparent",marginBottom:2}}>
               <span style={{fontSize:14}}>{selAtends.length===0||selAtends.includes(a.id)?"✅":"⬜"}</span>
-              <span style={{flex:1,fontSize:12}}>{fmtDate(a.data)} — {a.assunto?.slice(0,40)}</span>
+              <span style={{flex:1,fontSize:12}}>{fmtDate(a.data)} — {a.assunto?.slice(0,40)}{(a.financeiroId&&finance.some(f=>f.id===a.financeiroId))?" · 💰 já lançado":""}</span>
               <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtHoras(a.duracao)}</span>
-              <span style={{fontSize:11,fontWeight:700,color:vEf(a,sel)>0?C.verde:C.vermelho}}>{fmtBRL(vEf(a,sel))}</span>
+              <span style={{fontSize:11,fontWeight:700,color:vRate(a,taxaMed())>0?C.verde:C.vermelho}}>{fmtBRL(vRate(a,taxaMed()))}</span>
             </div>
           ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10,alignItems:"end"}}>
+          <Inp label="Valor da hora (R$) — para atendimentos sem valor" type="number" value={medHora} onChange={setMedHora} placeholder="Ex: 200"/>
+          <label style={{display:"flex",gap:6,alignItems:"center",fontSize:12,color:C.oliva,cursor:"pointer",paddingBottom:12}}><input type="checkbox" checked={medSalvaHora} onChange={e=>setMedSalvaHora(e.target.checked)}/> Salvar como valor/hora do pedido</label>
         </div>
         {(()=>{
           const atends=selAtends.length>0?(sel.atendimentos||[]).filter(a=>selAtends.includes(a.id)):atendAbertos(sel);
           const hrs=atends.reduce((s,a)=>s+Number(a.duracao||0),0);
-          const val=atends.reduce((s,a)=>s+vEf(a,sel),0);
-          const semValor=atends.filter(a=>Number(a.duracao||0)>0&&vEf(a,sel)<=0).length;
+          const val=atends.reduce((s,a)=>s+vRate(a,taxaMed()),0);
+          const semValor=atends.filter(a=>Number(a.duracao||0)>0&&vRate(a,taxaMed())<=0).length;
           return<div style={{background:C.linho,borderRadius:4,padding:"8px 10px",marginBottom:10,fontSize:12}}>
             <span style={{fontWeight:700,color:C.cafe}}>Total: {fmtHoras(hrs)}</span>
             <span style={{fontWeight:700,color:val>0?C.verde:C.vermelho,marginLeft:12}}>{fmtBRL(val)}</span>
-            {semValor>0&&<div style={{marginTop:6,fontSize:11,color:C.vermelho}}>⚠ {semValor} atendimento(s) sem valor. Preencha o "Valor por hora" no pedido (✎) ou o valor no próprio atendimento.</div>}
+            {semValor>0&&<div style={{marginTop:6,fontSize:11,color:C.vermelho}}>⚠ {semValor} atendimento(s) sem valor. Informe o "Valor da hora" acima.</div>}
           </div>;
         })()}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
@@ -4174,7 +4205,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2} placeholder="Resumo da medição..."/>
         <div style={{display:"flex",gap:8,marginTop:12,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn v="oliva" onClick={fecharMedicao}>✓ Fechar e lançar no financeiro</Btn>
+          <Btn v="ghost" onClick={()=>fecharMedicao(false)}>💾 Salvar só no pedido</Btn>
+          <Btn v="oliva" onClick={()=>fecharMedicao(true)}>✓ Fechar e lançar no financeiro</Btn>
         </div>
       </Modal>}
 
