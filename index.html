@@ -3373,17 +3373,21 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
 
   const sel=consultoria.find(c=>c.id===selId);
 
-  const calcDuracao=(ini,fim)=>{if(!ini||!fim)return 0;const[hI,mI]=ini.split(":").map(Number);const[hF,mF]=fim.split(":").map(Number);return Math.max(0,Math.round(((hF*60+mF)-(hI*60+mI))*100/60)/100);};
+  const calcDuracao=(ini,fim)=>{if(!ini||!fim)return 0;const[hI,mI]=ini.split(":").map(Number);const[hF,mF]=fim.split(":").map(Number);return Math.max(0,Math.round(((hF*60+mF)-(hI*60+mI))/60*1e6)/1e6);};
+  // duração exata do atendimento: recalcula pelos horários quando existem (corrige gravações antigas arredondadas)
+  const durEx=(a)=>calcDuracao(a.horaInicio,a.horaFim)||Number(a.duracao||0);
   const fmtHoras=(h)=>{if(!h||h===0)return "0h";const hrs=Math.floor(h);const mins=Math.round((h-hrs)*60);return mins>0?`${hrs}h${String(mins).padStart(2,"0")}`:`${hrs}h`;};
   const num=(v)=>{const n=Number(String(v==null?"":v).replace(",","."));return isNaN(n)?0:n;};
   const taxaHora=(p)=>{if(!p)return 0;const vh=num(p.valorHora);if(vh<=0)return 0;return(p.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(p.tipo))?vh:0;};
   const calcValorAtend=(dur,p)=>Math.round(taxaHora(p)*Number(dur||0)*100)/100;
   // valor efetivo: usa o valor gravado; se estiver zerado, calcula pelas horas x valor/hora do pedido
   // valor de um atendimento numa taxa informada (usa o valor gravado; se zerado, horas x taxa)
-  const vRate=(a,rate)=>Number(a.valor||0)>0?Number(a.valor):Math.round(Number(rate||0)*Number(a.duracao||0)*100)/100;
+  // valor digitado à mão (0 = automático). Valores antigos que só diferem do cálculo exato por arredondamento contam como automáticos.
+  const vManual=(a,rate)=>{const v=Number(a.valor||0);if(v<=0)return 0;const r=Number(rate||0);const auto=Math.round(r*durEx(a)*100)/100;return(auto>0&&Math.abs(v-auto)<=r*0.006+0.01)?0:v;};
+  const vRate=(a,rate)=>{const m=vManual(a,rate);return m>0?m:Math.round(Number(rate||0)*durEx(a)*100)/100;};
   const taxaMed=()=>num(medHora)>0?num(medHora):taxaHora(sel);
-  const vEf=(a,p)=>Number(a.valor||0)>0?Number(a.valor):calcValorAtend(a.duracao,p);
-  const totalHoras=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+Number(a.duracao||0),0);
+  const vEf=(a,p)=>vRate(a,taxaHora(p));
+  const totalHoras=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+durEx(a),0);
   const horasRestantes=(p)=>Math.max(0,Number(p.horasContratadas||0)-totalHoras(p));
   const atendAbertos=(p)=>(p.atendimentos||[]).filter(a=>!a.medicaoId);
   const totalValorAtend=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+vEf(a,p),0);
@@ -3433,7 +3437,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
 
   const saveAtend=()=>{
     if(!sel||!atendForm.assunto)return;
-    const dur=Number(atendForm.duracao)||calcDuracao(atendForm.horaInicio,atendForm.horaFim)||0;
+    const dur=calcDuracao(atendForm.horaInicio,atendForm.horaFim)||Number(atendForm.duracao)||0;
     const rateAt=taxaHora(sel)>0?taxaHora(sel):num(atHora);
     const valAuto=Math.round(rateAt*dur*100)/100;
     const extraPed=(taxaHora(sel)<=0&&num(atHora)>0)?{valorHora:num(atHora)}:{};
@@ -3446,7 +3450,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     const lancar=!!atendForm.lancarFinanceiro&&!jaLanc&&valFinal>0;
     const finId=lancar?uid():(jaLanc?atendForm.financeiroId:null);
     const vencFin=atendForm.dataVencFin||today;
-    const novo={...atendForm,id:atendForm.id||uid(),duracao:dur,valor:valFinal,lancarFinanceiro:false,financeiroId:finId};
+    const novo={...atendForm,id:atendForm.id||uid(),duracao:dur,valor:Number(atendForm.valor)>0?Number(atendForm.valor):0,lancarFinanceiro:false,financeiroId:finId};
 
     if(atendForm.id){
       setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,...extraPed,atendimentos:(c.atendimentos||[]).map(a=>a.id===novo.id?novo:a)}:c));
@@ -3470,7 +3474,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const fecharMedicao=(lancar)=>{
     if(!sel)return;
     const atends=selAtends.length>0?(sel.atendimentos||[]).filter(a=>selAtends.includes(a.id)):atendAbertos(sel);
-    const hrs=atends.reduce((s,a)=>s+Number(a.duracao||0),0);
+    const hrs=atends.reduce((s,a)=>s+durEx(a),0);
     const rate=taxaMed();
     const val=atends.reduce((s,a)=>s+vRate(a,rate),0);
     const quer=lancar===true;
@@ -3844,7 +3848,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v6</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v8</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -3970,7 +3974,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
                   <span style={{fontSize:10,background:C.linho,color:C.oliva,padding:"1px 6px",borderRadius:6}}>{a.tipo}</span>
                   {a.duracao>0&&<span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtHoras(a.duracao)}</span>}
                   {vEf(a,sel)>0&&<span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(vEf(a,sel))}</span>}
-                  <button onClick={()=>{setAtendForm({...a,lancarFinanceiro:false});setModal("atend");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
+                  <button onClick={()=>{setAtendForm({...a,valor:vManual(a,taxaHora(sel)),lancarFinanceiro:false});setModal("atend");}} style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✎</button>
                 </div>
               </div>
               <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
@@ -3983,7 +3987,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           {sel.tipo!=="Por medição"&&sel.tipo!=="Pacote de horas"&&<div style={{textAlign:"center",padding:"16px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Medições disponíveis para "Por medição" e "Pacote de horas".</div>}
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <span style={{fontSize:12,color:C.oliva}}>Abertos: {atendAbertos(sel).length} · {fmtHoras(atendAbertos(sel).reduce((s,a)=>s+Number(a.duracao||0),0))}{atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0)>0?` · ${fmtBRL(atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0))}`:""}</span>
+              <span style={{fontSize:12,color:C.oliva}}>Abertos: {atendAbertos(sel).length} · {fmtHoras(atendAbertos(sel).reduce((s,a)=>s+durEx(a),0))}{atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0)>0?` · ${fmtBRL(atendAbertos(sel).reduce((s,a)=>s+vEf(a,sel),0))}`:""}</span>
               <Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar</Btn>
             </div>
             {(sel.medicoes||[]).length===0&&<div style={{textAlign:"center",padding:"16px",color:C.oliva,fontSize:12,fontStyle:"italic"}}>Nenhuma medição fechada ✦</div>}
@@ -4217,7 +4221,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         </div>
         {(()=>{
           const atends=selAtends.length>0?(sel.atendimentos||[]).filter(a=>selAtends.includes(a.id)):atendAbertos(sel);
-          const hrs=atends.reduce((s,a)=>s+Number(a.duracao||0),0);
+          const hrs=atends.reduce((s,a)=>s+durEx(a),0);
           const val=atends.reduce((s,a)=>s+vRate(a,taxaMed()),0);
           const semValor=atends.filter(a=>Number(a.duracao||0)>0&&vRate(a,taxaMed())<=0).length;
           return<div style={{background:C.linho,borderRadius:4,padding:"8px 10px",marginBottom:10,fontSize:12}}>
