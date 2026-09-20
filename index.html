@@ -3351,7 +3351,12 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const [filtStatus,setFiltStatus]=useState("Em andamento");
   const [verFat,setVerFat]=useState(false);
   const [selAtends,setSelAtends]=useState([]);
-  const [wppMed,setWppMed]=useState(false);
+  const [wppView,setWppView]=useState("menu");
+  const [wppFmt,setWppFmt]=useState("pdf");
+  const [wppBusy,setWppBusy]=useState(false);
+  const [wppDoc,setWppDoc]=useState(null);
+  const [wppMes,setWppMes]=useState(today.slice(0,7));
+  const [wppDia,setWppDia]=useState(22);
 
   const CC=CORES_CONSUL;
   const numPedido=(id)=>{const idx=consultoria.findIndex(c=>c.id===id);return String((idx>=0?idx:0)+1).padStart(3,"0");};
@@ -3474,13 +3479,17 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   };
   const [mesLancar,setMesLancar]=useState(today.slice(0,7));
   const [diaLancar,setDiaLancar]=useState(sel?.diaEmissao||22);
-  const confirmarMensal=()=>{
+  const confirmarMensal=(enviar)=>{
+    const jaTem=finance.some(f=>f.clientName===sel.clienteNome&&String(f.desc||"").startsWith(`Mensalidade ${mesLancar}`));
+    if(jaTem&&!window.confirm(`Já existe um lançamento de mensalidade de ${mesLancar} para este cliente. Lançar de novo mesmo assim?`))return;
     const venc=`${mesLancar}-${String(diaLancar||22).padStart(2,"0")}`;
     setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
-    setModal(null);showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
+    showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
+    if(enviar){setWppView("mes");setWppMes(mesLancar);setWppDia(diaLancar||22);setModal("wpp");}
+    else setModal(null);
   };
 
-  const enviarWhatsApp=(p,tipo,med)=>{
+  const enviarWhatsApp=(p,tipo,med,extra)=>{
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const tel=(cli.phone||"").replace(/\D/g,"");
     if(!tel){alert("Cadastre o WhatsApp do cliente primeiro.");return;}
@@ -3497,8 +3506,125 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       const ats=(p.atendimentos||[]).filter(a=>a.medicaoId===med.id);
       const lista=ats.map(a=>`• ${fmtDate(a.data)} — ${(a.assunto||"").slice(0,70)} (${fmtHoras(a.duracao)}${vEf(a,p)>0?` · ${fmtBRL(vEf(a,p))}`:""})`).join("\n");
       msg=`*MEDIÇÃO DE CONSULTORIA*\n\n*Cliente:* ${p.clienteNome}\n*Data:* ${fmtDate(med.dataFim)}\n${lista?`\n*Atendimentos:*\n${lista}\n\n`:""}*Total de horas:* ${fmtHoras(med.horas)}\n*Valor:* ${med.valor>0?fmtBRL(med.valor):"—"}\n${med.dataVencimento?`*Vencimento:* ${fmtDate(med.dataVencimento)}\n`:""}\n${(!med.formaPag||med.formaPag==="PIX")?pixTxt:""}\n${assin}`;
+    } else if(tipo==="mes"&&extra){
+      msg=legendaArquivo(p,"mes",null,extra).replace("O espelho do lançamento segue em anexo. ","");
     } else return;
     window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`);
+  };
+
+  // ===== ENVIO DO ESPELHO DO DOCUMENTO (PDF / IMAGEM) =====
+  const MESES=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const telDe=(p)=>((clients.find(c=>c.id===p.clientId)||{}).phone||"").replace(/\D/g,"");
+  const dadosMes=(p,mes,dia)=>{
+    const lanc=finance.find(f=>f.clientName===p.clienteNome&&String(f.desc||"").startsWith(`Mensalidade ${mes}`));
+    const valor=lanc?Number(lanc.value):Number(p.valor||0);
+    const venc=(lanc&&lanc.dataVencimento)||`${mes}-${String(dia||p.diaEmissao||22).padStart(2,"0")}`;
+    const [ano,mm]=String(mes).split("-");
+    const nomeMes=`${MESES[Number(mm)-1]||mm}/${ano}`;
+    const ats=(p.atendimentos||[]).filter(a=>String(a.data||"").startsWith(mes));
+    return {lanc,valor,venc,nomeMes,ats};
+  };
+  const legendaArquivo=(p,tipo,med,extra)=>{
+    const nome=(p.clienteNome||"").split(" ")[0];
+    const assin="*Simara Lobui · Consultoria*";
+    const pixOk=(!p.formaPag||p.formaPag==="PIX");
+    const pix=pixOk?`💠 PIX: ${configConsul.pixNome||"Simara Ap. de Souza Lobui"} · CPF: ${configConsul.pixChave||"357.252.138.62"}\n`:"";
+    if(tipo==="mes"&&extra){
+      const d=dadosMes(p,extra.mes,extra.dia);
+      return `Olá, ${nome}! 🤎\nConfirmando a prestação do serviço de *${p.servico}* referente a *${d.nomeMes}*.\n\n*Valor:* ${fmtBRL(d.valor)}\n*Vencimento:* ${fmtDate(d.venc)}\n${pix}\nO espelho do lançamento segue em anexo. Qualquer dúvida, estou à disposição!\n${assin}`;
+    }
+    if(tipo==="medicao"&&med){
+      return `Olá, ${nome}! Segue a medição em anexo — ${fmtHoras(med.horas)}${med.valor>0?` · ${fmtBRL(med.valor)}`:""}. 🤎\n${med.valor>0?pix:""}${assin}`;
+    }
+    const rot=tipo==="orcamento"?"orçamento":tipo==="contrato"?"contrato":"pedido";
+    return `Olá, ${nome}! Segue o ${rot} Nº ${numPedido(p.id)} em anexo. 🤎\n${assin}`;
+  };
+  const carregarScript=(src,teste)=>new Promise((res,rej)=>{
+    if(teste())return res();
+    const s=document.createElement("script");s.src=src;
+    s.onload=()=>teste()?res():rej(new Error("biblioteca não iniciou"));
+    s.onerror=()=>rej(new Error("sem conexão com a biblioteca"));
+    document.head.appendChild(s);
+  });
+  const htmlParaCanvas=async(html)=>{
+    const fr=document.createElement("iframe");
+    fr.setAttribute("aria-hidden","true");
+    fr.style.cssText="position:fixed;left:-10000px;top:0;width:794px;height:1200px;border:0;";
+    document.body.appendChild(fr);
+    try{
+      await new Promise(res=>{fr.onload=()=>res();fr.srcdoc=html;});
+      const doc=fr.contentDocument;
+      if(doc.fonts&&doc.fonts.ready)await doc.fonts.ready;
+      await new Promise(r=>setTimeout(r,200));
+      const h=Math.max(doc.body.scrollHeight,doc.documentElement.scrollHeight);
+      fr.style.height=h+"px";
+      return await window.html2canvas(doc.body,{scale:2,backgroundColor:"#ffffff",useCORS:true,windowWidth:794,windowHeight:h});
+    } finally { document.body.removeChild(fr); }
+  };
+  const prepararEnvio=async(html,saida,nomeArq,legenda,p)=>{
+    setWppBusy(true);
+    try{
+      await carregarScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",()=>!!window.html2canvas);
+      if(saida==="pdf")await carregarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",()=>!!(window.jspdf&&window.jspdf.jsPDF));
+      const canvas=await htmlParaCanvas(html);
+      const base=String(nomeArq).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      let file;
+      if(saida==="pdf"){
+        const pdf=new window.jspdf.jsPDF({unit:"pt",format:"a4",compress:true});
+        const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
+        const imgH=canvas.height*pw/canvas.width;
+        const img=canvas.toDataURL("image/jpeg",0.92);
+        let y=0,pg=0;
+        while(y<imgH-2){if(pg>0)pdf.addPage();pdf.addImage(img,"JPEG",0,-y,pw,imgH);y+=ph;pg++;}
+        file=new File([pdf.output("blob")],`${base}.pdf`,{type:"application/pdf"});
+      } else {
+        const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+        file=new File([blob],`${base}.png`,{type:"image/png"});
+      }
+      setWppDoc({file,prev:canvas.toDataURL("image/jpeg",0.6),texto:legenda,tel:telDe(p),saida});
+      setModal("wppPrev");
+    }catch(e){
+      alert("Não consegui gerar o arquivo ("+((e&&e.message)||"erro")+"). Confira a internet e tente de novo, ou use a opção 'Só texto'.");
+    }
+    setWppBusy(false);
+  };
+  const baixarArquivo=()=>{
+    if(!wppDoc)return;
+    const url=URL.createObjectURL(wppDoc.file);
+    const a=document.createElement("a");a.href=url;a.download=wppDoc.file.name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),15000);
+  };
+  const enviarArquivo=async()=>{
+    const d=wppDoc;if(!d)return;
+    try{
+      if(navigator.canShare&&navigator.canShare({files:[d.file]})){
+        await navigator.share({files:[d.file],text:d.texto});
+        setModal(null);setWppDoc(null);return;
+      }
+    }catch(e){ if(e&&e.name==="AbortError")return; }
+    baixarArquivo();
+    window.open(`https://wa.me/${d.tel||""}?text=${encodeURIComponent(d.texto)}`,"_blank");
+    showSavedGlobal("Arquivo baixado — anexe na conversa do WhatsApp.");
+  };
+  const enviarDoc=(tipo,extra)=>{
+    const p=sel;if(!p||wppBusy)return;
+    extra=extra||{};
+    if(tipo==="mes"){
+      if(!/^\d{4}-\d{2}$/.test(extra.mes||"")){alert("Informe o mês no formato AAAA-MM (ex.: 2026-09).");return;}
+      const d=dadosMes(p,extra.mes,extra.dia);
+      if(!(d.valor>0)){alert("Este pedido está sem valor mensal.");return;}
+      if(d.lanc&&d.lanc.pago&&!window.confirm("Este mês já consta como PAGO no financeiro. Enviar mesmo assim?"))return;
+    }
+    if(wppFmt==="texto"){
+      if(!telDe(p)){alert("Cadastre o WhatsApp do cliente primeiro.");return;}
+      enviarWhatsApp(p,tipo,extra.med,extra);
+      setModal(null);setWppView("menu");return;
+    }
+    if(tipo==="pedido")gerarPedido(p,wppFmt);
+    else if(tipo==="orcamento")gerarContrato({...p,orcamento:true},wppFmt);
+    else if(tipo==="contrato")gerarContrato({...p,orcamento:false},wppFmt);
+    else if(tipo==="medicao")gerarMedicao(extra.med,p,wppFmt);
+    else if(tipo==="mes")gerarLancamentoMes(p,extra.mes,extra.dia,wppFmt);
   };
 
   const docStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:#2C3E50;padding:30px;line-height:1.75;}
@@ -3521,7 +3647,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
 
   const rodapeDoc=`<div class="ftr">Simara Ap. de Souza Lobui · Consultoria Comercial e Administrativa${configConsul.telefone?` · Tel: ${configConsul.telefone}`:(config?.whatsapp?` · WhatsApp: ${config.whatsapp}`:"")}</div>`;
 
-  const gerarContrato=(p)=>{
+  const gerarContrato=(p,saida)=>{
     p=p||sel;if(!p)return;
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const nC=numPedido(p.id);
@@ -3562,10 +3688,11 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       <div class="ass-box">${p.clienteNome}${cli.cpfCnpj?`<br>${cli.cpfCnpj}`:""}${cli.empresa?`<br>${cli.empresa}`:""}</div>
     </div>
     ${rodapeDoc}</body></html>`;
+    if(saida==="pdf"||saida==="img"){prepararEnvio(html,saida,`${p.orcamento?"Orcamento":"Contrato"} ${nC} ${p.clienteNome}`,legendaArquivo(p,p.orcamento?"orcamento":"contrato"),p);return;}
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
   };
 
-  const gerarPedido=(p)=>{
+  const gerarPedido=(p,saida)=>{
     p=p||sel;if(!p)return;
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido — ${p.clienteNome}</title><style>${docStyles}</style></head><body>
@@ -3600,10 +3727,11 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     </table>`:""}
     <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultora</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
     ${rodapeDoc}</body></html>`;
+    if(saida==="pdf"||saida==="img"){prepararEnvio(html,saida,`Pedido ${numPedido(p.id)} ${p.clienteNome}`,legendaArquivo(p,"pedido"),p);return;}
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
   };
 
-  const gerarMedicao=(med,p)=>{
+  const gerarMedicao=(med,p,saida)=>{
     p=p||sel;if(!p||!med)return;
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const atendsMed=(p.atendimentos||[]).filter(a=>a.medicaoId===med.id);
@@ -3636,6 +3764,38 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     ${med.obs?`<h2>Observações</h2><div class="campo">${med.obs}</div>`:""}
     <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultora</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
     ${rodapeDoc}</body></html>`;
+    if(saida==="pdf"||saida==="img"){prepararEnvio(html,saida,`Medicao ${numMed} ${p.clienteNome}`,legendaArquivo(p,"medicao",med),p);return;}
+    const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
+  };
+
+  const gerarLancamentoMes=(p,mes,dia,saida)=>{
+    p=p||sel;if(!p)return;
+    const cli=clients.find(c=>c.id===p.clientId)||{};
+    const d=dadosMes(p,mes,dia);
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lançamento ${d.nomeMes} — ${p.clienteNome}</title><style>${docStyles}</style></head><body>
+    <div class="hdr">
+      <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
+      <div class="hdr-doc"><b>LANÇAMENTO DO MÊS</b><br>Pedido Nº ${numPedido(p.id)}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div>
+    </div>
+    <div class="badge">COMPETÊNCIA ${d.nomeMes}</div>
+    <h2>Cliente</h2>
+    <div class="campo"><b>Nome:</b> ${p.clienteNome}</div>
+    ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
+    ${cli.empresa||p.empresaTerceira?`<div class="campo"><b>Empresa:</b> ${p.empresaTerceira||cli.empresa}</div>`:""}
+    <h2>Serviço Prestado</h2>
+    <div class="campo"><b>Serviço:</b> ${p.servico}</div>
+    <div class="campo"><b>Modalidade:</b> ${p.tipo}</div>
+    <div class="campo"><b>Referência:</b> ${d.nomeMes}</div>
+    ${p.obs?`<div class="campo"><b>Descrição:</b> ${p.obs}</div>`:""}
+    ${d.ats.length>0?`<h2>Atividades do Mês</h2><table><tr><th>Data</th><th>Descrição</th><th>Horas</th></tr>${d.ats.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${a.assunto}</td><td>${Number(a.duracao||0)>0?fmtHoras(a.duracao):"—"}</td></tr>`).join("")}</table>`:""}
+    <h2>Valor e Pagamento</h2>
+    <div class="campo"><b>Valor do mês:</b> <span style="font-size:16px">${fmtBRL(d.valor)}</span></div>
+    <div class="campo"><b>Vencimento:</b> ${fmtDate(d.venc)}</div>
+    <div class="campo"><b>Forma de pagamento:</b> ${p.formaPag||"PIX"}</div>
+    ${(!p.formaPag||p.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${configConsul.pixNome||"Simara Ap. de Souza Lobui"} · Chave CPF: ${configConsul.pixChave||"357.252.138.62"}</div>`:""}
+    <div class="campo" style="margin-top:18px">Confirmamos a prestação dos serviços acima, referentes a <b>${d.nomeMes}</b>. Solicitamos o pagamento até a data de vencimento. Obrigada pela confiança!</div>
+    ${rodapeDoc}</body></html>`;
+    if(saida==="pdf"||saida==="img"){prepararEnvio(html,saida,`Lancamento ${d.nomeMes} ${p.clienteNome}`,legendaArquivo(p,"mes",null,{mes,dia}),p);return;}
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
   };
 
@@ -3741,7 +3901,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
           <Btn sm v="ghost" onClick={()=>gerarContrato(sel)}>📋 {sel.orcamento?"Orçamento":"Contrato"}</Btn>
           <Btn sm v="ghost" onClick={()=>gerarPedido(sel)}>📄 Pedido</Btn>
-          <Btn sm v="ghost" onClick={()=>{setWppMed(false);setModal("wpp");}}>💬 WhatsApp</Btn>
+          <Btn sm v="ghost" onClick={()=>{setWppView("menu");setWppMes(today.slice(0,7));setWppDia(sel.diaEmissao||22);setModal("wpp");}}>💬 WhatsApp</Btn>
           {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setModal("medicao");}}>📏 Fechar medição</Btn>}
           <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
@@ -3878,7 +4038,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           </div>
           {atendForm.horaInicio&&atendForm.horaFim&&<div style={{background:C.linho,borderRadius:4,padding:"7px 12px",fontSize:12,display:"flex",gap:12,flexWrap:"wrap"}}>
             <span style={{color:C.cafe,fontWeight:700}}>⏱ {fmtHoras(calcDuracao(atendForm.horaInicio,atendForm.horaFim))}</span>
-            {sel.tipoCobranca==="Por hora"&&Number(sel.valorHora)>0&&calcDuracao(atendForm.horaInicio,atendForm.horaFim)>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} (automático)</span>}
+            {taxaHora(sel)>0&&calcDuracao(atendForm.horaInicio,atendForm.horaFim)>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} (automático · {fmtBRL(taxaHora(sel))}/h)</span>}
+            {taxaHora(sel)<=0&&(sel.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(sel.tipo))&&<span style={{color:C.vermelho,fontWeight:700}}>⚠ Este pedido está sem valor por hora — preencha no pedido (✎) ou informe o Valor (R$) abaixo</span>}
           </div>}
           <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva as atividades realizadas..."/>
           <Inp label="Próximos passos" value={atendForm.proximosPassos} onChange={v=>setAtendForm(f=>({...f,proximosPassos:v}))} placeholder="Ações para o próximo atendimento..."/>
@@ -3908,30 +4069,76 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         </div>
       </Modal>}
 
-      {/* MODAL WHATSAPP: escolher o que enviar */}
-      {modal==="wpp"&&sel&&<Modal title="💬 Enviar por WhatsApp" onClose={()=>{setModal(null);setWppMed(false);}}>
-        <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>{wppMed?"Qual medição enviar?":`O que você quer enviar para ${sel.clienteNome}?`}</div>
-        {!wppMed&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {[["pedido","📄 Pedido"],["orcamento","📋 Orçamento"],["contrato","📑 Contrato"],["medicao","📏 Medição"]].map(([k,l])=>(
-            <Btn key={k} v="ghost" onClick={()=>{
-              if(k==="medicao"){
-                const ms=(sel.medicoes||[]).filter(m=>m.status!=="Cancelado");
-                if(ms.length===0){alert("Este pedido ainda não tem medição fechada.");return;}
-                if(ms.length===1){enviarWhatsApp(sel,"medicao",ms[0]);setModal(null);return;}
-                setWppMed(true);return;
-              }
-              enviarWhatsApp(sel,k);setModal(null);
-            }}>{l}</Btn>
-          ))}
-        </div>}
-        {wppMed&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {(sel.medicoes||[]).map((m,i)=>({m,n:i+1})).filter(x=>x.m.status!=="Cancelado").reverse().map(({m,n})=>(
-            <Btn key={m.id} v="ghost" onClick={()=>{enviarWhatsApp(sel,"medicao",m);setModal(null);setWppMed(false);}}>📏 Medição {n} — {fmtDate(m.dataFim)} · {fmtHoras(m.horas)}{m.valor>0?` · ${fmtBRL(m.valor)}`:""}</Btn>
-          ))}
-        </div>}
-        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
-          {wppMed&&<Btn v="ghost" onClick={()=>setWppMed(false)}>← Voltar</Btn>}
-          <Btn v="ghost" onClick={()=>{setModal(null);setWppMed(false);}}>Cancelar</Btn>
+      {/* MODAL WHATSAPP: escolher formato e o que enviar */}
+      {modal==="wpp"&&sel&&(()=>{
+        const ms=(sel.medicoes||[]).map((m,i)=>({m,n:i+1})).filter(x=>x.m.status!=="Cancelado");
+        const fechar=()=>{setModal(null);setWppView("menu");};
+        const escolher=(k)=>{
+          if(wppBusy)return;
+          if(k==="medicao"){
+            if(ms.length===0){alert("Este pedido ainda não tem medição fechada.");return;}
+            if(ms.length===1){enviarDoc("medicao",{med:ms[0].m});return;}
+            setWppView("med");return;
+          }
+          if(k==="mes"){setWppView("mes");return;}
+          enviarDoc(k);
+        };
+        const fmtBtn=([k,l])=>(
+          <button key={k} onClick={()=>setWppFmt(k)} style={{flex:1,padding:"8px 4px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",border:`1.5px solid ${wppFmt===k?C.cafe:"#DDD3EA"}`,background:wppFmt===k?C.linho:"#fff",color:wppFmt===k?C.cafe:C.oliva}}>{l}</button>
+        );
+        const dm=(wppView==="mes"&&/^\d{4}-\d{2}$/.test(wppMes))?dadosMes(sel,wppMes,wppDia):null;
+        return<Modal title="💬 Enviar por WhatsApp" onClose={fechar}>
+          {wppView==="menu"&&<>
+            <div style={{fontSize:11,fontWeight:700,color:C.oliva,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Formato</div>
+            <div style={{display:"flex",gap:6,marginBottom:14}}>{[["pdf","📄 PDF"],["img","🖼 Imagem"],["texto","💬 Só texto"]].map(fmtBtn)}</div>
+            <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>O que você quer enviar para {sel.clienteNome}?</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {[["pedido","📄 Pedido"],["orcamento","📋 Orçamento"],["contrato","📑 Contrato"],["medicao","📏 Medição"]].map(([k,l])=>(
+                <Btn key={k} v="ghost" disabled={wppBusy} onClick={()=>escolher(k)}>{l}</Btn>
+              ))}
+              {sel.tipo==="Fixo mensal"&&<Btn v="oliva" disabled={wppBusy} style={{gridColumn:"1 / span 2"}} onClick={()=>escolher("mes")}>📆 Lançamento do mês</Btn>}
+            </div>
+          </>}
+          {wppView==="med"&&<>
+            <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>Qual medição enviar?</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {[...ms].reverse().map(({m,n})=>(
+                <Btn key={m.id} v="ghost" disabled={wppBusy} onClick={()=>enviarDoc("medicao",{med:m})}>📏 Medição {n} — {fmtDate(m.dataFim)} · {fmtHoras(m.horas)}{m.valor>0?` · ${fmtBRL(m.valor)}`:""}</Btn>
+              ))}
+            </div>
+          </>}
+          {wppView==="mes"&&<>
+            <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>Confirma o serviço do mês para o cliente fazer o pagamento.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Mês de referência" type="month" value={wppMes} onChange={setWppMes}/>
+              <Inp label="Dia de vencimento" type="number" value={wppDia} onChange={setWppDia}/>
+            </div>
+            {dm&&<div style={{background:C.linho,borderRadius:6,padding:"8px 12px",fontSize:12,marginTop:10}}>
+              <b style={{color:C.cafe}}>{dm.nomeMes}</b> · {fmtBRL(dm.valor)} · venc. {fmtDate(dm.venc)}{dm.lanc?(dm.lanc.pago?" · ✓ já pago":" · já lançado no financeiro"):" · ainda não lançado no financeiro"}
+            </div>}
+            <Btn full style={{marginTop:12}} disabled={wppBusy} onClick={()=>enviarDoc("mes",{mes:wppMes,dia:wppDia})}>📆 Gerar e enviar ({wppFmt==="pdf"?"PDF":wppFmt==="img"?"imagem":"texto"})</Btn>
+            <div style={{display:"flex",gap:6,marginTop:8}}>{[["pdf","📄 PDF"],["img","🖼 Imagem"],["texto","💬 Só texto"]].map(fmtBtn)}</div>
+          </>}
+          {wppBusy&&<div style={{marginTop:12,fontSize:12,fontWeight:700,color:C.cafe}}>⏳ Preparando o documento…</div>}
+          <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+            {wppView!=="menu"&&<Btn v="ghost" onClick={()=>setWppView("menu")}>← Voltar</Btn>}
+            <Btn v="ghost" onClick={fechar}>Cancelar</Btn>
+          </div>
+        </Modal>;
+      })()}
+
+      {/* PRÉVIA DO ESPELHO ANTES DE ENVIAR */}
+      {modal==="wppPrev"&&wppDoc&&<Modal title="📤 Enviar ao cliente" onClose={()=>{setModal(null);setWppDoc(null);}}>
+        <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>Confira o documento antes de enviar:</div>
+        <div style={{maxHeight:"48vh",overflow:"auto",border:"1px solid #E0D8EA",borderRadius:6,background:"#fff"}}>
+          <img src={wppDoc.prev} alt="Prévia do documento" style={{width:"100%",display:"block"}}/>
+        </div>
+        <div style={{fontSize:11,color:C.oliva,margin:"8px 0 2px"}}>📎 {wppDoc.file.name}</div>
+        <div style={{fontSize:11,color:C.oliva,marginBottom:10}}>No celular abre a lista de aplicativos para você escolher o WhatsApp e o contato. No computador, o arquivo é baixado e a conversa abre com a mensagem — é só anexar.</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>{setModal(null);setWppDoc(null);}}>Cancelar</Btn>
+          <Btn v="ghost" onClick={baixarArquivo}>⬇ Baixar</Btn>
+          <Btn onClick={enviarArquivo}>📤 Enviar pelo WhatsApp</Btn>
         </div>
       </Modal>}
 
@@ -3984,7 +4191,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
         </div>
         <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-          <Btn onClick={confirmarMensal}>💰 Lançar {fmtBRL(Number(sel.valor))}</Btn>
+          <Btn v="ghost" onClick={()=>confirmarMensal(false)}>💰 Só lançar</Btn>
+          <Btn onClick={()=>confirmarMensal(true)}>📤 Lançar e enviar ao cliente</Btn>
         </div>
       </Modal>}
     </div>
