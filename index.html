@@ -3351,6 +3351,8 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const [filtStatus,setFiltStatus]=useState("Em andamento");
   const [verFat,setVerFat]=useState(false);
   const [selAtends,setSelAtends]=useState([]);
+  const [atHora,setAtHora]=useState("");
+  useEffect(()=>{if(modal!=="atend")setAtHora("");},[modal]);
   const [medHora,setMedHora]=useState("");
   const [medSalvaHora,setMedSalvaHora]=useState(true);
   const [wppView,setWppView]=useState("menu");
@@ -3363,7 +3365,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const CC=CORES_CONSUL;
   const numPedido=(id)=>{const idx=consultoria.findIndex(c=>c.id===id);return String((idx>=0?idx:0)+1).padStart(3,"0");};
 
-  const EFP={clientId:"",clienteNome:"",clienteCpfCnpj:"",empresaTerceira:"",servico:"Área Fiscal e Administrativa",tipo:"Esporádico",tipoCobranca:"Por hora",status:"Em andamento",valor:0,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:today,dataFim:"",dataVencimento:"",formaPag:"PIX",obs:"",orcamento:false};
+  const EFP={clientId:"",clienteNome:"",clienteCpfCnpj:"",empresaTerceira:"",servico:"Área Fiscal e Administrativa",tipo:"Esporádico",tipoCobranca:"Por hora",status:"Em andamento",valor:0,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:today,dataFim:"",dataVencimento:"",formaPag:"PIX",obs:"",orcamento:false,lancarFinanceiro:false};
   const [form,setForm]=useState(EFP);
   const EFA={id:null,data:today,horaInicio:"",horaFim:"",duracao:0,assunto:"",tipo:"Consultoria",obs:"",valor:0,proximosPassos:"",proximaData:"",proximaHora:"09:00",lancarFinanceiro:false,dataVencFin:"",formaPagFin:"PIX"};
   const [atendForm,setAtendForm]=useState(EFA);
@@ -3405,13 +3407,15 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const savePedido=()=>{
     if(!form.clienteNome)return;
     const isNew=!form.id;
-    const novo={...form,id:form.id||uid(),atendimentos:[],medicoes:[]};
+    const elegivel=["Esporádico","Projeto"].includes(form.tipo)&&Number(form.valor)>0&&!form.orcamento;
+    const quer=isNew&&elegivel&&form.lancarFinanceiro===true;
+    const finId=quer?uid():null;
+    const novo={...form,id:form.id||uid(),atendimentos:[],medicoes:[],lancarFinanceiro:false,...(isNew&&elegivel?{lancado:quer,financeiroId:finId}:{})};
     if(isNew){
       setConsultoria(prev=>[...prev,novo]);
-      // Lança no financeiro só se NÃO for medição/pacote E tiver valor E vencimento
-      const lancaImediato=["Esporádico","Fixo mensal","Projeto"].includes(novo.tipo);
-      if(lancaImediato&&Number(novo.valor)>0&&novo.dataVencimento&&!novo.orcamento){
-        setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
+      // Só vai para o financeiro se você marcar "Lançar no financeiro agora"
+      if(quer){
+        setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
       }
       if(novo.tipo==="Fixo mensal"&&novo.diaEmissao){
         setCompromissos(prev=>[...prev,{id:uid(),desc:`Consultoria mensal — ${novo.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:novo.id}]);
@@ -3419,7 +3423,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     } else {
       setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo,atendimentos:x.atendimentos,medicoes:x.medicoes}:x));
     }
-    setModal(null);showSavedGlobal(novo.orcamento?"Orçamento salvo!":"Pedido salvo!");
+    setModal(null);showSavedGlobal(novo.orcamento?"Orçamento salvo!":(quer?"Pedido salvo e lançado no financeiro!":"Pedido salvo!"));
   };
 
   const aprovarOrcamento=(p)=>{
@@ -3430,7 +3434,9 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const saveAtend=()=>{
     if(!sel||!atendForm.assunto)return;
     const dur=Number(atendForm.duracao)||calcDuracao(atendForm.horaInicio,atendForm.horaFim)||0;
-    const valAuto=calcValorAtend(dur,sel);
+    const rateAt=taxaHora(sel)>0?taxaHora(sel):num(atHora);
+    const valAuto=Math.round(rateAt*dur*100)/100;
+    const extraPed=(taxaHora(sel)<=0&&num(atHora)>0)?{valorHora:num(atHora)}:{};
     const valFinal=Number(atendForm.valor)>0?Number(atendForm.valor):valAuto;
     const jaLanc=!!atendForm.financeiroId&&finance.some(f=>f.id===atendForm.financeiroId);
     if(atendForm.lancarFinanceiro&&!jaLanc&&valFinal<=0){
@@ -3443,9 +3449,9 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     const novo={...atendForm,id:atendForm.id||uid(),duracao:dur,valor:valFinal,lancarFinanceiro:false,financeiroId:finId};
 
     if(atendForm.id){
-      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:(c.atendimentos||[]).map(a=>a.id===novo.id?novo:a)}:c));
+      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,...extraPed,atendimentos:(c.atendimentos||[]).map(a=>a.id===novo.id?novo:a)}:c));
     } else {
-      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
+      setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,...extraPed,atendimentos:[...(c.atendimentos||[]),novo]}:c));
     }
     if(lancar){
       // data = dia do lançamento (aparece no mês atual do Financeiro); vencimento = o escolhido
@@ -3483,6 +3489,16 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     }
     setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setSelAtends([]);setModal(null);
     showSavedGlobal(quer?"Medição fechada e lançada no financeiro!":"Medição salva no pedido (não foi para o financeiro).");
+  };
+
+  // lançar no financeiro um pedido que ficou só no pedido
+  const lancarPedidoFin=()=>{
+    if(!sel||!(Number(sel.valor)>0))return;
+    if(!window.confirm(`Lançar ${fmtBRL(Number(sel.valor))} deste pedido no financeiro?`))return;
+    const finId=uid();
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${sel.clienteNome} — ${sel.servico}`,value:Number(sel.valor),date:today,dataVencimento:sel.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,lancado:true,financeiroId:finId}:c));
+    showSavedGlobal("Pedido lançado no financeiro!");
   };
 
   // lançar no financeiro uma medição que ficou só no pedido
@@ -3828,7 +3844,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v6</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -3926,6 +3942,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           <Btn sm v="ghost" onClick={()=>gerarPedido(sel)}>📄 Pedido</Btn>
           <Btn sm v="ghost" onClick={()=>{setWppView("menu");setWppMes(today.slice(0,7));setWppDia(sel.diaEmissao||22);setModal("wpp");}}>💬 WhatsApp</Btn>
           {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
+          {sel.lancado===false&&Number(sel.valor)>0&&!sel.orcamento&&<Btn sm v="oliva" onClick={lancarPedidoFin}>💰 Lançar no financeiro</Btn>}
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar medição</Btn>}
           <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
           <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
@@ -4042,6 +4059,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
             <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>setForm(f=>({...f,dataInicio:v}))}/>
             <Inp label="Data de término (vazio = indeterminado)" type="date" value={form.dataFim} onChange={v=>setForm(f=>({...f,dataFim:v}))}/>
             {!["Por medição","Pacote de horas","Fixo mensal"].includes(form.tipo)&&<Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>}
+            {!form.id&&!form.orcamento&&["Esporádico","Projeto"].includes(form.tipo)&&Number(form.valor)>0&&<label style={{gridColumn:"1 / -1",display:"flex",gap:8,alignItems:"center",cursor:"pointer",fontSize:13,fontWeight:600,color:C.cafe,background:C.linho,borderRadius:6,padding:"8px 12px"}}><input type="checkbox" checked={!!form.lancarFinanceiro} onChange={e=>setForm(f=>({...f,lancarFinanceiro:e.target.checked}))}/> 💰 Lançar no financeiro agora <span style={{fontWeight:400,fontSize:11}}>(sem marcar, fica só no pedido)</span></label>}
             {form.tipo==="Fixo mensal"&&<Inp label="Dia de emissão mensal" type="number" value={form.diaEmissao} onChange={v=>setForm(f=>({...f,diaEmissao:v}))}/>}
             <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_PEDIDO_CONSUL}/>
           </div>
@@ -4060,14 +4078,25 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Data" type="date" value={atendForm.data} onChange={v=>setAtendForm(f=>({...f,data:v}))}/>
             <Sel label="Tipo" value={atendForm.tipo} onChange={v=>setAtendForm(f=>({...f,tipo:v}))} options={TIPOS_ATEND_C}/>
-            <Inp label="Hora início" value={atendForm.horaInicio} onChange={v=>{const d=calcDuracao(v,atendForm.horaFim);const val=d>0?calcValorAtend(d,sel):0;setAtendForm(f=>({...f,horaInicio:v,duracao:d||f.duracao,valor:f.valor>0?f.valor:val}));}} placeholder="09:00"/>
-            <Inp label="Hora fim" value={atendForm.horaFim} onChange={v=>{const d=calcDuracao(atendForm.horaInicio,v);const val=d>0?calcValorAtend(d,sel):0;setAtendForm(f=>({...f,horaFim:v,duracao:d||f.duracao,valor:f.valor>0?f.valor:val}));}} placeholder="10:30"/>
+            <Inp label="Hora início" value={atendForm.horaInicio} onChange={v=>{const d=calcDuracao(v,atendForm.horaFim);setAtendForm(f=>({...f,horaInicio:v,duracao:d>0?d:f.duracao}));}} placeholder="09:00"/>
+            <Inp label="Hora fim" value={atendForm.horaFim} onChange={v=>{const d=calcDuracao(atendForm.horaInicio,v);setAtendForm(f=>({...f,horaFim:v,duracao:d>0?d:f.duracao}));}} placeholder="10:30"/>
           </div>
-          {atendForm.horaInicio&&atendForm.horaFim&&<div style={{background:C.linho,borderRadius:4,padding:"7px 12px",fontSize:12,display:"flex",gap:12,flexWrap:"wrap"}}>
-            <span style={{color:C.cafe,fontWeight:700}}>⏱ {fmtHoras(calcDuracao(atendForm.horaInicio,atendForm.horaFim))}</span>
-            {taxaHora(sel)>0&&calcDuracao(atendForm.horaInicio,atendForm.horaFim)>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(calcValorAtend(calcDuracao(atendForm.horaInicio,atendForm.horaFim),sel))} (automático · {fmtBRL(taxaHora(sel))}/h)</span>}
-            {taxaHora(sel)<=0&&(sel.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(sel.tipo))&&<span style={{color:C.vermelho,fontWeight:700}}>⚠ Este pedido está sem valor por hora — preencha no pedido (✎) ou informe o Valor (R$) abaixo</span>}
-          </div>}
+          {(()=>{
+            const durAt=calcDuracao(atendForm.horaInicio,atendForm.horaFim)||Number(atendForm.duracao)||0;
+            const cobra=sel.tipoCobranca==="Por hora"||["Por medição","Pacote de horas"].includes(sel.tipo);
+            const semTaxa=taxaHora(sel)<=0;
+            const rateAt=semTaxa?num(atHora):taxaHora(sel);
+            const manual=Number(atendForm.valor)>0;
+            const vAt=manual?Number(atendForm.valor):Math.round(rateAt*durAt*100)/100;
+            return<>
+              {durAt>0&&<div style={{background:C.linho,borderRadius:4,padding:"7px 12px",fontSize:12,display:"flex",gap:12,flexWrap:"wrap"}}>
+                <span style={{color:C.cafe,fontWeight:700}}>⏱ {fmtHoras(durAt)}</span>
+                {vAt>0&&<span style={{color:C.verde,fontWeight:700}}>💰 {fmtBRL(vAt)} {manual?"(valor informado)":`(automático · ${fmtBRL(rateAt)}/h)`}</span>}
+                {vAt<=0&&cobra&&<span style={{color:C.vermelho,fontWeight:700}}>⚠ Sem valor — informe o valor da hora abaixo</span>}
+              </div>}
+              {cobra&&semTaxa&&<Inp label="Valor da hora deste pedido (R$) — será salvo no pedido" type="number" value={atHora} onChange={setAtHora} placeholder="Ex: 200"/>}
+            </>;
+          })()}
           <Inp label="O que foi feito *" value={atendForm.assunto} onChange={v=>setAtendForm(f=>({...f,assunto:v}))} rows={3} placeholder="Descreva as atividades realizadas..."/>
           <Inp label="Próximos passos" value={atendForm.proximosPassos} onChange={v=>setAtendForm(f=>({...f,proximosPassos:v}))} placeholder="Ações para o próximo atendimento..."/>
           <Inp label="Valor (R$) — 0 = automático" type="number" value={atendForm.valor} onChange={v=>setAtendForm(f=>({...f,valor:v}))}/>
