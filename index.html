@@ -3342,7 +3342,556 @@ const TIPO_COBRANCA=["Por hora","Taxa única","Pacote","Mensal fixo"];
 const SERVICOS_CONSUL=["Área Fiscal e Administrativa","Gestão Financeira","Marketing Digital","Consultoria Geral","Implantação","Treinamento","Outro"];
 const CORES_CONSUL={primaria:"#6C8271",secundaria:"#C1A268",texto:"#2C3E50",fundo:"#FFFFFF"};
 
-const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,clients,config})=>{
+// ─── PROJETOS CONTÍNUA (Método CONTÍNUA) — aba própria dentro da Consultoria ─────
+// PC-START
+const PC_STATUS=["Diagnóstico","Planejamento","Em execução","Em acompanhamento","Concluído","Pausado","Cancelado"];
+const PC_NIVEIS=["CONTÍNUA ESSENCIAL","CONTÍNUA EM AÇÃO","CONTÍNUA ESTRATÉGICA"];
+const PC_STATUS_ACAO=["Pendente","Em andamento","Concluída","Atrasada"];
+const PC_STATUS_PRIOR=["Pendente","Em andamento","Concluída"];
+const PC_NIVEL_PRIOR=["Alta","Média","Baixa"];
+const PC_AREAS=["Financeiro","Fiscal","Administrativo","Comercial","Marketing","Pessoas","Operações","Tecnologia","Outro"];
+const PC_FORMAS=["PIX","Boleto","Cartão","Transferência","Dinheiro","Parcelado"];
+const PC_CAMPOS=["clientId","clienteNome","empresa","responsavel","nome","dataInicio","dataPrevista","status","nivel","objetivo","valor","formaPag","obs"];
+const PC_DG_CAMPOS=[["situacao","Situação atual"],["objetivoCliente","Objetivo do cliente"],["problemas","Principais problemas"],["gargalos","Gargalos identificados"],["pontosFortes","Pontos fortes"],["oportunidades","Oportunidades"],["necessidades","Necessidades"],["prioridades","Prioridades"]];
+const PC_COR={
+  "Diagnóstico":["#EFE8F7","#7B4FA6"],"Planejamento":["#E4EEF9","#3D5A8A"],"Em execução":["#E4F0EA","#2E6B5E"],
+  "Em acompanhamento":["#E6F3F6","#1F6F7A"],"Concluído":["#DDF0E6","#1F7A4D"],"Pausado":["#F6EFD9","#8A6D1F"],"Cancelado":["#F3E1DE","#c0392b"],
+  "Pendente":["#F0ECF6","#3D5A8A"],"Em andamento":["#E4EEF9","#3D5A8A"],"Concluída":["#DDF0E6","#1F7A4D"],"Atrasada":["#FBE7E4","#c0392b"],
+  "Alta":["#FBE7E4","#c0392b"],"Média":["#F6EFD9","#8A6D1F"],"Baixa":["#E4F0EA","#2E6B5E"]
+};
+
+// data de hoje no fuso local (evita "virar o dia" às 21h por causa do UTC)
+const pcHoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split("T")[0];};
+const pcForm=(p)=>{
+  const base={clientId:"",clienteNome:"",empresa:"",responsavel:"",nome:"",dataInicio:pcHoje(),dataPrevista:"",status:"Diagnóstico",nivel:"",objetivo:"",valor:0,formaPag:"PIX",obs:""};
+  if(!p)return base;
+  const o={id:p.id};PC_CAMPOS.forEach(k=>{o[k]=p[k]===undefined||p[k]===null?base[k]:p[k];});return o;
+};
+
+// ── regras (funções puras, sem tela) ──
+const pcEv=(p,tipo,texto)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:pcHoje(),tipo,texto}]});
+const pcNovo=(f)=>{
+  const p={id:uid(),valor:Number(f.valor)||0,diagnostico:{},prioridades:[],acoes:[],atendimentos:[],indicadores:[],eventos:[],criadoEm:pcHoje()};
+  PC_CAMPOS.forEach(k=>{if(k!=="valor")p[k]=f[k]===undefined||f[k]===null?"":f[k];});
+  return pcEv(p,"projeto","Projeto criado");
+};
+const pcEditar=(p,f)=>{
+  const n={...p};PC_CAMPOS.forEach(k=>{if(f[k]!==undefined)n[k]=f[k];});n.valor=Number(f.valor)||0;
+  return p.status!==n.status?pcEv(n,"status",`Status: ${p.status} → ${n.status}`):n;
+};
+const pcSalvarDiag=(p,texto)=>({...p,diagnostico:{...(p.diagnostico||{}),...texto}});
+const pcConcluirDiag=(p,texto,nivel)=>{
+  const niv=nivel||p.nivel||"";
+  const n={...p,diagnostico:{...(p.diagnostico||{}),...texto,concluido:true,dataConclusao:pcHoje(),nivelDefinido:niv},nivel:niv,status:p.status==="Diagnóstico"?"Planejamento":p.status};
+  return pcEv(n,"diagnostico",`Diagnóstico concluído${niv?` · ${niv}`:""}`);
+};
+const pcReabrirDiag=(p)=>pcEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}},"diagnostico","Diagnóstico reaberto para ajustes");
+const pcImportar=(p)=>{
+  const linhas=String((p.diagnostico||{}).problemas||"").split("\n").map(s=>s.replace(/^[-•*\d.)\s]+/,"").trim()).filter(Boolean);
+  const ja=new Set((p.prioridades||[]).map(x=>String(x.problema||"").trim().toLowerCase()));
+  const vistos=new Set();
+  const novas=[];
+  linhas.forEach(l=>{const k=l.toLowerCase();if(ja.has(k)||vistos.has(k))return;vistos.add(k);novas.push({id:`${uid()}${novas.length}`,prioridade:"Média",problema:l,causa:"",objetivo:"",impacto:"",responsavel:"",prazo:"",status:"Pendente"});});
+  if(novas.length===0)return p;
+  return pcEv({...p,prioridades:[...(p.prioridades||[]),...novas]},"prioridades",`${novas.length} prioridade(s) definida(s) a partir do diagnóstico`);
+};
+const pcSalvarPrior=(p,pr)=>{
+  const lista=p.prioridades||[];
+  if(pr.id&&lista.some(x=>x.id===pr.id))return {...p,prioridades:lista.map(x=>x.id===pr.id?{...x,...pr}:x)};
+  return pcEv({...p,prioridades:[...lista,{...pr,id:uid()}]},"prioridades",`Prioridade definida: ${pr.problema}`);
+};
+const pcMoverPrior=(p,id,dir)=>{
+  const l=[...(p.prioridades||[])];const i=l.findIndex(x=>x.id===id);const j=i+dir;
+  if(i<0||j<0||j>=l.length)return p;
+  [l[i],l[j]]=[l[j],l[i]];return {...p,prioridades:l};
+};
+const pcExcluirPrior=(p,id)=>({...p,prioridades:(p.prioridades||[]).filter(x=>x.id!==id),acoes:(p.acoes||[]).map(a=>a.prioridadeId===id?{...a,prioridadeId:""}:a)});
+const pcAjustaConclusao=(velho,novo)=>{
+  const n={...novo};
+  if(n.status==="Concluída"){n.dataConclusao=(velho&&velho.status==="Concluída"&&velho.dataConclusao)||pcHoje();}
+  else n.dataConclusao="";
+  return n;
+};
+const pcSalvarAcao=(p,a)=>{
+  const lista=p.acoes||[];
+  const velho=a.id?lista.find(x=>x.id===a.id):null;
+  if(velho){
+    const n=pcAjustaConclusao(velho,{...velho,...a});
+    let r={...p,acoes:lista.map(x=>x.id===a.id?n:x)};
+    if(velho.status!=="Concluída"&&n.status==="Concluída")r=pcEv(r,"acao",`Ação concluída: ${n.acao}`);
+    return r;
+  }
+  const n=pcAjustaConclusao(null,{...a,id:uid()});
+  let r=pcEv({...p,acoes:[...lista,n]},"acao",`Ação criada: ${n.acao}`);
+  if(n.status==="Concluída")r=pcEv(r,"acao",`Ação concluída: ${n.acao}`);
+  return r;
+};
+const pcStatusAcao=(p,id,status)=>{
+  const a=(p.acoes||[]).find(x=>x.id===id);if(!a)return p;
+  return pcSalvarAcao(p,{...a,status});
+};
+const pcExcluirAcao=(p,id)=>({...p,acoes:(p.acoes||[]).filter(x=>x.id!==id)});
+const pcStatusAcaoEf=(a)=>a.status!=="Concluída"&&a.prazo&&a.prazo<pcHoje()?"Atrasada":a.status;
+const pcResumoAcoes=(p)=>{
+  const s={total:0,concluidas:0,andamento:0,pendentes:0,atrasadas:0,pct:0};
+  (p.acoes||[]).forEach(a=>{s.total++;const st=pcStatusAcaoEf(a);if(st==="Concluída")s.concluidas++;else if(st==="Atrasada")s.atrasadas++;else if(st==="Em andamento")s.andamento++;else s.pendentes++;});
+  s.pct=s.total?Math.round(s.concluidas/s.total*100):0;return s;
+};
+const pcEtapas=(p)=>{
+  const ac=p.acoes||[];const dg=p.diagnostico||{};
+  const exec=ac.some(a=>a.status==="Em andamento"||a.status==="Concluída")||["Em execução","Em acompanhamento","Concluído"].includes(p.status);
+  const acomp=["Em acompanhamento","Concluído"].includes(p.status)||(p.atendimentos||[]).length>0;
+  return [
+    {k:"diag",l:"Diagnóstico",ok:!!dg.concluido},
+    {k:"prior",l:"Prioridades",ok:(p.prioridades||[]).length>0},
+    {k:"plano",l:"Plano de ação",ok:ac.length>0},
+    {k:"exec",l:"Execução",ok:exec},
+    {k:"acomp",l:"Acompanhamento",ok:acomp},
+    {k:"conc",l:"Conclusão",ok:p.status==="Concluído"}
+  ];
+};
+const pcFin=(finance,p)=>{
+  const l=(finance||[]).filter(f=>f.projetoId===p.id);
+  const recebido=l.filter(f=>f.pago).reduce((s,f)=>s+Number(f.value||0),0);
+  return {recebido,pendente:Math.max(0,(Number(p.valor)||0)-recebido),lancamentos:l.length};
+};
+
+const PcChip=({t,sm})=>{const c=PC_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
+const PcNivel=({n})=>n?<span style={{background:"#F3EEE0",color:"#8A6D1F",borderRadius:20,padding:"3px 11px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{n}</span>:null;
+const PcBarra=({pct,cor})=><div style={{height:8,background:"#EEE8F4",borderRadius:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor||CORES_CONSUL.primaria,transition:"width .3s"}}/></div>;
+
+const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
+  const cor=CORES_CONSUL;
+  const [selId,setSelId]=useState(null);
+  const [tab,setTab]=useState("resumo");
+  const [filtro,setFiltro]=useState("ativos");
+  const [fAcao,setFAcao]=useState("todas");
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState(null);
+  const [dg,setDg]=useState({});
+  const [dgSujo,setDgSujo]=useState(false);
+  const [nivelDg,setNivelDg]=useState("CONTÍNUA ESSENCIAL");
+  const sel=projetos.find(p=>p.id===selId)||null;
+
+  useEffect(()=>{
+    const d=(sel&&sel.diagnostico)||{};
+    const t={};PC_DG_CAMPOS.forEach(([k])=>{t[k]=d[k]||"";});
+    setDg(t);setDgSujo(false);
+    setNivelDg(d.nivelDefinido||(sel&&sel.nivel)||"CONTÍNUA ESSENCIAL");
+  },[selId]);
+
+  const upd=(fn)=>setProjetos&&setProjetos(prev=>prev.map(p=>p.id===selId?fn(p):p));
+  const F=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  // ── projeto: criar / editar / excluir ──
+  const salvarProjeto=()=>{
+    if(!form.clientId){alert("Escolha o cliente do projeto.");return;}
+    if(!String(form.nome||"").trim()){alert("Informe o nome do projeto.");return;}
+    if(form.id){
+      setProjetos(prev=>prev.map(p=>p.id===form.id?pcEditar(p,form):p));
+    } else {
+      const novo=pcNovo(form);
+      setProjetos(prev=>[...prev,novo]);
+      setSelId(novo.id);setTab("resumo");
+    }
+    setModal(null);showSavedGlobal("Projeto salvo!");
+  };
+  const excluirProjeto=()=>{
+    if(!sel)return;
+    const fl=(finance||[]).filter(f=>f.projetoId===sel.id).length;
+    if(!window.confirm(`Excluir o projeto "${sel.nome}" e todo o seu conteúdo (diagnóstico, prioridades, ações)?${fl>0?`\n\nAtenção: existem ${fl} lançamento(s) no financeiro ligados a ele; eles NÃO serão apagados.`:""}\n\nEssa ação não pode ser desfeita.`))return;
+    setProjetos(prev=>prev.filter(p=>p.id!==sel.id));
+    setSelId(null);
+  };
+
+  // ── diagnóstico ──
+  const salvarDiag=()=>{upd(p=>pcSalvarDiag(p,dg));setDgSujo(false);showSavedGlobal("Diagnóstico salvo!");};
+  const concluirDiag=()=>{
+    if(!String(dg.situacao||"").trim()&&!String(dg.problemas||"").trim()){alert("Preencha ao menos a situação atual ou os principais problemas antes de concluir.");return;}
+    if(!window.confirm(`Concluir o diagnóstico e definir o nível ${nivelDg}?`))return;
+    upd(p=>pcConcluirDiag(p,dg,nivelDg));setDgSujo(false);showSavedGlobal("Diagnóstico concluído!");
+  };
+
+  // ── prioridades ──
+  const importarProblemas=()=>{
+    if(!sel)return;
+    const antes=(sel.prioridades||[]).length;
+    const dep=pcImportar({...sel,diagnostico:{...(sel.diagnostico||{}),problemas:dg.problemas||(sel.diagnostico||{}).problemas||""}});
+    const n=(dep.prioridades||[]).length-antes;
+    if(n===0){alert("Não há problemas novos para transformar em prioridade. Escreva um problema por linha no Diagnóstico.");return;}
+    upd(()=>dep);showSavedGlobal(`${n} prioridade(s) criada(s)!`);
+  };
+  const novaPrior=()=>{setForm({prioridade:"Média",problema:"",causa:"",objetivo:"",impacto:"",responsavel:(sel&&sel.responsavel)||"",prazo:"",status:"Pendente"});setModal("prior");};
+  const salvarPrior=()=>{
+    if(!String(form.problema||"").trim()){alert("Descreva o problema identificado.");return;}
+    upd(p=>pcSalvarPrior(p,form));setModal(null);showSavedGlobal("Prioridade salva!");
+  };
+  const criarAcaoDaPrior=(pr)=>{
+    setForm({acao:pr.objetivo||`Resolver: ${pr.problema}`,area:PC_AREAS[0],descricao:`Problema: ${pr.problema}${pr.causa?`\nCausa/gargalo: ${pr.causa}`:""}`,responsavel:pr.responsavel||"",prazo:pr.prazo||"",prioridade:pr.prioridade||"Média",status:"Pendente",prioridadeId:pr.id,resultadoEsperado:pr.impacto||"",resultadoAlcancado:"",obs:""});
+    setTab("plano");setModal("acao");
+  };
+
+  // ── plano de ação ──
+  const novaAcao=()=>{setForm({acao:"",area:PC_AREAS[0],descricao:"",responsavel:(sel&&sel.responsavel)||"",prazo:"",prioridade:"Média",status:"Pendente",prioridadeId:"",resultadoEsperado:"",resultadoAlcancado:"",obs:""});setModal("acao");};
+  const salvarAcao=()=>{
+    if(!String(form.acao||"").trim()){alert("Descreva a ação.");return;}
+    upd(p=>pcSalvarAcao(p,form));setModal(null);showSavedGlobal("Ação salva!");
+  };
+
+  const btnPill=(ativo,onClick,label)=>(
+    <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
+  );
+  const campo=(rot,val)=>val?<div style={{fontSize:12,color:C.oliva,marginTop:3}}><b style={{color:C.cafe}}>{rot}:</b> {val}</div>:null;
+
+  // ── modais (usados na lista e no projeto) ──
+  const modais=(<>
+    {modal==="projeto"&&form&&<Modal wide title={form.id?"✎ Editar projeto":"🧭 Novo projeto CONTÍNUA"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}>
+          <Sel label="Cliente" value={form.clientId} onChange={v=>{const c=clients.find(x=>x.id===v);setForm(f=>({...f,clientId:v,clienteNome:c?c.name:"",empresa:(c&&c.empresa)||f.empresa}));}}
+            options={[{v:"",l:"— selecione um cliente cadastrado —"},...[...clients].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""))).map(c=>({v:c.id,l:c.name}))]}/>
+        </div>
+        <Inp label="Empresa" value={form.empresa} onChange={v=>F("empresa",v)}/>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)} placeholder="Quem acompanha pelo cliente"/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Nome do projeto" value={form.nome} onChange={v=>F("nome",v)} placeholder="Ex: Organização financeira e fiscal"/></div>
+        <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>F("dataInicio",v)}/>
+        <Inp label="Previsão de conclusão" type="date" value={form.dataPrevista} onChange={v=>F("dataPrevista",v)}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={PC_STATUS}/>
+        <Sel label="Nível do Método CONTÍNUA" value={form.nivel} onChange={v=>F("nivel",v)} options={[{v:"",l:"A definir após o diagnóstico"},...PC_NIVEIS.map(n=>({v:n,l:n}))]}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Objetivo principal" rows={2} value={form.objetivo} onChange={v=>F("objetivo",v)}/></div>
+        <Inp label="Valor do projeto (R$)" type="number" value={form.valor} onChange={v=>F("valor",v)}/>
+        <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>F("formaPag",v)} options={PC_FORMAS}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observações" rows={2} value={form.obs} onChange={v=>F("obs",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarProjeto}>💾 Salvar projeto</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="prior"&&form&&<Modal wide title={form.id?"✎ Editar prioridade":"🎯 Nova prioridade"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Problema identificado" rows={2} value={form.problema} onChange={v=>F("problema",v)}/></div>
+        <Sel label="Prioridade" value={form.prioridade} onChange={v=>F("prioridade",v)} options={PC_NIVEL_PRIOR}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={PC_STATUS_PRIOR}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Causa / gargalo" rows={2} value={form.causa} onChange={v=>F("causa",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Objetivo" rows={2} value={form.objetivo} onChange={v=>F("objetivo",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Impacto esperado" rows={2} value={form.impacto} onChange={v=>F("impacto",v)}/></div>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Inp label="Prazo" type="date" value={form.prazo} onChange={v=>F("prazo",v)}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarPrior}>💾 Salvar prioridade</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="acao"&&form&&sel&&<Modal wide title={form.id?"✎ Editar ação":"✅ Nova ação"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Ação" value={form.acao} onChange={v=>F("acao",v)} placeholder="O que precisa ser feito"/></div>
+        <Sel label="Área" value={form.area} onChange={v=>F("area",v)} options={PC_AREAS}/>
+        <Sel label="Prioridade" value={form.prioridade} onChange={v=>F("prioridade",v)} options={PC_NIVEL_PRIOR}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Descrição" rows={2} value={form.descricao} onChange={v=>F("descricao",v)}/></div>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Inp label="Prazo" type="date" value={form.prazo} onChange={v=>F("prazo",v)}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={PC_STATUS_ACAO}/>
+        <Sel label="Ligada à prioridade" value={form.prioridadeId} onChange={v=>F("prioridadeId",v)}
+          options={[{v:"",l:"— nenhuma —"},...(sel.prioridades||[]).map((x,i)=>({v:x.id,l:`#${i+1} ${String(x.problema||"").slice(0,40)}`}))]}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Resultado esperado" rows={2} value={form.resultadoEsperado} onChange={v=>F("resultadoEsperado",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Resultado alcançado" rows={2} value={form.resultadoAlcancado} onChange={v=>F("resultadoAlcancado",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observações" rows={2} value={form.obs} onChange={v=>F("obs",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarAcao}>💾 Salvar ação</Btn>
+      </div>
+    </Modal>}
+  </>);
+
+  // ═════════ LISTA DE PROJETOS ═════════
+  if(!sel){
+    const lista=projetos.filter(p=>filtro==="todos"?true:filtro==="concluidos"?p.status==="Concluído":!["Concluído","Cancelado"].includes(p.status));
+    return(
+      <div className="fade" style={{padding:14}}>
+        <div style={{background:`linear-gradient(135deg,${cor.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:8,color:cor.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Método CONTÍNUA</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Projetos de Consultoria</div>
+          </div>
+          <Btn onClick={()=>{setForm(pcForm());setModal("projeto");}}>+ Novo projeto</Btn>
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto"}}>
+          {btnPill(filtro==="ativos",()=>setFiltro("ativos"),"Em andamento")}
+          {btnPill(filtro==="concluidos",()=>setFiltro("concluidos"),"Concluídos")}
+          {btnPill(filtro==="todos",()=>setFiltro("todos"),"Todos")}
+        </div>
+        {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"28px 18px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>
+          <div style={{fontSize:30,marginBottom:6}}>🧭</div>
+          {projetos.length===0
+            ?<>Nenhum projeto CONTÍNUA ainda.<br/>Crie o primeiro para conduzir o cliente do diagnóstico até o encerramento.</>
+            :<>Nenhum projeto neste filtro.</>}
+        </div>}
+        {lista.map(p=>{
+          const r=pcResumoAcoes(p);
+          return(
+            <div key={p.id} onClick={()=>{setSelId(p.id);setTab("resumo");}} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,padding:14,marginBottom:10,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{minWidth:180}}>
+                  <div style={{fontWeight:700,color:C.cafe,fontSize:15}}>{p.nome}</div>
+                  <div style={{fontSize:12,color:C.oliva}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}><PcChip t={p.status}/><PcNivel n={p.nivel}/></div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.oliva,margin:"10px 0 4px",flexWrap:"wrap",gap:6}}>
+                <span>{r.total>0?`${r.concluidas} de ${r.total} ações concluídas`:"Plano de ação ainda não montado"}{r.atrasadas>0?` · ⚠ ${r.atrasadas} atrasada(s)`:""}</span>
+                <span>{fmtDate(p.dataInicio)} → {p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}{Number(p.valor)>0?` · ${fmtBRL(p.valor)}`:""}</span>
+              </div>
+              <PcBarra pct={r.pct}/>
+            </div>
+          );
+        })}
+        {modais}
+      </div>
+    );
+  }
+
+  // ═════════ PROJETO ABERTO ═════════
+  const p=sel;
+  const r=pcResumoAcoes(p);
+  const et=pcEtapas(p);
+  const atual=et.findIndex(e=>!e.ok);
+  const fin=pcFin(finance,p);
+  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"]];
+
+  const renderResumo=()=>{
+    const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
+    const eventos=(p.eventos||[]).slice(-6).reverse();
+    const cartao=(rot,val,cl)=>(
+      <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{rot}</div>
+        <div style={{fontSize:15,fontWeight:700,color:cl||C.cafe,marginTop:3,wordBreak:"break-word"}}>{val}</div>
+      </div>);
+    return(<div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:12}}>
+        {cartao("Cliente",p.clienteNome||"—")}
+        {cartao("Nível",p.nivel||"A definir")}
+        {cartao("Período",`${fmtDate(p.dataInicio)} → ${p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}`)}
+        {cartao("Valor contratado",fmtBRL(p.valor))}
+        {cartao("Valor recebido",fmtBRL(fin.recebido),C.verde)}
+        {cartao("Valor pendente",fmtBRL(fin.pendente),fin.pendente>0?C.vermelho:C.verde)}
+      </div>
+      {p.objetivo&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:C.oliva}}><b style={{color:C.cafe}}>Objetivo principal:</b> {p.objetivo}</div>}
+
+      <Divider label="Progresso"/>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
+        {et.map((e,i)=>{
+          const feito=e.ok;const cur=i===atual;
+          return <span key={e.k} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:feito?"#DDF0E6":cur?"#fff":"#F3F0F7",color:feito?"#1F7A4D":cur?C.cafe:"#8C8499",border:cur?`2px solid ${C.cafe}`:"2px solid transparent"}}>{feito?"✓ ":cur?"● ":""}{e.l}</span>;
+        })}
+      </div>
+      {atual>=0&&<div style={{fontSize:12,color:C.oliva}}>Próxima etapa: <b style={{color:C.cafe}}>{et[atual].l}</b></div>}
+
+      <Divider label="Ações"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,marginBottom:8}}>
+        {cartao("Total",r.total)}
+        {cartao("Concluídas",r.concluidas,C.verde)}
+        {cartao("Em andamento",r.andamento,C.oliva)}
+        {cartao("Pendentes",r.pendentes)}
+        {cartao("Atrasadas",r.atrasadas,r.atrasadas>0?C.vermelho:C.cafe)}
+      </div>
+      <PcBarra pct={r.pct}/>
+      <div style={{fontSize:11,color:C.oliva,marginTop:4}}>{r.pct}% do plano concluído</div>
+
+      <Divider label={`Prioridades (${(p.prioridades||[]).length})`}/>
+      {(p.prioridades||[]).length===0
+        ?<div style={{fontSize:12,color:C.oliva}}>Ainda não definidas. Depois do diagnóstico, transforme os problemas em prioridades.</div>
+        :(p.prioridades||[]).slice(0,3).map((x,i)=>(
+          <div key={x.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:13,color:C.oliva,marginBottom:4}}>
+            <b style={{color:C.cafe}}>#{i+1}</b><span style={{flex:1}}>{x.problema}</span><PcChip t={x.prioridade} sm/>
+          </div>))}
+
+      <Divider label="Próximos passos"/>
+      {proximas.length===0
+        ?<div style={{fontSize:12,color:C.oliva}}>{(p.acoes||[]).length===0?"Monte o plano de ação para ver aqui as próximas ações.":"Tudo concluído por aqui. 🎉"}</div>
+        :proximas.map(a=>{const st=pcStatusAcaoEf(a);return(
+          <div key={a.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
+            <span style={{flex:1,minWidth:160,color:C.cafe,fontWeight:600}}>{a.acao}</span>
+            <span style={{fontSize:11,color:st==="Atrasada"?C.vermelho:C.oliva,fontWeight:st==="Atrasada"?700:400}}>{a.prazo?fmtDate(a.prazo):"sem prazo"}</span>
+            <PcChip t={st} sm/>
+          </div>);})}
+
+      {eventos.length>0&&<>
+        <Divider label="Últimas atualizações"/>
+        {eventos.map(e=>(
+          <div key={e.id} style={{display:"flex",gap:10,fontSize:12,color:C.oliva,padding:"4px 0",borderBottom:`1px dashed ${C.areia}`}}>
+            <span style={{minWidth:72,color:C.cafe,fontWeight:600}}>{fmtDate(e.data)}</span><span>{e.texto}</span>
+          </div>))}
+      </>}
+    </div>);
+  };
+
+  const renderDiag=()=>{
+    const dd=p.diagnostico||{};
+    return(<div>
+      {dd.concluido&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span>✓ Diagnóstico concluído em {fmtDate(dd.dataConclusao)}{dd.nivelDefinido?` · ${dd.nivelDefinido}`:""}</span>
+        <Btn sm v="ghost" onClick={()=>{upd(pcReabrirDiag);}}>↩ Reabrir</Btn>
+      </div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+        {PC_DG_CAMPOS.map(([k,l])=>(
+          <div key={k}>
+            <Inp label={l} rows={k==="situacao"||k==="problemas"?5:4} value={dg[k]} onChange={v=>{setDg(d=>({...d,[k]:v}));setDgSujo(true);}}
+              placeholder={k==="problemas"?"Um problema por linha — depois viram prioridades com um clique":""}/>
+          </div>))}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn onClick={salvarDiag}>💾 Salvar diagnóstico</Btn>
+        {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
+      </div>
+      {!dd.concluido&&<div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
+        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Concluir diagnóstico</div>
+        <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:220}}><Sel label="Nível do Método CONTÍNUA" value={nivelDg} onChange={setNivelDg} options={PC_NIVEIS}/></div>
+          <Btn v="oliva" onClick={concluirDiag}>✓ Concluir diagnóstico</Btn>
+        </div>
+        <div style={{fontSize:11,color:C.oliva,marginTop:8}}>Ao concluir, o nível fica registrado no projeto e o status passa para "Planejamento".</div>
+      </div>}
+    </div>);
+  };
+
+  const renderPrior=()=>{
+    const lista=p.prioridades||[];
+    const temProblemas=String(dg.problemas||(p.diagnostico||{}).problemas||"").trim().length>0;
+    return(<div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <Btn onClick={novaPrior}>+ Nova prioridade</Btn>
+        {temProblemas&&<Btn v="ghost" onClick={importarProblemas}>📥 Trazer problemas do diagnóstico</Btn>}
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>
+        Nenhuma prioridade ainda.<br/>{temProblemas?"Use \"Trazer problemas do diagnóstico\" para criar uma prioridade para cada problema listado.":"Registre os problemas no Diagnóstico ou crie uma prioridade manualmente."}
+      </div>}
+      {lista.map((x,i)=>{
+        const nAc=(p.acoes||[]).filter(a=>a.prioridadeId===x.id).length;
+        return(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(PC_COR[x.prioridade]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:200}}><span style={{color:C.cafe,fontWeight:700}}>#{i+1}</span> <span style={{color:C.cafe,fontWeight:600,fontSize:14}}>{x.problema}</span></div>
+            <div style={{display:"flex",gap:6}}><PcChip t={x.prioridade} sm/><PcChip t={x.status} sm/></div>
+          </div>
+          {campo("Causa/gargalo",x.causa)}{campo("Objetivo",x.objetivo)}{campo("Impacto esperado",x.impacto)}{campo("Responsável",x.responsavel)}{campo("Prazo",x.prazo?fmtDate(x.prazo):"")}
+          <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>pcMoverPrior(pp,x.id,-1))}>↑</Btn>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>pcMoverPrior(pp,x.id,1))}>↓</Btn>
+            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("prior");}}>✎ Editar</Btn>
+            <Btn sm v="oliva" onClick={()=>criarAcaoDaPrior(x)}>➜ Criar ação</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta prioridade?"))upd(pp=>pcExcluirPrior(pp,x.id));}}>🗑</Btn>
+            {nAc>0&&<span style={{fontSize:11,color:C.oliva}}>🔗 {nAc} ação(ões)</span>}
+          </div>
+        </div>);})}
+    </div>);
+  };
+
+  const renderPlano=()=>{
+    const filtros=[["todas","Todas",r.total],["Pendente","Pendentes",r.pendentes],["Em andamento","Em andamento",r.andamento],["Concluída","Concluídas",r.concluidas],["Atrasada","Atrasadas",r.atrasadas]];
+    const lista=(p.acoes||[]).filter(a=>fAcao==="todas"||pcStatusAcaoEf(a)===fAcao).slice().sort((a,b)=>{
+      const ca=a.status==="Concluída"?1:0,cb=b.status==="Concluída"?1:0;
+      if(ca!==cb)return ca-cb;
+      return String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"));
+    });
+    const seg=(n,cl)=>n>0?<div style={{width:`${n/Math.max(1,r.total)*100}%`,background:cl}}/>:null;
+    return(<div>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novaAcao}>+ Nova ação</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{r.concluidas} de {r.total} concluídas ({r.pct}%)</span>
+      </div>
+      {r.total>0&&<div style={{display:"flex",height:10,borderRadius:6,overflow:"hidden",background:"#EEE8F4",marginBottom:12}}>
+        {seg(r.concluidas,"#1F7A4D")}{seg(r.andamento,"#3D5A8A")}{seg(r.atrasadas,"#c0392b")}{seg(r.pendentes,"#C9BEDB")}
+      </div>}
+      <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
+        {filtros.map(([k,l,n])=>btnPill(fAcao===k,()=>setFAcao(k),`${l} (${n})`))}
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13}}>
+        {r.total===0?"Nenhuma ação ainda. Crie a primeira ou use \"Criar ação\" dentro de uma prioridade.":"Nenhuma ação neste filtro."}
+      </div>}
+      {lista.map(a=>{
+        const st=pcStatusAcaoEf(a);
+        const pr=(p.prioridades||[]).findIndex(x=>x.id===a.prioridadeId);
+        return(
+        <div key={a.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(PC_COR[st]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10,opacity:st==="Concluída"?0.85:1}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:200,color:C.cafe,fontWeight:600,fontSize:14,textDecoration:st==="Concluída"?"line-through":"none"}}>{a.acao}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><PcChip t={st} sm/><PcChip t={a.prioridade} sm/>{a.area&&<span style={{background:"#F3F0F7",color:C.oliva,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{a.area}</span>}</div>
+          </div>
+          <div style={{fontSize:12,color:C.oliva,marginTop:4}}>
+            {a.responsavel?`👤 ${a.responsavel}  `:""}
+            <span style={{color:st==="Atrasada"?C.vermelho:C.oliva,fontWeight:st==="Atrasada"?700:400}}>{a.prazo?`📅 ${fmtDate(a.prazo)}`:"📅 sem prazo"}</span>
+            {a.dataConclusao?`  ✓ concluída em ${fmtDate(a.dataConclusao)}`:""}
+            {pr>=0?`  🎯 prioridade #${pr+1}`:""}
+          </div>
+          {a.descricao&&<div style={{fontSize:12,color:C.oliva,marginTop:4,whiteSpace:"pre-line"}}>{a.descricao}</div>}
+          {campo("Resultado esperado",a.resultadoEsperado)}{campo("Resultado alcançado",a.resultadoAlcancado)}{campo("Obs.",a.obs)}
+          <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+            {st!=="Concluída"&&st!=="Em andamento"&&<Btn sm v="ghost" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Em andamento"))}>▶ Iniciar</Btn>}
+            {st!=="Concluída"&&<Btn sm v="oliva" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Concluída"))}>✓ Concluir</Btn>}
+            {st==="Concluída"&&<Btn sm v="ghost" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Pendente"))}>↩ Reabrir</Btn>}
+            <Btn sm v="ghost" onClick={()=>{setForm({...a});setModal("acao");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta ação?"))upd(pp=>pcExcluirAcao(pp,a.id));}}>🗑</Btn>
+          </div>
+        </div>);})}
+    </div>);
+  };
+
+  return(
+    <div className="fade" style={{padding:14}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+        <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:22,color:C.oliva,lineHeight:1,padding:"2px 4px"}} title="Voltar aos projetos">←</button>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:16,fontWeight:700,color:C.cafe}}>{p.nome}</div>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:6}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><PcChip t={p.status}/><PcNivel n={p.nivel}/></div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <Btn sm v="ghost" onClick={()=>{setForm(pcForm(p));setModal("projeto");}}>✎ Editar</Btn>
+          <Btn sm v="ghost" onClick={excluirProjeto}>🗑</Btn>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:2}}>
+        {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
+      </div>
+      {tab==="resumo"&&renderResumo()}
+      {tab==="diag"&&renderDiag()}
+      {tab==="prior"&&renderPrior()}
+      {tab==="plano"&&renderPlano()}
+      {modais}
+    </div>
+  );
+};
+// PC-END
+
+// Wrapper: duas abas no topo. A aba "Pedidos e atendimentos" é o módulo que já existia, sem alterações.
+const Consultoria=(props)=>{
+  const [aba,setAba]=useState("pedidos");
+  const [visitou,setVisitou]=useState(false);
+  const abrir=(k)=>{setAba(k);if(k==="continua")setVisitou(true);};
+  const tabBtn=(k,l)=>(
+    <button key={k} onClick={()=>abrir(k)} style={{padding:"9px 16px",borderRadius:"8px 8px 0 0",border:`1.5px solid ${aba===k?CORES_CONSUL.primaria:C.areia}`,borderBottom:"none",background:aba===k?CORES_CONSUL.primaria:"#fff",color:aba===k?"#fff":C.oliva,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{l}</button>
+  );
+  return(
+    <div>
+      <div style={{display:"flex",gap:6,padding:"10px 14px 0",overflowX:"auto"}}>
+        {tabBtn("pedidos","📋 Pedidos e atendimentos")}
+        {tabBtn("continua","🧭 Projetos CONTÍNUA")}
+      </div>
+      <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
+      {visitou&&<div style={{display:aba==="continua"?"block":"none"}}>
+        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} finance={props.finance||[]}/>
+      </div>}
+    </div>
+  );
+};
+
+
+const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,clients,config})=>{
   const [tab,setTab]=useState("pedidos");
   const [selId,setSelId]=useState(null);
   const [subTab,setSubTab]=useState("hist");
@@ -3855,7 +4404,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v9</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v10</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -5279,6 +5828,7 @@ function App() {
   const [cartas,      setCartas     ]=useStorage("cartas",      []);
   const [volumes,     setVolumes    ]=useStorage("volumes",     []);
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
+  const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
@@ -5352,7 +5902,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
-          {view==="consultoria"  &&<Consultoria consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} config={config}/>}
+          {view==="consultoria"  &&<Consultoria projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
