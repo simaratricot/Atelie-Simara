@@ -3525,11 +3525,14 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
   const confirmarMensal=(enviar)=>{
     const jaTem=finance.some(f=>f.clientName===sel.clienteNome&&String(f.desc||"").startsWith(`Mensalidade ${mesLancar}`));
     if(jaTem&&!window.confirm(`Já existe um lançamento de mensalidade de ${mesLancar} para este cliente. Lançar de novo mesmo assim?`))return;
+    if(enviar&&wppFmt==="texto"&&!telDe(sel)){alert("Cadastre o WhatsApp do cliente para enviar (ou escolha PDF/Imagem).");return;}
     const venc=`${mesLancar}-${String(diaLancar||22).padStart(2,"0")}`;
     setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
-    showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
-    if(enviar){setWppView("mes");setWppMes(mesLancar);setWppDia(diaLancar||22);setModal("wpp");}
-    else setModal(null);
+    setModal(null);
+    if(enviar){
+      showSavedGlobal(wppFmt==="texto"?"Mensalidade lançada! Abrindo o WhatsApp…":"Mensalidade lançada! Preparando o documento…");
+      enviarDoc("mes",{mes:mesLancar,dia:diaLancar||22});
+    } else showSavedGlobal(`Mensalidade ${fmtBRL(Number(sel.valor))} lançada!`);
   };
 
   const enviarWhatsApp=(p,tipo,med,extra)=>{
@@ -3574,7 +3577,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     const pix=pixOk?`💠 PIX: ${configConsul.pixNome||"Simara Ap. de Souza Lobui"} · CPF: ${configConsul.pixChave||"357.252.138.62"}\n`:"";
     if(tipo==="mes"&&extra){
       const d=dadosMes(p,extra.mes,extra.dia);
-      return `Olá, ${nome}! 🤎\nConfirmando a prestação do serviço de *${p.servico}* referente a *${d.nomeMes}*.\n\n*Valor:* ${fmtBRL(d.valor)}\n*Vencimento:* ${fmtDate(d.venc)}\n${pix}\nO espelho do lançamento segue em anexo. Qualquer dúvida, estou à disposição!\n${assin}`;
+      return `*PEDIDO DE CONSULTORIA Nº ${numPedido(p.id)} — LANÇAMENTO DE ${d.nomeMes.toUpperCase()}*\n\n*Cliente:* ${p.clienteNome}\n*Serviço:* ${p.servico}\n*Modalidade:* ${p.tipo}\n*Competência:* ${d.nomeMes}\n*Valor:* ${fmtBRL(d.valor)}\n*Vencimento:* ${fmtDate(d.venc)}\n*Pagamento:* ${p.formaPag||"PIX"}\n${pix}\nConfirmando a prestação do serviço neste mês. O espelho do lançamento segue em anexo. Dúvidas? Estou à disposição! 🤎\n${assin}`;
     }
     if(tipo==="medicao"&&med){
       return `Olá, ${nome}! Segue a medição em anexo — ${fmtHoras(med.horas)}${med.valor>0?` · ${fmtBRL(med.valor)}`:""}. 🤎\n${med.valor>0?pix:""}${assin}`;
@@ -3815,28 +3818,32 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
     p=p||sel;if(!p)return;
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const d=dadosMes(p,mes,dia);
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lançamento ${d.nomeMes} — ${p.clienteNome}</title><style>${docStyles}</style></head><body>
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido — Lançamento ${d.nomeMes} — ${p.clienteNome}</title><style>${docStyles}</style></head><body>
     <div class="hdr">
       <div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div>
-      <div class="hdr-doc"><b>LANÇAMENTO DO MÊS</b><br>Pedido Nº ${numPedido(p.id)}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div>
+      <div class="hdr-doc"><b>PEDIDO DE ATENDIMENTO</b><br>Nº ${numPedido(p.id)}<br>Data: ${new Date().toLocaleDateString("pt-BR")}</div>
     </div>
-    <div class="badge">COMPETÊNCIA ${d.nomeMes}</div>
+    <div class="badge">LANÇAMENTO DO MÊS · ${d.nomeMes}</div>
     <h2>Cliente</h2>
     <div class="campo"><b>Nome:</b> ${p.clienteNome}</div>
     ${cli.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}
     ${cli.empresa||p.empresaTerceira?`<div class="campo"><b>Empresa:</b> ${p.empresaTerceira||cli.empresa}</div>`:""}
-    <h2>Serviço Prestado</h2>
-    <div class="campo"><b>Serviço:</b> ${p.servico}</div>
+    ${cli.phone?`<div class="campo"><b>WhatsApp:</b> ${cli.phone}</div>`:""}
+    <h2>Serviço</h2>
+    <div class="campo"><b>Tipo:</b> ${p.servico}</div>
     <div class="campo"><b>Modalidade:</b> ${p.tipo}</div>
-    <div class="campo"><b>Referência:</b> ${d.nomeMes}</div>
     ${p.obs?`<div class="campo"><b>Descrição:</b> ${p.obs}</div>`:""}
-    ${d.ats.length>0?`<h2>Atividades do Mês</h2><table><tr><th>Data</th><th>Descrição</th><th>Horas</th></tr>${d.ats.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${a.assunto}</td><td>${Number(a.duracao||0)>0?fmtHoras(a.duracao):"—"}</td></tr>`).join("")}</table>`:""}
-    <h2>Valor e Pagamento</h2>
+    <div class="campo"><b>Início:</b> ${fmtDate(p.dataInicio)}</div>
+    <div class="campo"><b>Término:</b> ${p.dataFim?fmtDate(p.dataFim):"Indeterminado"}</div>
+    <h2>Lançamento do Mês</h2>
+    <div class="campo"><b>Competência:</b> ${d.nomeMes}</div>
     <div class="campo"><b>Valor do mês:</b> <span style="font-size:16px">${fmtBRL(d.valor)}</span></div>
     <div class="campo"><b>Vencimento:</b> ${fmtDate(d.venc)}</div>
     <div class="campo"><b>Forma de pagamento:</b> ${p.formaPag||"PIX"}</div>
     ${(!p.formaPag||p.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${configConsul.pixNome||"Simara Ap. de Souza Lobui"} · Chave CPF: ${configConsul.pixChave||"357.252.138.62"}</div>`:""}
-    <div class="campo" style="margin-top:18px">Confirmamos a prestação dos serviços acima, referentes a <b>${d.nomeMes}</b>. Solicitamos o pagamento até a data de vencimento. Obrigada pela confiança!</div>
+    ${d.ats.length>0?`<h2>Atividades do Mês</h2><table><tr><th>Data</th><th>Descrição</th><th>Horas</th></tr>${d.ats.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${a.assunto}</td><td>${durEx(a)>0?fmtHoras(durEx(a)):"—"}</td></tr>`).join("")}</table>`:""}
+    <div class="campo" style="margin-top:18px">Confirmamos a prestação do serviço referente a <b>${d.nomeMes}</b>. Solicitamos o pagamento até a data de vencimento.</div>
+    <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultora</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
     ${rodapeDoc}</body></html>`;
     if(saida==="pdf"||saida==="img"){prepararEnvio(html,saida,`Lancamento ${d.nomeMes} ${p.clienteNome}`,legendaArquivo(p,"mes",null,{mes,dia}),p);return;}
     const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}
@@ -3848,7 +3855,7 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v8</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v9</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -4254,10 +4261,18 @@ const Consultoria=({consultoria,setConsultoria,finance,setFinance,compromissos,s
           <Inp label="Dia de vencimento" type="number" value={diaLancar} onChange={v=>setDiaLancar(v)} placeholder="22"/>
           {(!sel.formaPag||sel.formaPag==="PIX")&&<div style={{background:"#F0F8FF",borderRadius:4,padding:"6px 10px",fontSize:11,color:C.oliva}}>💠 PIX: {configConsul.pixNome||"Simara Ap. de Souza Lobui"} · CPF: {configConsul.pixChave||"357.252.138.62"}</div>}
         </div>
-        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.oliva,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Se for enviar ao cliente</div>
+          <div style={{display:"flex",gap:6}}>
+            {[["pdf","📄 PDF"],["img","🖼 Imagem"],["texto","💬 Só texto"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setWppFmt(k)} style={{flex:1,padding:"8px 4px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",border:`1.5px solid ${wppFmt===k?C.cafe:"#DDD3EA"}`,background:wppFmt===k?C.linho:"#fff",color:wppFmt===k?C.cafe:C.oliva}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
           <Btn v="ghost" onClick={()=>confirmarMensal(false)}>💰 Só lançar</Btn>
-          <Btn onClick={()=>confirmarMensal(true)}>📤 Lançar e enviar ao cliente</Btn>
+          <Btn onClick={()=>confirmarMensal(true)}>📤 Lançar e enviar por WhatsApp</Btn>
         </div>
       </Modal>}
     </div>
