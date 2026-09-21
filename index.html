@@ -4239,6 +4239,14 @@ const Consultoria=(props)=>{
 };
 
 
+const pcCicloData=(anoMes,dia)=>{
+  const [ano,mes]=anoMes.split("-").map(Number);
+  const ultimo=new Date(ano,mes,0).getDate();
+  const d=Math.min(Math.max(1,Number(dia)||1),ultimo);
+  return `${anoMes}-${String(d).padStart(2,"0")}`;
+};
+const pcProxAnoMes=(anoMes)=>{const [a,m]=anoMes.split("-").map(Number);const d=new Date(a,m,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;};
+
 const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,compromissos,setCompromissos,clients,config})=>{
   const [tab,setTab]=useState("pedidos");
   const [selId,setSelId]=useState(null);
@@ -4248,10 +4256,38 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
   const [filtStatus,setFiltStatus]=useState("Em andamento");
   const [verFat,setVerFat]=useState(false);
   const [selAtends,setSelAtends]=useState([]);
+  // Pedido "Fixo mensal": garante sozinho o lembrete na Agenda (mês atual e o próximo), sem duplicar e sem apagar o que a pessoa já editou.
+  const fixosKey=consultoria.filter(c=>c.tipo==="Fixo mensal"&&c.status!=="Cancelado").map(c=>`${c.id}:${c.diaEmissao||22}:${c.clienteNome}`).join("|");
+  useEffect(()=>{
+    if(!setCompromissos)return;
+    const fixos=consultoria.filter(c=>c.tipo==="Fixo mensal"&&c.status!=="Cancelado");
+    if(fixos.length===0)return;
+    const mesAtual=today.slice(0,7);
+    const mesProx=pcProxAnoMes(mesAtual);
+    setCompromissos(prev=>{
+      const ids=new Set(prev.map(c=>c.id));
+      const novos=[];
+      fixos.forEach(ped=>{
+        [mesAtual,mesProx].forEach(am=>{
+          const cid=`agendafix-${ped.id}-${am}`;
+          if(!ids.has(cid)){
+            novos.push({id:cid,desc:`Mensalidade — ${ped.clienteNome} (todo dia ${ped.diaEmissao||22})`,data:pcCicloData(am,ped.diaEmissao),hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:ped.id});
+          }
+        });
+      });
+      return novos.length>0?[...prev,...novos]:prev;
+    });
+  },[fixosKey]);
   const [atHora,setAtHora]=useState("");
   useEffect(()=>{if(modal!=="atend")setAtHora("");},[modal]);
   const [medHora,setMedHora]=useState("");
   const [medSalvaHora,setMedSalvaHora]=useState(true);
+  const [compForm,setCompForm]=useState(null);
+  const salvarComp=()=>{
+    if(!compForm.desc||!compForm.data){alert("Preencha a descrição e a data.");return;}
+    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:sel.id}]);
+    setModal(null);showSavedGlobal("Adicionado à Agenda!");
+  };
   const [wppView,setWppView]=useState("menu");
   const [wppFmt,setWppFmt]=useState("pdf");
   const [wppBusy,setWppBusy]=useState(false);
@@ -4317,9 +4353,6 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       // Só vai para o financeiro se você marcar "Lançar no financeiro agora"
       if(quer){
         setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
-      }
-      if(novo.tipo==="Fixo mensal"&&novo.diaEmissao){
-        setCompromissos(prev=>[...prev,{id:uid(),desc:`Consultoria mensal — ${novo.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:novo.id}]);
       }
     } else {
       setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo,atendimentos:x.atendimentos,medicoes:x.medicoes}:x));
@@ -4752,7 +4785,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v13</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v14</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -4852,6 +4885,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
           {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
           {sel.lancado===false&&Number(sel.valor)>0&&!sel.orcamento&&<Btn sm v="oliva" onClick={lancarPedidoFin}>💰 Lançar no financeiro</Btn>}
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar medição</Btn>}
+          <Btn sm v="ghost" onClick={()=>{setCompForm({desc:`Consultoria — ${sel.clienteNome}`,data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");}}>📅 Agenda</Btn>
           <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
           <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
         </div>
@@ -5055,6 +5089,22 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
         <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>{setAtendForm(EFA);setModal(null);}}>Cancelar</Btn>
           <Btn onClick={saveAtend}>{atendForm.id?"Salvar edição":"Salvar atendimento"}</Btn>
+        </div>
+      </Modal>}
+
+      {modal==="comp"&&compForm&&<Modal title="📅 Adicionar à Agenda" onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Descrição" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Data" type="date" value={compForm.data} onChange={v=>setCompForm(f=>({...f,data:v}))}/>
+            <Inp label="Horário" type="time" value={compForm.hora} onChange={v=>setCompForm(f=>({...f,hora:v}))}/>
+          </div>
+          <Sel label="Prioridade" value={compForm.prioridade} onChange={v=>setCompForm(f=>({...f,prioridade:v}))} options={["Alta","Normal","Baixa"]}/>
+        </div>
+        <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Isso só adiciona um lembrete na Agenda, sem registrar atendimento nem mexer no financeiro.</div>
+        <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+          <Btn onClick={salvarComp}>💾 Adicionar</Btn>
         </div>
       </Modal>}
 
