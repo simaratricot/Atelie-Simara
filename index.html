@@ -3369,21 +3369,28 @@ const pcForm=(p)=>{
 };
 
 // ── regras (funções puras, sem tela) ──
-const pcEv=(p,tipo,texto)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:pcHoje(),tipo,texto}]});
+const pcEv=(p,tipo,texto,data)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:data||pcHoje(),tipo,texto}]});
+const pcNomePadrao=(f)=>String(f.nome||"").trim()||`Projeto CONTÍNUA — ${f.clienteNome||"sem cliente"}`;
 const pcNovo=(f)=>{
   const p={id:uid(),valor:Number(f.valor)||0,diagnostico:{},prioridades:[],acoes:[],atendimentos:[],indicadores:[],eventos:[],criadoEm:pcHoje()};
   PC_CAMPOS.forEach(k=>{if(k!=="valor")p[k]=f[k]===undefined||f[k]===null?"":f[k];});
+  p.nome=pcNomePadrao(f);
   return pcEv(p,"projeto","Projeto criado");
 };
 const pcEditar=(p,f)=>{
-  const n={...p};PC_CAMPOS.forEach(k=>{if(f[k]!==undefined)n[k]=f[k];});n.valor=Number(f.valor)||0;
+  const n={...p};PC_CAMPOS.forEach(k=>{if(f[k]!==undefined)n[k]=f[k];});n.valor=Number(f.valor)||0;n.nome=pcNomePadrao(n);
   return p.status!==n.status?pcEv(n,"status",`Status: ${p.status} → ${n.status}`):n;
 };
 const pcSalvarDiag=(p,texto)=>({...p,diagnostico:{...(p.diagnostico||{}),...texto}});
 const pcConcluirDiag=(p,texto,nivel)=>{
-  const niv=nivel||p.nivel||"";
+  const niv=(nivel===undefined||nivel===null)?(p.nivel||""):nivel;
   const n={...p,diagnostico:{...(p.diagnostico||{}),...texto,concluido:true,dataConclusao:pcHoje(),nivelDefinido:niv},nivel:niv,status:p.status==="Diagnóstico"?"Planejamento":p.status};
   return pcEv(n,"diagnostico",`Diagnóstico concluído${niv?` · ${niv}`:""}`);
+};
+const pcDefinirNivel=(p,nivel)=>{
+  const niv=nivel||"";
+  if((p.nivel||"")===niv)return p;
+  return pcEv({...p,nivel:niv,diagnostico:{...(p.diagnostico||{}),nivelDefinido:niv}},"diagnostico",niv?`Nível do Método CONTÍNUA definido: ${niv}`:"Nível do Método CONTÍNUA voltou para \"a definir\"");
 };
 const pcReabrirDiag=(p)=>pcEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}},"diagnostico","Diagnóstico reaberto para ajustes");
 const pcImportar=(p)=>{
@@ -3456,11 +3463,83 @@ const pcFin=(finance,p)=>{
   return {recebido,pendente:Math.max(0,(Number(p.valor)||0)-recebido),lancamentos:l.length};
 };
 
+// ── atendimentos do projeto ──
+const PC_TIPOS_ATEND=["Diagnóstico","Planejamento","Acompanhamento","Execução assistida","Treinamento","Reunião","Outro"];
+const pcMin=(ini,fim)=>{
+  const f=(s)=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(s||"").trim());return m?Number(m[1])*60+Number(m[2]):NaN;};
+  const a=f(ini),b=f(fim);return isNaN(a)||isNaN(b)?0:Math.max(0,b-a);
+};
+const pcFmtMin=(m)=>{m=Math.round(Number(m)||0);const h=Math.floor(m/60),mm=m%60;return h>0?(mm>0?`${h}h${String(mm).padStart(2,"0")}`:`${h}h`):`${mm}min`;};
+const pcSalvarAtend=(p,a)=>{
+  const lista=p.atendimentos||[];
+  if(lista.some(x=>x.id===a.id))return {...p,atendimentos:lista.map(x=>x.id===a.id?a:x)};
+  return pcEv({...p,atendimentos:[...lista,a]},"atendimento",`Atendimento (${a.tipo}): ${a.assunto}${a.duracaoMin>0?` · ${pcFmtMin(a.duracaoMin)}`:""}`,a.data);
+};
+const pcExcluirAtend=(p,id)=>({...p,atendimentos:(p.atendimentos||[]).filter(x=>x.id!==id)});
+// espelho na Agenda: o atendimento (e o próximo agendado) aparecem como compromissos do tipo Consultoria
+const pcAtendComps=(comps,p,a,proxOld)=>{
+  const hoje=pcHoje();
+  let l=[...(comps||[])];
+  const up=(item,manterStatus)=>{const i=l.findIndex(c=>c.id===item.id);if(i<0){l.push(item);return;}l[i]=manterStatus?{...l[i],desc:item.desc,data:item.data,hora:item.hora}:{...l[i],...item};};
+  const base={tipo:"Consultoria",projetoId:p.id,prioridade:"Alta",atendimentoId:a.id};
+  up({...base,id:a.compromissoId,desc:`CONTÍNUA · ${p.clienteNome} — ${a.assunto}`,data:a.data,hora:a.hora||"",status:a.data<=hoje?"Concluído":"Pendente"},false);
+  if(a.proxData)up({...base,id:a.proxCompromissoId,desc:`CONTÍNUA · ${p.clienteNome} — Próximo atendimento`,data:a.proxData,hora:a.proxHora||"09:00",status:"Pendente"},true);
+  else if(proxOld)l=l.filter(c=>c.id!==proxOld);
+  return l;
+};
+const pcAtendCompsExcluir=(comps,a)=>(comps||[]).filter(c=>c.id!==a.compromissoId&&(!a.proxCompromissoId||c.id!==a.proxCompromissoId));
+const pcHorasAtend=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+(Number(a.duracaoMin)||0),0);
+
+// ── indicadores ──
+const pcNum=(v)=>{const s=String(v===undefined||v===null?"":v).trim().replace(",",".");return s===""?NaN:Number(s);};
+const pcProgInd=(i)=>{
+  const a=pcNum(i.valorInicial),b=pcNum(i.valorAtual),m=pcNum(i.metaFinal);
+  if(isNaN(a)||isNaN(b)||isNaN(m)||m===a)return null;
+  return Math.max(0,Math.min(100,Math.round((b-a)/(m-a)*100)));
+};
+const pcV=(v,u)=>(v===""||v===undefined||v===null)?"—":`${v}${u||""}`;
+const pcNovoInd=(f)=>{
+  const ini=pcNum(f.valorInicial),mf=pcNum(f.metaFinal),atRaw=pcNum(f.valorAtual);
+  const at=isNaN(atRaw)?ini:atRaw;
+  const data=f.dataAcompanhamento||pcHoje();
+  const s=(n)=>isNaN(n)?"":n;
+  return {id:uid(),nome:f.nome,meta:f.meta||"",unidade:f.unidade||"",valorInicial:s(ini),valorAtual:s(at),metaFinal:s(mf),dataAcompanhamento:data,historico:isNaN(at)?[]:[{id:uid(),data,valor:at,obs:"Registro inicial"}]};
+};
+const pcSalvarInd=(p,f)=>{
+  const lista=p.indicadores||[];
+  if(f.id&&lista.some(x=>x.id===f.id)){
+    const m=pcNum(f.metaFinal),ini=pcNum(f.valorInicial);
+    return {...p,indicadores:lista.map(x=>x.id===f.id?{...x,nome:f.nome,meta:f.meta||"",unidade:f.unidade||"",valorInicial:isNaN(ini)?"":ini,metaFinal:isNaN(m)?"":m}:x)};
+  }
+  const n=pcNovoInd(f);
+  return pcEv({...p,indicadores:[...lista,n]},"indicador",`Indicador criado: ${n.nome}`);
+};
+const pcRegistrarInd=(p,indId,r)=>{
+  const lista=p.indicadores||[];const ind=lista.find(x=>x.id===indId);
+  const v=pcNum(r.valor);if(!ind||isNaN(v))return p;
+  const data=r.data||pcHoje();
+  const novo={...ind,valorAtual:v,dataAcompanhamento:data,historico:[...(ind.historico||[]),{id:uid(),data,valor:v,obs:r.obs||""}]};
+  return pcEv({...p,indicadores:lista.map(x=>x.id===indId?novo:x)},"indicador",`Indicador ${ind.nome}: ${pcV(ind.valorAtual)} → ${v}${ind.unidade?` ${ind.unidade}`:""}`,data);
+};
+const pcExcluirInd=(p,id)=>({...p,indicadores:(p.indicadores||[]).filter(x=>x.id!==id)});
+const pcLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
+const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0"};
+const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador"};
+
+const PcSpark=({pontos})=>{
+  if(!pontos||pontos.length<2)return null;
+  const w=120,h=30,min=Math.min(...pontos),max=Math.max(...pontos),rng=(max-min)||1;
+  const pts=pontos.map((v,i)=>`${(i/(pontos.length-1))*(w-4)+2},${h-3-((v-min)/rng)*(h-6)}`).join(" ");
+  return <svg width={w} height={h} style={{display:"block"}}><polyline points={pts} fill="none" stroke={CORES_CONSUL.primaria} strokeWidth="2" strokeLinejoin="round"/></svg>;
+};
+
 const PcChip=({t,sm})=>{const c=PC_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
-const PcNivel=({n})=>n?<span style={{background:"#F3EEE0",color:"#8A6D1F",borderRadius:20,padding:"3px 11px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{n}</span>:null;
+const PcNivel=({n})=>n
+  ?<span style={{background:"#F3EEE0",color:"#8A6D1F",borderRadius:20,padding:"3px 11px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{n}</span>
+  :<span style={{background:"#F3F0F7",color:"#8C8499",border:"1px dashed #C9BEDB",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>Nível a definir</span>;
 const PcBarra=({pct,cor})=><div style={{height:8,background:"#EEE8F4",borderRadius:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor||CORES_CONSUL.primaria,transition:"width .3s"}}/></div>;
 
-const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
+const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],compromissos=[],setCompromissos})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -3470,23 +3549,33 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
   const [form,setForm]=useState(null);
   const [dg,setDg]=useState({});
   const [dgSujo,setDgSujo]=useState(false);
-  const [nivelDg,setNivelDg]=useState("CONTÍNUA ESSENCIAL");
+  const [nivelDg,setNivelDg]=useState("");
+  const [novoCli,setNovoCli]=useState(null);
+  useEffect(()=>{if(modal!=="projeto")setNovoCli(null);},[modal]);
   const sel=projetos.find(p=>p.id===selId)||null;
 
   useEffect(()=>{
     const d=(sel&&sel.diagnostico)||{};
     const t={};PC_DG_CAMPOS.forEach(([k])=>{t[k]=d[k]||"";});
     setDg(t);setDgSujo(false);
-    setNivelDg(d.nivelDefinido||(sel&&sel.nivel)||"CONTÍNUA ESSENCIAL");
-  },[selId]);
+    setNivelDg((sel&&sel.nivel)||"");
+  },[selId,sel&&sel.nivel]);
 
   const upd=(fn)=>setProjetos&&setProjetos(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   // ── projeto: criar / editar / excluir ──
+  const cadastrarCliente=()=>{
+    const nome=String((novoCli&&novoCli.name)||"").trim();
+    if(!nome){alert("Informe o nome do cliente.");return;}
+    if(clients.some(c=>String(c.name||"").trim().toLowerCase()===nome.toLowerCase())&&!window.confirm(`Já existe um cliente chamado "${nome}". Cadastrar outro mesmo assim? (Se for o mesmo, escolha-o na lista.)`))return;
+    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:pcHoje()};
+    setClients(prev=>[...prev,c].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt")));
+    setForm(f=>({...f,clientId:c.id,clienteNome:c.name,empresa:c.empresa||f.empresa}));
+    setNovoCli(null);showSavedGlobal("Cliente cadastrado!");
+  };
   const salvarProjeto=()=>{
     if(!form.clientId){alert("Escolha o cliente do projeto.");return;}
-    if(!String(form.nome||"").trim()){alert("Informe o nome do projeto.");return;}
     if(form.id){
       setProjetos(prev=>prev.map(p=>p.id===form.id?pcEditar(p,form):p));
     } else {
@@ -3499,17 +3588,22 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
   const excluirProjeto=()=>{
     if(!sel)return;
     const fl=(finance||[]).filter(f=>f.projetoId===sel.id).length;
-    if(!window.confirm(`Excluir o projeto "${sel.nome}" e todo o seu conteúdo (diagnóstico, prioridades, ações)?${fl>0?`\n\nAtenção: existem ${fl} lançamento(s) no financeiro ligados a ele; eles NÃO serão apagados.`:""}\n\nEssa ação não pode ser desfeita.`))return;
+    if(!window.confirm(`Excluir o projeto "${sel.nome}" e todo o seu conteúdo (diagnóstico, prioridades, ações, atendimentos e indicadores)? Os compromissos dele também saem da Agenda.${fl>0?`\n\nAtenção: existem ${fl} lançamento(s) no financeiro ligados a ele; eles NÃO serão apagados.`:""}\n\nEssa ação não pode ser desfeita.`))return;
     setProjetos(prev=>prev.filter(p=>p.id!==sel.id));
+    if(setCompromissos)setCompromissos(prev=>prev.filter(c=>c.projetoId!==sel.id));
     setSelId(null);
   };
 
   // ── diagnóstico ──
   const salvarDiag=()=>{upd(p=>pcSalvarDiag(p,dg));setDgSujo(false);showSavedGlobal("Diagnóstico salvo!");};
+  const salvarNivel=()=>{upd(pp=>pcDefinirNivel(pp,nivelDg));showSavedGlobal(nivelDg?"Nível salvo!":"Nível marcado como \"a definir\".");};
   const concluirDiag=()=>{
-    if(!String(dg.situacao||"").trim()&&!String(dg.problemas||"").trim()){alert("Preencha ao menos a situação atual ou os principais problemas antes de concluir.");return;}
-    if(!window.confirm(`Concluir o diagnóstico e definir o nível ${nivelDg}?`))return;
-    upd(p=>pcConcluirDiag(p,dg,nivelDg));setDgSujo(false);showSavedGlobal("Diagnóstico concluído!");
+    const avisos=[];
+    if(!String(dg.situacao||"").trim()&&!String(dg.problemas||"").trim())avisos.push("O diagnóstico ainda está vazio.");
+    if(!nivelDg)avisos.push("O nível ainda está \"a definir\".");
+    const msg=avisos.length?`${avisos.join(" ")} Concluir mesmo assim? Você pode reabrir o diagnóstico ou definir o nível depois.`:`Concluir o diagnóstico com o nível ${nivelDg}?`;
+    if(!window.confirm(msg))return;
+    upd(pp=>pcConcluirDiag(pp,dg,nivelDg));setDgSujo(false);showSavedGlobal("Diagnóstico concluído!");
   };
 
   // ── prioridades ──
@@ -3538,6 +3632,34 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
     upd(p=>pcSalvarAcao(p,form));setModal(null);showSavedGlobal("Ação salva!");
   };
 
+  // ── atendimentos ──
+  const novoAtend=()=>{setForm({data:pcHoje(),hora:"",horaFim:"",duracaoMin:"",tipo:PC_TIPOS_ATEND[2],assunto:"",realizado:"",orientacoes:"",decisoes:"",proximos:"",obs:"",proxData:"",proxHora:"09:00",compromissoId:"",proxCompromissoId:""});setModal("atend");};
+  const setHoras=(k,v)=>setForm(f=>{const n={...f,[k]:v};const m=pcMin(n.hora,n.horaFim);if(m>0)n.duracaoMin=String(m);return n;});
+  const salvarAtend=()=>{
+    if(!form.data){alert("Informe a data do atendimento.");return;}
+    if(!String(form.assunto||"").trim()){alert("Informe o assunto do atendimento.");return;}
+    const proxOld=form.proxCompromissoId||"";
+    const a={...form,id:form.id||uid(),compromissoId:form.compromissoId||uid(),proxCompromissoId:form.proxData?(proxOld||uid()):"",duracaoMin:Number(form.duracaoMin)||0};
+    upd(pp=>pcSalvarAtend(pp,a));
+    if(setCompromissos)setCompromissos(prev=>pcAtendComps(prev,sel,a,proxOld));
+    setModal(null);showSavedGlobal(a.proxData?"Atendimento salvo e próximo agendado!":"Atendimento salvo!");
+  };
+  const excluirAtend=(a)=>{
+    if(!window.confirm("Excluir este atendimento? Ele também sai da Agenda."))return;
+    upd(pp=>pcExcluirAtend(pp,a.id));
+    if(setCompromissos)setCompromissos(prev=>pcAtendCompsExcluir(prev,a));
+  };
+  // ── indicadores ──
+  const novoInd=()=>{setForm({nome:"",meta:"",unidade:"",valorInicial:"",valorAtual:"",metaFinal:"",dataAcompanhamento:pcHoje()});setModal("ind");};
+  const salvarInd=()=>{
+    if(!String(form.nome||"").trim()){alert("Informe o nome do indicador.");return;}
+    upd(pp=>pcSalvarInd(pp,form));setModal(null);showSavedGlobal("Indicador salvo!");
+  };
+  const registrarInd=()=>{
+    if(isNaN(pcNum(form.valor))){alert("Informe o valor atual (número).");return;}
+    upd(pp=>pcRegistrarInd(pp,form.indId,form));setModal(null);showSavedGlobal("Acompanhamento registrado!");
+  };
+
   const btnPill=(ativo,onClick,label)=>(
     <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
   );
@@ -3551,9 +3673,26 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
           <Sel label="Cliente" value={form.clientId} onChange={v=>{const c=clients.find(x=>x.id===v);setForm(f=>({...f,clientId:v,clienteNome:c?c.name:"",empresa:(c&&c.empresa)||f.empresa}));}}
             options={[{v:"",l:"— selecione um cliente cadastrado —"},...[...clients].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""))).map(c=>({v:c.id,l:c.name}))]}/>
         </div>
+        {!form.id&&setClients&&<div style={{gridColumn:"1 / -1"}}>
+          {!novoCli
+            ?<button onClick={()=>setNovoCli({name:"",phone:"",empresa:""})} style={{background:"none",border:"none",color:C.cafe,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textDecoration:"underline",fontFamily:"inherit"}}>+ Cliente ainda não cadastrado? Cadastrar agora</button>
+            :<div style={{background:C.linho,borderRadius:8,padding:12}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Cadastro rápido de cliente</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+                <Inp label="Nome" value={novoCli.name} onChange={v=>setNovoCli(n=>({...n,name:v}))}/>
+                <Inp label="WhatsApp" value={novoCli.phone} onChange={v=>setNovoCli(n=>({...n,phone:v}))}/>
+                <Inp label="Empresa" value={novoCli.empresa} onChange={v=>setNovoCli(n=>({...n,empresa:v}))}/>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
+                <Btn sm v="ghost" onClick={()=>setNovoCli(null)}>Cancelar</Btn>
+                <Btn sm onClick={cadastrarCliente}>Cadastrar e selecionar</Btn>
+              </div>
+              <div style={{fontSize:11,color:C.oliva,marginTop:6}}>O cliente entra no cadastro de Clientes do app; os demais dados você completa por lá.</div>
+            </div>}
+        </div>}
         <Inp label="Empresa" value={form.empresa} onChange={v=>F("empresa",v)}/>
         <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)} placeholder="Quem acompanha pelo cliente"/>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Nome do projeto" value={form.nome} onChange={v=>F("nome",v)} placeholder="Ex: Organização financeira e fiscal"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Nome do projeto (opcional)" value={form.nome} onChange={v=>F("nome",v)} placeholder="Em branco = Projeto CONTÍNUA — nome do cliente"/></div>
         <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>F("dataInicio",v)}/>
         <Inp label="Previsão de conclusão" type="date" value={form.dataPrevista} onChange={v=>F("dataPrevista",v)}/>
         <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={PC_STATUS}/>
@@ -3604,6 +3743,64 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarAcao}>💾 Salvar ação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="atend"&&form&&<Modal wide title={form.id?"✎ Editar atendimento":"🗓 Registrar atendimento"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12}}>
+        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <Sel label="Tipo de atendimento" value={form.tipo} onChange={v=>F("tipo",v)} options={PC_TIPOS_ATEND}/>
+        <Inp label="Horário (início)" type="time" value={form.hora} onChange={v=>setHoras("hora",v)}/>
+        <Inp label="Hora fim" type="time" value={form.horaFim} onChange={v=>setHoras("horaFim",v)}/>
+        <Inp label="Duração (minutos)" type="number" value={form.duracaoMin} onChange={v=>F("duracaoMin",v)}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Assunto" value={form.assunto} onChange={v=>F("assunto",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="O que foi realizado" rows={3} value={form.realizado} onChange={v=>F("realizado",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Orientações" rows={2} value={form.orientacoes} onChange={v=>F("orientacoes",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Decisões tomadas" rows={2} value={form.decisoes} onChange={v=>F("decisoes",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Próximos passos" rows={2} value={form.proximos} onChange={v=>F("proximos",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observações" rows={2} value={form.obs} onChange={v=>F("obs",v)}/></div>
+        <div style={{gridColumn:"1 / -1",background:C.linho,borderRadius:8,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>📅 Agendar próximo atendimento (opcional)</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Data" type="date" value={form.proxData} onChange={v=>F("proxData",v)}/>
+            <Inp label="Horário" type="time" value={form.proxHora} onChange={v=>F("proxHora",v)}/>
+          </div>
+        </div>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Este atendimento fica ligado ao projeto e aparece na Agenda.</div>
+      <div style={{display:"flex",gap:8,marginTop:12,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarAtend}>💾 Salvar atendimento</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="ind"&&form&&<Modal wide title={form.id?"✎ Editar indicador":"📈 Novo indicador"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Indicador" value={form.nome} onChange={v=>F("nome",v)} placeholder="Ex: Inadimplência, Faturamento mensal, Notas emitidas no prazo"/></div>
+        <div style={{gridColumn:"1 / -1",fontSize:11,color:C.oliva,marginTop:-4}}>Só o nome é obrigatório. Os valores e a meta podem ser completados depois.</div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Meta (o que se quer alcançar)" value={form.meta} onChange={v=>F("meta",v)} placeholder="Ex: Reduzir a inadimplência pela metade"/></div>
+        <Inp label="Unidade" value={form.unidade} onChange={v=>F("unidade",v)} placeholder="%, R$, dias..."/>
+        <Inp label="Valor inicial" type="number" value={form.valorInicial} onChange={v=>F("valorInicial",v)}/>
+        {!form.id&&<Inp label="Valor atual" type="number" value={form.valorAtual} onChange={v=>F("valorAtual",v)} placeholder="Igual ao inicial, se vazio"/>}
+        <Inp label="Meta final" type="number" value={form.metaFinal} onChange={v=>F("metaFinal",v)}/>
+        {!form.id&&<Inp label="Data de acompanhamento" type="date" value={form.dataAcompanhamento} onChange={v=>F("dataAcompanhamento",v)}/>}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarInd}>💾 Salvar indicador</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="indUpd"&&form&&<Modal title="➕ Registrar acompanhamento" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{fontSize:13,color:C.cafe,fontWeight:700}}>{form.nome}</div>
+        <Inp label="Data do acompanhamento" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <Inp label="Valor atual" type="number" value={form.valor} onChange={v=>F("valor",v)}/>
+        <Inp label="Observação" rows={2} value={form.obs} onChange={v=>F("obs",v)}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={registrarInd}>💾 Registrar</Btn>
       </div>
     </Modal>}
   </>);
@@ -3661,17 +3858,22 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"]];
+  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
-    const eventos=(p.eventos||[]).slice(-6).reverse();
+    const eventos=pcLinhaTempo(p).slice(0,6);
+    const ultimoAtend=(p.atendimentos||[]).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).pop();
     const cartao=(rot,val,cl)=>(
       <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}>
         <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{rot}</div>
         <div style={{fontSize:15,fontWeight:700,color:cl||C.cafe,marginTop:3,wordBreak:"break-word"}}>{val}</div>
       </div>);
     return(<div>
+      {!p.nivel&&<div style={{background:"#FFF7E0",border:"1px solid #F0DDA0",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#8A6D1F",display:"flex",gap:10,alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
+        <span><b>Nível do Método CONTÍNUA ainda não definido.</b> Identifique quando tiver os dados do cliente.</span>
+        <Btn sm v="ghost" onClick={()=>setTab("diag")}>Ir para Diagnóstico</Btn>
+      </div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:12}}>
         {cartao("Cliente",p.clienteNome||"—")}
         {cartao("Nível",p.nivel||"A definir")}
@@ -3702,6 +3904,23 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
       <PcBarra pct={r.pct}/>
       <div style={{fontSize:11,color:C.oliva,marginTop:4}}>{r.pct}% do plano concluído</div>
 
+      <Divider label="Atendimentos"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+        {cartao("Realizados",(p.atendimentos||[]).length)}
+        {cartao("Horas realizadas",pcFmtMin(pcHorasAtend(p)))}
+      </div>
+
+      <Divider label={`Indicadores (${(p.indicadores||[]).length})`}/>
+      {(p.indicadores||[]).length===0
+        ?<div style={{fontSize:12,color:C.oliva}}>Nenhum indicador cadastrado. Registre na aba Indicadores para acompanhar a evolução.</div>
+        :(p.indicadores||[]).slice(0,4).map(i=>{const pr=pcProgInd(i);return(
+          <div key={i.id} style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.oliva,marginBottom:3,gap:8}}>
+              <b style={{color:C.cafe}}>{i.nome}</b><span>{pcV(i.valorAtual,i.unidade?` ${i.unidade}`:"")} → meta {pcV(i.metaFinal,i.unidade?` ${i.unidade}`:"")}</span>
+            </div>
+            {pr!==null&&<PcBarra pct={pr}/>}
+          </div>);})}
+
       <Divider label={`Prioridades (${(p.prioridades||[]).length})`}/>
       {(p.prioridades||[]).length===0
         ?<div style={{fontSize:12,color:C.oliva}}>Ainda não definidas. Depois do diagnóstico, transforme os problemas em prioridades.</div>
@@ -3711,6 +3930,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
           </div>))}
 
       <Divider label="Próximos passos"/>
+      {ultimoAtend&&String(ultimoAtend.proximos||"").trim()&&<div style={{background:"#E6F3F6",borderRadius:6,padding:"8px 12px",marginBottom:8,fontSize:12,color:"#1F6F7A",whiteSpace:"pre-line"}}><b>Do último atendimento ({fmtDate(ultimoAtend.data)}):</b> {ultimoAtend.proximos}</div>}
       {proximas.length===0
         ?<div style={{fontSize:12,color:C.oliva}}>{(p.acoes||[]).length===0?"Monte o plano de ação para ver aqui as próximas ações.":"Tudo concluído por aqui. 🎉"}</div>
         :proximas.map(a=>{const st=pcStatusAcaoEf(a);return(
@@ -3734,7 +3954,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
     const dd=p.diagnostico||{};
     return(<div>
       {dd.concluido&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <span>✓ Diagnóstico concluído em {fmtDate(dd.dataConclusao)}{dd.nivelDefinido?` · ${dd.nivelDefinido}`:""}</span>
+        <span>✓ Diagnóstico concluído em {fmtDate(dd.dataConclusao)}{p.nivel?` · ${p.nivel}`:" · nível a definir"}</span>
         <Btn sm v="ghost" onClick={()=>{upd(pcReabrirDiag);}}>↩ Reabrir</Btn>
       </div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
@@ -3748,13 +3968,20 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
         <Btn onClick={salvarDiag}>💾 Salvar diagnóstico</Btn>
         {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
       </div>
-      {!dd.concluido&&<div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
-        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Concluir diagnóstico</div>
+      <div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
+        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Nível do Método CONTÍNUA</div>
         <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
-          <div style={{flex:1,minWidth:220}}><Sel label="Nível do Método CONTÍNUA" value={nivelDg} onChange={setNivelDg} options={PC_NIVEIS}/></div>
-          <Btn v="oliva" onClick={concluirDiag}>✓ Concluir diagnóstico</Btn>
+          <div style={{flex:1,minWidth:220}}><Sel label="Nível identificado" value={nivelDg} onChange={setNivelDg} options={[{v:"",l:"A definir (ainda sem dados suficientes)"},...PC_NIVEIS.map(n=>({v:n,l:n}))]}/></div>
+          <Btn v="ghost" onClick={salvarNivel}>💾 Salvar nível</Btn>
         </div>
-        <div style={{fontSize:11,color:C.oliva,marginTop:8}}>Ao concluir, o nível fica registrado no projeto e o status passa para "Planejamento".</div>
+        <div style={{fontSize:11,color:C.oliva,marginTop:8}}>{nivelDg!==(p.nivel||"")?<b style={{color:C.vermelho}}>● nível ainda não salvo. </b>:null}Pode definir agora ou depois, quando tiver os dados do cliente.</div>
+      </div>
+      {!dd.concluido&&<div style={{marginTop:12,background:C.linho,borderRadius:8,padding:14}}>
+        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Concluir diagnóstico</div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <Btn v="oliva" onClick={concluirDiag}>✓ Concluir diagnóstico</Btn>
+          <span style={{fontSize:11,color:C.oliva,flex:1,minWidth:200}}>Ao concluir, o status passa para "Planejamento". Não é obrigatório ter o nível definido nem tudo preenchido; dá para reabrir.</span>
+        </div>
       </div>}
     </div>);
   };
@@ -3841,6 +4068,113 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
     </div>);
   };
 
+  const renderAtend=()=>{
+    const lista=(p.atendimentos||[]).slice().sort((a,b)=>String(b.data).localeCompare(String(a.data))||String(b.hora||"").localeCompare(String(a.hora||"")));
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novoAtend}>+ Registrar atendimento</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{lista.length} atendimento(s) · {pcFmtMin(pcHorasAtend(p))} realizadas</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum atendimento registrado.<br/>Cada atendimento fica ligado a este projeto e aparece na Agenda.</div>}
+      {lista.map(a=>(
+        <div key={a.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${PC_EV_COR.atendimento}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>{fmtDate(a.data)}{a.hora?` · ${a.hora}${a.horaFim?`–${a.horaFim}`:""}`:""}{a.duracaoMin>0?` · ${pcFmtMin(a.duracaoMin)}`:""}</div>
+              <div style={{color:C.cafe,fontWeight:600,fontSize:14}}>{a.assunto}</div>
+            </div>
+            <span style={{background:"#E6F3F6",color:"#1F6F7A",borderRadius:20,padding:"3px 11px",fontSize:11,fontWeight:700}}>{a.tipo}</span>
+          </div>
+          {[["O que foi realizado",a.realizado],["Orientações",a.orientacoes],["Decisões tomadas",a.decisoes],["Próximos passos",a.proximos],["Observações",a.obs]].map(([r,v])=>String(v||"").trim()?<div key={r} style={{fontSize:12,color:C.oliva,marginTop:5,whiteSpace:"pre-line"}}><b style={{color:C.cafe}}>{r}:</b> {v}</div>:null)}
+          {a.proxData&&<div style={{fontSize:12,color:"#1F6F7A",marginTop:6,fontWeight:600}}>📅 Próximo agendado: {fmtDate(a.proxData)} {a.proxHora||""}</div>}
+          <div style={{display:"flex",gap:6,marginTop:10}}>
+            <Btn sm v="ghost" onClick={()=>{setForm({...a,duracaoMin:a.duracaoMin||"",hora:a.hora||"",horaFim:a.horaFim||"",proxData:a.proxData||"",proxHora:a.proxHora||"09:00",compromissoId:a.compromissoId||"",proxCompromissoId:a.proxCompromissoId||""});setModal("atend");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>excluirAtend(a)}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
+  const renderInd=()=>{
+    const lista=p.indicadores||[];
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novoInd}>+ Novo indicador</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{lista.length} indicador(es)</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum indicador ainda.<br/>Defina o que será medido (valor inicial e meta final) e atualize ao longo do projeto.</div>}
+      {lista.map(i=>{
+        const pr=pcProgInd(i);
+        const pontos=(i.historico||[]).map(h=>Number(h.valor)).filter(v=>!isNaN(v));
+        const un=i.unidade?` ${i.unidade}`:"";
+        return(
+        <div key={i.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${PC_EV_COR.indicador}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>{i.nome}</div>
+              {i.meta&&<div style={{fontSize:12,color:C.oliva}}>Meta: {i.meta}</div>}
+            </div>
+            <PcSpark pontos={pontos}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,margin:"10px 0"}}>
+            {[["Inicial",pcV(i.valorInicial,un)],["Atual",pcV(i.valorAtual,un)],["Meta final",pcV(i.metaFinal,un)],["Último acompanhamento",fmtDate(i.dataAcompanhamento)]].map(([r,v])=>(
+              <div key={r} style={{background:C.linho,borderRadius:6,padding:"6px 10px"}}><div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:C.oliva}}>{r}</div><div style={{fontSize:13,fontWeight:700,color:C.cafe}}>{v}</div></div>))}
+          </div>
+          {pr!==null&&<><PcBarra pct={pr} cor={pr>=100?"#1F7A4D":undefined}/><div style={{fontSize:11,color:C.oliva,marginTop:3}}>{pr}% do caminho até a meta</div></>}
+          {(i.historico||[]).length>1&&<div style={{marginTop:8}}>
+            {(i.historico||[]).slice().reverse().slice(0,4).map(h=>(<div key={h.id} style={{fontSize:11,color:C.oliva}}>{fmtDate(h.data)} · <b>{h.valor}{un}</b>{h.obs&&h.obs!=="Registro inicial"?` — ${h.obs}`:""}</div>))}
+          </div>}
+          <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+            <Btn sm v="oliva" onClick={()=>{setForm({indId:i.id,nome:i.nome,data:pcHoje(),valor:i.valorAtual,obs:""});setModal("indUpd");}}>➕ Registrar acompanhamento</Btn>
+            <Btn sm v="ghost" onClick={()=>{setForm({id:i.id,nome:i.nome,meta:i.meta||"",unidade:i.unidade||"",valorInicial:i.valorInicial,metaFinal:i.metaFinal});setModal("ind");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este indicador e o seu histórico?"))upd(pp=>pcExcluirInd(pp,i.id));}}>🗑</Btn>
+          </div>
+        </div>);})}
+    </div>);
+  };
+
+  const renderEvol=()=>{
+    const dd=p.diagnostico||{};
+    const ac=p.acoes||[];
+    const conc=ac.filter(a=>a.status==="Concluída");
+    const atras=ac.filter(a=>pcStatusAcaoEf(a)==="Atrasada");
+    const pend=ac.filter(a=>a.status!=="Concluída"&&pcStatusAcaoEf(a)!=="Atrasada");
+    const ultimo=(p.atendimentos||[]).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).pop();
+    const linha=pcLinhaTempo(p);
+    const bloco=(titulo,conteudo)=>(<div style={{marginBottom:14}}><Divider label={titulo}/>{conteudo}</div>);
+    const vazio=(txt)=><div style={{fontSize:12,color:C.oliva}}>{txt}</div>;
+    const itemAcao=(a,extra)=>(<div key={a.id} style={{fontSize:13,color:C.oliva,padding:"5px 0",borderBottom:`1px dashed ${C.areia}`}}><b style={{color:C.cafe}}>{a.acao}</b>{a.prazo?` · prazo ${fmtDate(a.prazo)}`:""}{extra}</div>);
+    return(<div>
+      {bloco("Situação inicial",(dd.situacao||dd.objetivoCliente)
+        ?<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:C.oliva,whiteSpace:"pre-line"}}>{dd.situacao&&<div><b style={{color:C.cafe}}>Situação:</b> {dd.situacao}</div>}{dd.objetivoCliente&&<div style={{marginTop:4}}><b style={{color:C.cafe}}>Objetivo do cliente:</b> {dd.objetivoCliente}</div>}</div>
+        :vazio("Preencha o Diagnóstico para registrar a situação inicial."))}
+      {bloco(`Prioridades definidas (${(p.prioridades||[]).length})`,(p.prioridades||[]).length===0?vazio("Nenhuma prioridade definida ainda."):(p.prioridades||[]).map((x,i)=>(<div key={x.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:13,color:C.oliva,marginBottom:4}}><b style={{color:C.cafe}}>#{i+1}</b><span style={{flex:1}}>{x.problema}</span><PcChip t={x.status} sm/></div>)))}
+      {bloco(`Ações concluídas (${conc.length})`,conc.length===0?vazio("Nenhuma ação concluída ainda."):conc.map(a=>itemAcao(a,a.dataConclusao?` · concluída em ${fmtDate(a.dataConclusao)}`:"")))}
+      {bloco(`Ações pendentes (${pend.length})`,pend.length===0?vazio("Nenhuma ação pendente."):pend.map(a=>itemAcao(a,` · ${pcStatusAcaoEf(a)}`)))}
+      {bloco(`Ações atrasadas (${atras.length})`,atras.length===0?vazio("Nenhuma ação atrasada. 👏"):atras.map(a=>itemAcao(a,"")))}
+      {bloco("Resultados alcançados",(conc.some(a=>String(a.resultadoAlcancado||"").trim())||(p.indicadores||[]).length>0)
+        ?<div>
+          {conc.filter(a=>String(a.resultadoAlcancado||"").trim()).map(a=>(<div key={a.id} style={{fontSize:13,color:C.oliva,marginBottom:4}}>✓ <b style={{color:C.cafe}}>{a.acao}:</b> {a.resultadoAlcancado}</div>))}
+          {(p.indicadores||[]).map(i=>{const pr=pcProgInd(i);return(<div key={i.id} style={{fontSize:13,color:C.oliva,marginBottom:4}}>📈 <b style={{color:C.cafe}}>{i.nome}:</b> {pcV(i.valorInicial)} → {pcV(i.valorAtual,i.unidade?` ${i.unidade}`:"")} (meta {pcV(i.metaFinal,i.unidade?` ${i.unidade}`:"")}){pr!==null?` · ${pr}%`:""}</div>);})}
+        </div>
+        :vazio("Os resultados aparecem aqui conforme você conclui ações e atualiza os indicadores."))}
+      {bloco("Próximos passos",<div>
+        {ultimo&&String(ultimo.proximos||"").trim()&&<div style={{background:"#E6F3F6",borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:12,color:"#1F6F7A",whiteSpace:"pre-line"}}><b>Último atendimento ({fmtDate(ultimo.data)}):</b> {ultimo.proximos}</div>}
+        {[...atras,...pend].slice(0,5).map(a=>itemAcao(a,` · ${pcStatusAcaoEf(a)}`))}
+        {!(ultimo&&String(ultimo.proximos||"").trim())&&atras.length+pend.length===0&&vazio("Sem próximos passos registrados.")}
+      </div>)}
+      <Divider label="Linha do tempo"/>
+      {linha.length===0?vazio("Nenhum registro ainda."):<div style={{borderLeft:`2px solid ${C.areia}`,marginLeft:6,paddingLeft:16}}>
+        {linha.map(e=>(
+          <div key={e.id} style={{position:"relative",marginBottom:12}}>
+            <span style={{position:"absolute",left:-23,top:3,width:12,height:12,borderRadius:"50%",background:PC_EV_COR[e.tipo]||"#999",border:"2px solid #fff"}}/>
+            <div style={{fontSize:11,color:PC_EV_COR[e.tipo]||C.oliva,fontWeight:700}}>{fmtDate(e.data)} · {PC_EV_ROT[e.tipo]||"Registro"}</div>
+            <div style={{fontSize:13,color:C.cafe}}>{e.texto}</div>
+          </div>))}
+      </div>}
+    </div>);
+  };
+
   return(
     <div className="fade" style={{padding:14}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
@@ -3862,9 +4196,23 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],finance=[]})=>{
       {tab==="diag"&&renderDiag()}
       {tab==="prior"&&renderPrior()}
       {tab==="plano"&&renderPlano()}
+      {tab==="atend"&&renderAtend()}
+      {tab==="ind"&&renderInd()}
+      {tab==="evol"&&renderEvol()}
       {modais}
     </div>
   );
+};
+// ── histórico do pedido mensal: mensalidades lançadas aparecem junto dos atendimentos ──
+const histMensalidades=(finance,p)=>(finance||[])
+  .filter(f=>/^Mensalidade \d{4}-\d{2}/.test(String(f.desc||""))&&(f.pedidoId?f.pedidoId===p.id:f.clientName===p.clienteNome))
+  .map(f=>({f,mes:String(f.desc).slice(12,19)}));
+const histItens=(p,finance)=>{
+  const mens=p.tipo==="Fixo mensal"?histMensalidades(finance,p):[];
+  return [
+    ...(p.atendimentos||[]).map((a,i)=>({k:"a",a,data:a.data||"",i})),
+    ...mens.map((m,i)=>({k:"m",f:m.f,mes:m.mes,data:m.f.date||m.f.dataVencimento||"",i:100000+i}))
+  ].sort((x,y)=>String(y.data).localeCompare(String(x.data))||y.i-x.i);
 };
 // PC-END
 
@@ -3884,7 +4232,7 @@ const Consultoria=(props)=>{
       </div>
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
       {visitou&&<div style={{display:aba==="continua"?"block":"none"}}>
-        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} finance={props.finance||[]}/>
+        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos}/>
       </div>}
     </div>
   );
@@ -4076,7 +4424,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(jaTem&&!window.confirm(`Já existe um lançamento de mensalidade de ${mesLancar} para este cliente. Lançar de novo mesmo assim?`))return;
     if(enviar&&wppFmt==="texto"&&!telDe(sel)){alert("Cadastre o WhatsApp do cliente para enviar (ou escolha PDF/Imagem).");return;}
     const venc=`${mesLancar}-${String(diaLancar||22).padStart(2,"0")}`;
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setModal(null);
     if(enviar){
       showSavedGlobal(wppFmt==="texto"?"Mensalidade lançada! Abrindo o WhatsApp…":"Mensalidade lançada! Preparando o documento…");
@@ -4404,7 +4752,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v10</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v13</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -4520,8 +4868,9 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
         <Tabs tabs={[{k:"hist",l:"📋 Histórico"},{k:"med",l:"📏 Medições"},{k:"dados",l:"⚙️ Dados"}]} active={subTab} set={setSubTab}/>
 
         {subTab==="hist"&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {(sel.atendimentos||[]).length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhum atendimento ✦</div>}
-          {(sel.atendimentos||[]).slice().reverse().map(a=>(
+          {(()=>{
+            const itens=histItens(sel,finance);
+            const cardAtend=(a)=>(
             <div key={a.id} style={{padding:"9px 11px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${CC.primaria}`}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:2,flexWrap:"wrap",gap:4}}>
                 <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(a.data)}</span>
@@ -4536,7 +4885,31 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
               <div style={{fontSize:12,color:C.oliva}}>{a.assunto}</div>
               {a.proximosPassos&&<div style={{fontSize:11,color:C.cafe,fontStyle:"italic",marginTop:2}}>→ {a.proximosPassos}</div>}
             </div>
-          ))}
+
+            );
+            return<>
+              {itens.length===0&&<div style={{textAlign:"center",padding:"20px",color:C.oliva,fontStyle:"italic",fontSize:12}}>Nenhum atendimento ✦</div>}
+              {itens.map(it=>{
+                if(it.k==="a")return cardAtend(it.a);
+                const f=it.f;const venc=f.dataVencimento||"";
+                const vencido=!f.pago&&venc&&venc<today;
+                const [ano,mm]=it.mes.split("-");
+                return(
+                <div key={"m"+f.id} style={{padding:"9px 11px",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,borderLeft:`3px solid ${C.verde}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:2,flexWrap:"wrap",gap:4}}>
+                    <span style={{fontSize:11,fontWeight:700,color:C.cafe}}>{fmtDate(f.date||venc)}</span>
+                    <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,background:"#E4F0EA",color:C.verde,padding:"1px 6px",borderRadius:6}}>Mensalidade</span>
+                      <span style={{fontSize:11,fontWeight:700,color:C.verde}}>{fmtBRL(f.value)}</span>
+                      <span style={{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:6,background:f.pago?"#DDF0E6":vencido?"#FBE7E4":"#F0ECF6",color:f.pago?"#1F7A4D":vencido?C.vermelho:C.oliva}}>{f.pago?"✓ Pago":vencido?"Vencido":"A receber"}</span>
+                      <button title="Enviar ao cliente por WhatsApp" onClick={()=>{setWppView("mes");setWppMes(it.mes);setWppDia(Number(venc.slice(8,10))||sel.diaEmissao||22);setModal("wpp");}} style={{fontSize:12,background:"none",border:"none",cursor:"pointer",color:C.verde}}>💬</button>
+                    </div>
+                  </div>
+                  <div style={{fontSize:12,color:C.oliva}}>Mensalidade de {MESES[Number(mm)-1]||mm}/{ano} — serviço confirmado e lançado no financeiro{venc?` · venc. ${fmtDate(venc)}`:""}</div>
+                </div>);
+              })}
+            </>;
+          })()}
         </div>}
 
         {subTab==="med"&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -5902,7 +6275,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
-          {view==="consultoria"  &&<Consultoria projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} config={config}/>}
+          {view==="consultoria"  &&<Consultoria projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
