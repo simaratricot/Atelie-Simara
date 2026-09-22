@@ -3539,7 +3539,7 @@ const PcNivel=({n})=>n
   :<span style={{background:"#F3F0F7",color:"#8C8499",border:"1px dashed #C9BEDB",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>Nível a definir</span>;
 const PcBarra=({pct,cor})=><div style={{height:8,background:"#EEE8F4",borderRadius:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor||CORES_CONSUL.primaria,transition:"width .3s"}}/></div>;
 
-const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],compromissos=[],setCompromissos})=>{
+const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],setFinance,compromissos=[],setCompromissos,config})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -3551,6 +3551,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const [dgSujo,setDgSujo]=useState(false);
   const [nivelDg,setNivelDg]=useState("");
   const [novoCli,setNovoCli]=useState(null);
+  const [docBusy,setDocBusy]=useState(false);
+  const [docPrev,setDocPrev]=useState(null);
   useEffect(()=>{if(modal!=="projeto")setNovoCli(null);},[modal]);
   const sel=projetos.find(p=>p.id===selId)||null;
 
@@ -3660,6 +3662,158 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     upd(pp=>pcRegistrarInd(pp,form.indId,form));setModal(null);showSavedGlobal("Acompanhamento registrado!");
   };
 
+  // ── financeiro ──
+  const novoLanc=()=>{const pend=Math.max(0,(Number(p.valor)||0)-pcFin(finance,p).recebido);setForm({valor:pend>0?pend:"",dataVencimento:"",formaPag:"PIX",obs:""});setModal("lanc");};
+  const salvarLanc=()=>{
+    if(!(Number(form.valor)>0)){alert("Informe um valor maior que zero.");return;}
+    if(!window.confirm(`Lançar ${fmtBRL(Number(form.valor))} no financeiro deste projeto?`))return;
+    setFinance(prev=>[...prev,pcNovoLanc(p,form,uid,today)]);
+    setModal(null);showSavedGlobal("Lançado no financeiro!");
+  };
+  const togglePago=(f)=>setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:!x.pago}:x));
+  const excluirLanc=(f)=>{if(window.confirm("Excluir este lançamento do financeiro?"))setFinance(prev=>prev.filter(x=>x.id!==f.id));};
+
+  // ── encerramento ──
+  const abrirEncerrar=()=>{setForm({resultados:(p.encerramento&&p.encerramento.resultados)||"",licoes:(p.encerramento&&p.encerramento.licoes)||"",recomendacoes:(p.encerramento&&p.encerramento.recomendacoes)||""});setModal("encerrar");};
+  const salvarEncerramento=()=>{upd(pp=>pcEncerrar(pp,form));setModal(null);showSavedGlobal("Projeto encerrado!");};
+  const reabrirProjeto=()=>{if(window.confirm("Reabrir este projeto?"))upd(pcReabrirProjeto);};
+
+  // ── documentos (A4: imprimir, PDF ou imagem; PDF/imagem podem ser enviados por WhatsApp) ──
+  const pcCarregarScript=(src,teste)=>new Promise((res,rej)=>{if(teste())return res();const s=document.createElement("script");s.src=src;s.onload=()=>teste()?res():rej(new Error("biblioteca não iniciou"));s.onerror=()=>rej(new Error("sem conexão"));document.head.appendChild(s);});
+  const pcHtmlParaCanvas=async(html)=>{
+    const fr=document.createElement("iframe");fr.setAttribute("aria-hidden","true");
+    fr.style.cssText="position:fixed;left:-10000px;top:0;width:794px;height:1200px;border:0;";
+    document.body.appendChild(fr);
+    try{
+      await new Promise(res=>{fr.onload=()=>res();fr.srcdoc=html;});
+      const doc=fr.contentDocument;if(doc.fonts&&doc.fonts.ready)await doc.fonts.ready;
+      await new Promise(r=>setTimeout(r,200));
+      const h=Math.max(doc.body.scrollHeight,doc.documentElement.scrollHeight);fr.style.height=h+"px";
+      return await window.html2canvas(doc.body,{scale:2,backgroundColor:"#ffffff",useCORS:true,windowWidth:794,windowHeight:h});
+    } finally { document.body.removeChild(fr); }
+  };
+  const pcAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
+  const gerarDoc=async(titulo,arquivo,html,saida,legenda)=>{
+    if(saida==="print"){pcAbrirImprimir(html);return;}
+    setDocBusy(true);
+    try{
+      await pcCarregarScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",()=>!!window.html2canvas);
+      if(saida==="pdf")await pcCarregarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",()=>!!(window.jspdf&&window.jspdf.jsPDF));
+      const canvas=await pcHtmlParaCanvas(html);
+      const base=String(arquivo).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      let file;
+      if(saida==="pdf"){
+        const pdf=new window.jspdf.jsPDF({unit:"pt",format:"a4",compress:true});
+        const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
+        const imgH=canvas.height*pw/canvas.width;const img=canvas.toDataURL("image/jpeg",0.92);
+        let y=0,pg=0;while(y<imgH-2){if(pg>0)pdf.addPage();pdf.addImage(img,"JPEG",0,-y,pw,imgH);y+=ph;pg++;}
+        file=new File([pdf.output("blob")],`${base}.pdf`,{type:"application/pdf"});
+      } else {
+        const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+        file=new File([blob],`${base}.png`,{type:"image/png"});
+      }
+      const tel=(clients.find(c=>c.id===p.clientId)||{}).phone||"";
+      setDocPrev({titulo,file,prev:canvas.toDataURL("image/jpeg",0.6),texto:legenda,tel:tel.replace(/\D/g,"")});
+      setModal("docPrev");
+    }catch(e){alert("Não consegui gerar o arquivo ("+((e&&e.message)||"erro")+"). Confira a internet ou use “Imprimir”.");}
+    setDocBusy(false);
+  };
+  const baixarDoc=()=>{if(!docPrev)return;const url=URL.createObjectURL(docPrev.file);const a=document.createElement("a");a.href=url;a.download=docPrev.file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);};
+  const enviarDoc=async()=>{
+    const d=docPrev;if(!d)return;
+    try{if(navigator.canShare&&navigator.canShare({files:[d.file]})){await navigator.share({files:[d.file],text:d.texto});setModal(null);setDocPrev(null);return;}}catch(e){if(e&&e.name==="AbortError")return;}
+    baixarDoc();
+    if(!d.tel){alert("Cliente sem WhatsApp cadastrado — o arquivo foi baixado, é só anexar na conversa.");setModal(null);setDocPrev(null);return;}
+    window.open(`https://wa.me/${d.tel}?text=${encodeURIComponent(d.texto)}`,"_blank");
+    showSavedGlobal("Arquivo baixado — anexe na conversa do WhatsApp.");
+  };
+
+  const docContrato=()=>{
+    const cli=clients.find(c=>c.id===p.clientId)||{};
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Contrato — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"CONTRATO DE CONSULTORIA")}
+    ${pcCliBloco(p,cli)}
+    <h2>Objeto</h2><div class="campo"><b>Projeto:</b> ${p.nome}</div>${p.objetivo?`<div class="campo"><b>Objetivo principal:</b> ${p.objetivo}</div>`:""}
+    <div class="campo"><b>Nível do Método CONTÍNUA:</b> ${p.nivel||"a definir após o diagnóstico"}</div>
+    <h2>Prazo</h2><div class="campo"><b>Início:</b> ${fmtDate(p.dataInicio)}</div><div class="campo"><b>Previsão de conclusão:</b> ${p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}</div>
+    <h2>Investimento</h2><div class="campo"><b>Valor total:</b> <span style="font-size:16px">${fmtBRL(p.valor)}</span></div><div class="campo"><b>Forma de pagamento:</b> ${p.formaPag||"PIX"}</div>
+    ${(!p.formaPag||p.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${(config&&config.consultoria&&config.consultoria.pixNome)||"Simara Ap. de Souza Lobui"} · Chave CPF: ${(config&&config.consultoria&&config.consultoria.pixChave)||"357.252.138.62"}</div>`:""}
+    ${p.obs?`<h2>Observações</h2><div class="campo">${p.obs}</div>`:""}
+    <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Contrato ${p.nome} ${p.clienteNome}`,titulo:"Contrato do projeto",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o contrato do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docDiagnostico=()=>{
+    const dd=p.diagnostico||{};
+    const linhas=PC_DG_CAMPOS.filter(([k])=>String(dd[k]||"").trim()).map(([k,l])=>`<div class="campo"><b>${l}:</b> ${dd[k]}</div>`).join("");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Diagnóstico — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"DIAGNÓSTICO",dd.concluido?`Concluído em ${fmtDate(dd.dataConclusao)}`:"Em andamento")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Diagnóstico</h2>${linhas||'<div class="campo">Diagnóstico ainda não preenchido.</div>'}
+    <h2>Nível do Método CONTÍNUA</h2><div class="campo">${p.nivel||"a definir"}</div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Diagnostico ${p.nome} ${p.clienteNome}`,titulo:"Diagnóstico",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o diagnóstico do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docPlano=()=>{
+    const linhas=(p.acoes||[]).map(a=>`<tr><td>${a.area||"—"}</td><td>${a.acao}</td><td>${a.responsavel||"—"}</td><td>${a.prazo?fmtDate(a.prazo):"—"}</td><td>${pcStatusAcaoEf(a)}</td></tr>`).join("");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Plano de ação — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"PLANO DE AÇÃO")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Ações (${(p.acoes||[]).length})</h2>
+    ${(p.acoes||[]).length>0?`<table><tr><th>Área</th><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${linhas}</table>`:'<div class="campo">Nenhuma ação cadastrada ainda.</div>'}
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Plano de acao ${p.nome} ${p.clienteNome}`,titulo:"Plano de ação",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o plano de ação do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docAcompanhamento=()=>{
+    const r=pcResumoAcoes(p);
+    const li=(arr)=>arr.length?`<ul>${arr.map(a=>`<li>${a.acao}${a.prazo?` — prazo ${fmtDate(a.prazo)}`:""}</li>`).join("")}</ul>`:'<div class="campo">Nenhuma.</div>';
+    const ac=p.acoes||[];
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Acompanhamento — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"RELATÓRIO DE ACOMPANHAMENTO")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Situação atual</h2><div class="campo"><b>Status do projeto:</b> ${p.status}</div><div class="campo"><b>Plano de ação:</b> ${r.concluidas} de ${r.total} ações concluídas (${r.pct}%)</div>
+    <h2>Ações concluídas (${r.concluidas})</h2>${li(ac.filter(a=>a.status==="Concluída"))}
+    <h2>Ações em andamento e pendentes (${r.andamento+r.pendentes})</h2>${li(ac.filter(a=>a.status!=="Concluída"&&pcStatusAcaoEf(a)!=="Atrasada"))}
+    <h2>Ações atrasadas (${r.atrasadas})</h2>${li(ac.filter(a=>pcStatusAcaoEf(a)==="Atrasada"))}
+    <h2>Atendimentos realizados</h2><div class="campo">${(p.atendimentos||[]).length} atendimento(s) · ${pcFmtMin(pcHorasAtend(p))}</div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Acompanhamento ${p.nome} ${p.clienteNome}`,titulo:"Relatório de acompanhamento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o relatório de acompanhamento do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docEvolucao=()=>{
+    const dd=p.diagnostico||{};const linha=pcLinhaTempo(p);
+    const evs=linha.map(e=>`<div class="campo">${fmtDate(e.data)} — <b>${PC_EV_ROT[e.tipo]||"Registro"}:</b> ${e.texto}</div>`).join("");
+    const inds=(p.indicadores||[]).map(i=>{const pr=pcProgInd(i);return `<div class="campo"><b>${i.nome}:</b> ${pcV(i.valorInicial)} → ${pcV(i.valorAtual,i.unidade?` ${i.unidade}`:"")} (meta ${pcV(i.metaFinal,i.unidade?` ${i.unidade}`:"")})${pr!==null?` · ${pr}%`:""}</div>`;}).join("");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Evolução — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"RELATÓRIO DE EVOLUÇÃO")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Situação inicial</h2>${(dd.situacao||dd.objetivoCliente)?`${dd.situacao?`<div class="campo"><b>Situação:</b> ${dd.situacao}</div>`:""}${dd.objetivoCliente?`<div class="campo"><b>Objetivo do cliente:</b> ${dd.objetivoCliente}</div>`:""}`:'<div class="campo">Não registrada.</div>'}
+    ${inds?`<h2>Indicadores</h2>${inds}`:""}
+    <h2>Linha do tempo</h2>${evs||'<div class="campo">Sem registros.</div>'}
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Evolucao ${p.nome} ${p.clienteNome}`,titulo:"Relatório de evolução",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o relatório de evolução do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docEncerramento=()=>{
+    const enc=p.encerramento||{};const fin=pcFin(finance,p);
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Encerramento — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"ENCERRAMENTO DO PROJETO",enc.data?`Encerrado em ${fmtDate(enc.data)}`:"")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Período</h2><div class="campo"><b>Início:</b> ${fmtDate(p.dataInicio)}</div><div class="campo"><b>Encerramento:</b> ${enc.data?fmtDate(enc.data):"—"}</div>
+    <h2>Financeiro</h2><div class="campo"><b>Valor contratado:</b> ${fmtBRL(p.valor)}</div><div class="campo"><b>Valor recebido:</b> ${fmtBRL(fin.recebido)}</div>
+    <h2>Resultados finais</h2><div class="campo">${enc.resultados||"—"}</div>
+    <h2>Lições aprendidas</h2><div class="campo">${enc.licoes||"—"}</div>
+    <h2>Recomendações</h2><div class="campo">${enc.recomendacoes||"—"}</div>
+    <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${p.clienteNome}<br>Contratante</div></div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Encerramento ${p.nome} ${p.clienteNome}`,titulo:"Encerramento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o documento de encerramento do projeto "${p.nome}" em anexo. Foi uma jornada e tanto — obrigada pela confiança! 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const PC_DOCS=[["contrato","📑 Contrato do projeto",docContrato],["diag","🔎 Diagnóstico",docDiagnostico],["plano","✅ Plano de ação",docPlano],["acomp","📈 Relatório de acompanhamento",docAcompanhamento],["evol","🧭 Relatório de evolução",docEvolucao],["enc","🏁 Encerramento",docEncerramento]];
+
   const btnPill=(ativo,onClick,label)=>(
     <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
   );
@@ -3743,6 +3897,46 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarAcao}>💾 Salvar ação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="lanc"&&form&&<Modal title="💰 Lançar recebimento" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Valor (R$)" type="number" value={form.valor} onChange={v=>F("valor",v)}/>
+        <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>F("dataVencimento",v)}/>
+        <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>F("formaPag",v)} options={PC_FORMAS}/>
+        <Inp label="Observação (opcional)" value={form.obs} onChange={v=>F("obs",v)} placeholder="Ex: entrada, 2ª parcela, mês 1..."/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Isso lança a receita no Financeiro do app, vinculada a este projeto.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarLanc}>💾 Lançar</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="encerrar"&&form&&<Modal wide title="🏁 Encerrar projeto" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Resultados finais" rows={3} value={form.resultados} onChange={v=>F("resultados",v)}/>
+        <Inp label="Lições aprendidas" rows={3} value={form.licoes} onChange={v=>F("licoes",v)}/>
+        <Inp label="Recomendações" rows={3} value={form.recomendacoes} onChange={v=>F("recomendacoes",v)}/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Ao encerrar, o status do projeto passa para "Concluído". Dá para reabrir depois se precisar.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn v="oliva" onClick={salvarEncerramento}>✓ Encerrar projeto</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="docPrev"&&docPrev&&<Modal title={`📤 Enviar — ${docPrev.titulo}`} onClose={()=>{setModal(null);setDocPrev(null);}}>
+      <div style={{maxHeight:"48vh",overflow:"auto",border:`1px solid ${C.areia}`,borderRadius:6,background:"#fff"}}>
+        <img src={docPrev.prev} alt="Prévia do documento" style={{width:"100%",display:"block"}}/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,margin:"8px 0 2px"}}>📎 {docPrev.file.name}</div>
+      <div style={{fontSize:11,color:C.oliva,marginBottom:10}}>No celular abre a lista de aplicativos para escolher o WhatsApp e o contato. No computador o arquivo é baixado e a conversa abre com a mensagem — é só anexar.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>{setModal(null);setDocPrev(null);}}>Cancelar</Btn>
+        <Btn v="ghost" onClick={baixarDoc}>⬇ Baixar</Btn>
+        <Btn onClick={enviarDoc}>📤 Enviar pelo WhatsApp</Btn>
       </div>
     </Modal>}
 
@@ -3858,7 +4052,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"]];
+  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
@@ -3882,6 +4076,18 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         {cartao("Valor recebido",fmtBRL(fin.recebido),C.verde)}
         {cartao("Valor pendente",fmtBRL(fin.pendente),fin.pendente>0?C.vermelho:C.verde)}
       </div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={novoLanc}>💰 Lançar recebimento</Btn></div>
+      {(finance||[]).filter(f=>f.projetoId===p.id).length>0&&<>
+        <Divider label="Lançamentos"/>
+        {(finance||[]).filter(f=>f.projetoId===p.id).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map(f=>(
+          <div key={f.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"7px 12px",marginBottom:6,fontSize:12}}>
+            <span style={{flex:1,minWidth:120,color:C.cafe,fontWeight:700}}>{fmtBRL(f.value)}</span>
+            <span style={{color:C.oliva}}>venc. {fmtDate(f.dataVencimento)}</span>
+            <span style={{fontSize:10,fontWeight:700,padding:"1px 8px",borderRadius:10,background:f.pago?"#DDF0E6":"#F0ECF6",color:f.pago?"#1F7A4D":C.oliva}}>{f.pago?"✓ Pago":"A receber"}</span>
+            <Btn sm v="ghost" onClick={()=>togglePago(f)}>{f.pago?"↩ Marcar não pago":"✓ Marcar pago"}</Btn>
+            <Btn sm v="ghost" onClick={()=>excluirLanc(f)}>🗑</Btn>
+          </div>))}
+      </>}
       {p.objetivo&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:C.oliva}}><b style={{color:C.cafe}}>Objetivo principal:</b> {p.objetivo}</div>}
 
       <Divider label="Progresso"/>
@@ -4175,6 +4381,38 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     </div>);
   };
 
+  const renderDoc=()=>{
+    const fmtBtn=(rot,fn)=>(gd)=>{const d=gd();return (
+      <Btn key={rot} sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(d.titulo,d.arquivo,d.html,fn,d.legenda)}>{rot}</Btn>);};
+    return(<div>
+      {p.status==="Concluído"&&p.encerramento&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span>✓ Projeto encerrado em {fmtDate(p.encerramento.data)}</span>
+        <Btn sm v="ghost" onClick={reabrirProjeto}>↩ Reabrir</Btn>
+      </div>}
+      {docBusy&&<div style={{marginBottom:12,fontSize:12,fontWeight:700,color:C.cafe}}>⏳ Preparando o documento…</div>}
+      {PC_DOCS.map(([k,rot,fn])=>{
+        if(k==="enc"&&p.status!=="Concluído")return(
+          <div key={k} style={{background:C.linho,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14,marginBottom:6}}>🏁 Encerramento</div>
+            <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Preencha os resultados finais, lições e recomendações para gerar o documento de encerramento.</div>
+            <Btn sm v="oliva" onClick={abrirEncerrar}>📝 Preencher e encerrar</Btn>
+          </div>);
+        const d=fn();
+        return(
+          <div key={k} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>{rot}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(d.titulo,d.arquivo,d.html,"print",d.legenda)}>🖨 Imprimir</Btn>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(d.titulo,d.arquivo,d.html,"pdf",d.legenda)}>📤 PDF</Btn>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(d.titulo,d.arquivo,d.html,"img",d.legenda)}>🖼 Imagem</Btn>
+              {k==="enc"&&<Btn sm v="ghost" onClick={abrirEncerrar}>✎ Editar encerramento</Btn>}
+            </div>
+          </div>);
+      })}
+      <div style={{fontSize:11,color:C.oliva,marginTop:6}}>PDF e Imagem abrem uma prévia com a opção de enviar direto pelo WhatsApp do cliente.</div>
+    </div>);
+  };
+
   return(
     <div className="fade" style={{padding:14}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
@@ -4199,6 +4437,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       {tab==="atend"&&renderAtend()}
       {tab==="ind"&&renderInd()}
       {tab==="evol"&&renderEvol()}
+      {tab==="doc"&&renderDoc()}
       {modais}
     </div>
   );
@@ -4214,6 +4453,33 @@ const histItens=(p,finance)=>{
     ...mens.map((m,i)=>({k:"m",f:m.f,mes:m.mes,data:m.f.date||m.f.dataVencimento||"",i:100000+i}))
   ].sort((x,y)=>String(y.data).localeCompare(String(x.data))||y.i-x.i);
 };
+const pcNumProj=(p)=>String(p.id||"").slice(-5).toUpperCase();
+const PC_MESES_EXT=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const pcDocStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:#2C3E50;padding:30px;line-height:1.75;}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #6C8271;padding-bottom:16px;margin-bottom:24px;}
+  .hdr-nome{font-size:22px;font-weight:bold;color:#6C8271;letter-spacing:1px;}
+  .hdr-sub{font-size:11px;color:#C1A268;letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+  .hdr-doc{text-align:right;font-size:12px;color:#666;}
+  h2{color:#6C8271;font-size:14px;text-transform:uppercase;letter-spacing:2px;border-left:4px solid #C1A268;padding-left:10px;margin:22px 0 10px;}
+  .campo{margin-bottom:7px;font-size:13px;}.campo b{color:#6C8271;}
+  .pix{background:#F7F8F6;border:1px solid #ddd;border-radius:4px;padding:10px 14px;font-size:12px;margin-top:6px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;}
+  th{background:#6C8271;color:#fff;padding:7px 10px;text-align:left;font-size:11px;letter-spacing:1px;}
+  td{padding:7px 10px;border-bottom:1px solid #E8EAE6;}tr:nth-child(even)td{background:#F7F8F6;}
+  .badge{display:inline-block;background:#6C8271;color:#fff;font-size:10px;padding:2px 10px;border-radius:12px;margin-bottom:12px;}
+  .ftr{margin-top:30px;text-align:center;color:#999;font-size:10px;border-top:1px solid #ddd;padding-top:12px;}
+  @media print{body{padding:20px;}}`;
+const pcRodape=(config)=>{const cc=(config&&config.consultoria)||{};return `<div class="ftr">Simara Ap. de Souza Lobui · Consultoria Comercial e Administrativa${cc.telefone?` · Tel: ${cc.telefone}`:(config&&config.whatsapp?` · WhatsApp: ${config.whatsapp}`:"")}</div>`;};
+const pcHdr=(p,titulo,extra)=>`<div class="hdr"><div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div><div class="hdr-doc"><b>${titulo}</b><br>Projeto Nº ${pcNumProj(p)}${extra?`<br>${extra}`:""}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div><div class="badge">MÉTODO CONTÍNUA${p.nivel?` · ${p.nivel}`:""}</div>`;
+const pcCliBloco=(p,cli)=>`<h2>Cliente</h2><div class="campo"><b>Nome:</b> ${p.clienteNome}</div>${(cli&&cli.cpfCnpj)?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}${p.empresa?`<div class="campo"><b>Empresa:</b> ${p.empresa}</div>`:""}${p.responsavel?`<div class="campo"><b>Responsável:</b> ${p.responsavel}</div>`:""}`;
+
+// ── financeiro do projeto ──
+const pcNovoLanc=(p,f,uid,today)=>({id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Projeto CONTÍNUA — ${p.nome} — ${p.clienteNome}${f.obs?` — ${f.obs}`:""}`,value:Number(f.valor)||0,date:today,dataVencimento:f.dataVencimento||today,formaPag:f.formaPag||"PIX",pago:false,category:"Consultoria",clientName:p.clienteNome,projetoId:p.id});
+
+// ── encerramento ──
+const pcEncerrar=(p,f)=>pcEv({...p,status:"Concluído",encerramento:{...(f||{}),data:pcHoje()}},"status",`Projeto encerrado${f&&f.resultados?": "+String(f.resultados).slice(0,80):""}`);
+const pcReabrirProjeto=(p)=>pcEv({...p,status:"Em acompanhamento"},"status","Projeto reaberto após encerramento");
+
 // PC-END
 
 // Wrapper: duas abas no topo. A aba "Pedidos e atendimentos" é o módulo que já existia, sem alterações.
@@ -4232,7 +4498,7 @@ const Consultoria=(props)=>{
       </div>
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
       {visitou&&<div style={{display:aba==="continua"?"block":"none"}}>
-        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos}/>
+        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config}/>
       </div>}
     </div>
   );
@@ -4785,7 +5051,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v14</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v15</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
