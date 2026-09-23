@@ -4482,11 +4482,341 @@ const pcReabrirProjeto=(p)=>pcEv({...p,status:"Em acompanhamento"},"status","Pro
 
 // PC-END
 
+// ─── PROSPECÇÃO COMERCIAL — aba própria dentro da Consultoria ─────────────────
+// PR-START
+const PR_STATUS=["Novo","Contato realizado","Aguardando retorno","Conversa iniciada","Reunião agendada","Diagnóstico","Proposta enviada","Negociação","Cliente","Sem interesse","Perdido"];
+const PR_ORIGENS=["Prospecção ativa","Instagram","WhatsApp","Indicação","Networking","Evento","Parceiro","Site","Outro"];
+const PR_CANAIS=["WhatsApp","Telefone","E-mail","Instagram","LinkedIn","Reunião","Outro"];
+const PR_TIPOS_CONTATO=["Primeiro contato","Follow-up","Envio de material","Reunião","Diagnóstico","Envio de proposta","Negociação","Outro"];
+const PR_PORTES=["MEI","Micro","Pequena","Média","Grande"];
+const PR_ENCERRADOS=["Cliente","Sem interesse","Perdido"];
+const PR_COR={
+  "Novo":["#F0ECF6","#3D5A8A"],"Contato realizado":["#E4EEF9","#3D5A8A"],"Aguardando retorno":["#F6EFD9","#8A6D1F"],
+  "Conversa iniciada":["#E6F3F6","#1F6F7A"],"Reunião agendada":["#E6F3F6","#1F6F7A"],"Diagnóstico":["#EFE8F7","#7B4FA6"],
+  "Proposta enviada":["#F3EEE0","#8A6D1F"],"Negociação":["#F3EEE0","#8A6D1F"],"Cliente":["#DDF0E6","#1F7A4D"],
+  "Sem interesse":["#F0F0F0","#8C8499"],"Perdido":["#F3E1DE","#c0392b"]
+};
+
+const prHoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split("T")[0];};
+const PR_CAMPOS=["empresa","cnpj","segmento","porte","cidadeUf","site","instagram","linkedin","responsavel","cargo","telefone","whatsapp","email","origem","status","obs"];
+const prForm=(p)=>{
+  const base={empresa:"",cnpj:"",segmento:"",porte:"",cidadeUf:"",site:"",instagram:"",linkedin:"",responsavel:"",cargo:"",telefone:"",whatsapp:"",email:"",origem:PR_ORIGENS[0],status:"Novo",obs:""};
+  if(!p)return base;
+  const o={id:p.id};PR_CAMPOS.forEach(k=>{o[k]=p[k]===undefined||p[k]===null?base[k]:p[k];});return o;
+};
+
+// ── regras (funções puras) ──
+const prEv=(p,tipo,texto,data)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:data||prHoje(),tipo,texto}]});
+const prNovo=(f)=>{
+  const p={id:uid(),contatos:[],eventos:[],proximoContato:null,oportunidade:null,criadoEm:prHoje()};
+  PR_CAMPOS.forEach(k=>{p[k]=f[k]===undefined||f[k]===null?"":f[k];});
+  if(!p.status)p.status="Novo";
+  return prEv(p,"prospect",`Prospect cadastrado: ${p.empresa}`);
+};
+const prEditar=(p,f)=>{
+  const n={...p};PR_CAMPOS.forEach(k=>{if(f[k]!==undefined)n[k]=f[k];});
+  return p.status!==n.status?prEv(n,"status",`Status: ${p.status} → ${n.status}`):n;
+};
+const prMoverStatus=(p,status)=>{
+  if(p.status===status)return p;
+  return prEv({...p,status},"status",`Status: ${p.status} → ${status}`);
+};
+const prSalvarContato=(p,c)=>{
+  const lista=p.contatos||[];
+  let n;
+  if(c.id&&lista.some(x=>x.id===c.id)){
+    n={...p,contatos:lista.map(x=>x.id===c.id?c:x)};
+  } else {
+    const registro={...c,id:uid()};
+    n=prEv({...p,contatos:[...lista,registro]},"contato",`${registro.tipo} por ${registro.canal}${registro.resposta?" — "+String(registro.resposta).slice(0,60):""}`,registro.data);
+  }
+  if(c.proxData)n={...n,proximoContato:{data:c.proxData,motivo:c.proxMotivo||"",obs:c.proxObs||""}};
+  return n;
+};
+const prExcluirContato=(p,id)=>({...p,contatos:(p.contatos||[]).filter(x=>x.id!==id)});
+const prLimparProximo=(p)=>({...p,proximoContato:null});
+const prFollowEf=(p,hoje)=>{
+  if(!p.proximoContato||!p.proximoContato.data)return null;
+  if(PR_ENCERRADOS.includes(p.status))return null;
+  return p.proximoContato.data<hoje?"atrasado":p.proximoContato.data===hoje?"hoje":"futuro";
+};
+const prLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
+
+const PrChip=({t,sm})=>{const c=PR_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
+
+const ProspeccaoComercial=({prospects=[],setProspects,clients=[],setClients})=>{
+  const cor=CORES_CONSUL;
+  const [selId,setSelId]=useState(null);
+  const [tab,setTab]=useState("ficha");
+  const [filtro,setFiltro]=useState("ativos");
+  const [busca,setBusca]=useState("");
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState(null);
+  const sel=prospects.find(p=>p.id===selId)||null;
+  const hoje=prHoje();
+
+  const upd=(fn)=>setProspects&&setProspects(prev=>prev.map(p=>p.id===selId?fn(p):p));
+  const F=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  // ── prospect: criar / editar / excluir ──
+  const salvarProspect=()=>{
+    if(!String(form.empresa||"").trim()){alert("Informe o nome da empresa.");return;}
+    if(form.id){
+      setProspects(prev=>prev.map(p=>p.id===form.id?prEditar(p,form):p));
+    } else {
+      const novo=prNovo(form);
+      setProspects(prev=>[...prev,novo]);
+      setSelId(novo.id);setTab("ficha");
+    }
+    setModal(null);showSavedGlobal("Prospect salvo!");
+  };
+  const excluirProspect=()=>{
+    if(!sel)return;
+    if(!window.confirm(`Excluir o prospect "${sel.empresa}" e todo o histórico de contatos? Essa ação não pode ser desfeita.`))return;
+    setProspects(prev=>prev.filter(p=>p.id!==sel.id));
+    setSelId(null);
+  };
+
+  // ── contato ──
+  const novoContato=()=>{setForm({data:hoje,canal:PR_CANAIS[0],tipo:PR_TIPOS_CONTATO[0],descricao:"",resposta:"",proximoPasso:"",proxData:"",proxMotivo:"",proxObs:""});setModal("contato");};
+  const salvarContato=()=>{
+    if(!form.data){alert("Informe a data do contato.");return;}
+    if(!String(form.descricao||"").trim()){alert("Descreva o contato.");return;}
+    upd(p=>prSalvarContato(p,form));setModal(null);showSavedGlobal("Contato registrado!");
+  };
+  const excluirContato=(c)=>{if(window.confirm("Excluir este contato do histórico?"))upd(p=>prExcluirContato(p,c.id));};
+  const limparProximo=()=>{if(window.confirm("Remover o próximo contato agendado?"))upd(prLimparProximo);};
+
+  const btnPill=(ativo,onClick,label)=>(
+    <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
+  );
+  const campo=(rot,val)=>val?<div style={{fontSize:12,color:C.oliva,marginTop:3}}><b style={{color:C.cafe}}>{rot}:</b> {val}</div>:null;
+
+  const modais=(<>
+    {modal==="prospect"&&form&&<Modal wide title={form.id?"✎ Editar prospect":"📡 Novo prospect"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Empresa" value={form.empresa} onChange={v=>F("empresa",v)} placeholder="Nome da empresa"/></div>
+        <Inp label="CNPJ (opcional)" value={form.cnpj} onChange={v=>F("cnpj",v)}/>
+        <Inp label="Segmento" value={form.segmento} onChange={v=>F("segmento",v)}/>
+        <Sel label="Porte" value={form.porte} onChange={v=>F("porte",v)} options={[{v:"",l:"—"},...PR_PORTES.map(x=>({v:x,l:x}))]}/>
+        <Inp label="Cidade/UF" value={form.cidadeUf} onChange={v=>F("cidadeUf",v)}/>
+        <Inp label="Site" value={form.site} onChange={v=>F("site",v)}/>
+        <Inp label="Instagram" value={form.instagram} onChange={v=>F("instagram",v)}/>
+        <Inp label="LinkedIn" value={form.linkedin} onChange={v=>F("linkedin",v)}/>
+        <Inp label="Responsável / decisor" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Inp label="Cargo" value={form.cargo} onChange={v=>F("cargo",v)}/>
+        <Inp label="Telefone" value={form.telefone} onChange={v=>F("telefone",v)}/>
+        <Inp label="WhatsApp" value={form.whatsapp} onChange={v=>F("whatsapp",v)}/>
+        <Inp label="E-mail" value={form.email} onChange={v=>F("email",v)}/>
+        <Sel label="Origem" value={form.origem} onChange={v=>F("origem",v)} options={PR_ORIGENS}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={PR_STATUS}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observações" rows={2} value={form.obs} onChange={v=>F("obs",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarProspect}>💾 Salvar prospect</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="contato"&&form&&<Modal wide title={form.id?"✎ Editar contato":"📞 Registrar contato"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <Sel label="Canal" value={form.canal} onChange={v=>F("canal",v)} options={PR_CANAIS}/>
+        <Sel label="Tipo de contato" value={form.tipo} onChange={v=>F("tipo",v)} options={PR_TIPOS_CONTATO}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Descrição do contato" rows={3} value={form.descricao} onChange={v=>F("descricao",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Resposta recebida" rows={2} value={form.resposta} onChange={v=>F("resposta",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Próximo passo" value={form.proximoPasso} onChange={v=>F("proximoPasso",v)}/></div>
+        <div style={{gridColumn:"1 / -1",background:C.linho,borderRadius:8,padding:12}}>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>📅 Próximo contato (opcional)</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <Inp label="Data" type="date" value={form.proxData} onChange={v=>F("proxData",v)}/>
+            <Inp label="Motivo" value={form.proxMotivo} onChange={v=>F("proxMotivo",v)}/>
+          </div>
+          <Inp label="Observação" value={form.proxObs} onChange={v=>F("proxObs",v)}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarContato}>💾 Salvar contato</Btn>
+      </div>
+    </Modal>}
+  </>);
+
+  // ═════════ LISTA DE PROSPECTS ═════════
+  if(!sel){
+    const encerrados=new Set(PR_ENCERRADOS);
+    let lista=prospects.filter(p=>filtro==="todos"?true:filtro==="clientes"?p.status==="Cliente":filtro==="encerrados"?encerrados.has(p.status)&&p.status!=="Cliente":!encerrados.has(p.status));
+    if(busca.trim()){
+      const q=busca.trim().toLowerCase();
+      lista=lista.filter(p=>String(p.empresa||"").toLowerCase().includes(q)||String(p.responsavel||"").toLowerCase().includes(q)||String(p.segmento||"").toLowerCase().includes(q));
+    }
+    const followHoje=prospects.filter(p=>prFollowEf(p,hoje)==="hoje");
+    const followAtraso=prospects.filter(p=>prFollowEf(p,hoje)==="atrasado");
+    return(
+      <div className="fade" style={{padding:14}}>
+        <div style={{background:`linear-gradient(135deg,${cor.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:8,color:cor.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Gestão comercial</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Prospecção Comercial</div>
+          </div>
+          <Btn onClick={()=>{setForm(prForm());setModal("prospect");}}>+ Novo prospect</Btn>
+        </div>
+
+        {(followAtraso.length>0||followHoje.length>0)&&<div style={{marginBottom:12}}>
+          {followAtraso.length>0&&<div style={{background:"#FBE7E4",borderRadius:8,padding:"10px 14px",marginBottom:followHoje.length>0?8:0}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.vermelho,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>⚠ Follow-ups atrasados ({followAtraso.length})</div>
+            {followAtraso.map(p=>(<div key={p.id} onClick={()=>{setSelId(p.id);setTab("ficha");}} style={{fontSize:13,color:C.cafe,cursor:"pointer",padding:"3px 0"}}><b>{p.empresa}</b> — {fmtDate(p.proximoContato.data)}{p.proximoContato.motivo?` · ${p.proximoContato.motivo}`:""}</div>))}
+          </div>}
+          {followHoje.length>0&&<div style={{background:"#FFF7E0",borderRadius:8,padding:"10px 14px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#8A6D1F",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>📅 Follow-ups de hoje ({followHoje.length})</div>
+            {followHoje.map(p=>(<div key={p.id} onClick={()=>{setSelId(p.id);setTab("ficha");}} style={{fontSize:13,color:C.cafe,cursor:"pointer",padding:"3px 0"}}><b>{p.empresa}</b>{p.proximoContato.motivo?` · ${p.proximoContato.motivo}`:""}</div>))}
+          </div>}
+        </div>}
+
+        <Inp placeholder="Buscar por empresa, responsável ou segmento..." value={busca} onChange={setBusca}/>
+        <div style={{display:"flex",gap:6,margin:"10px 0 12px",overflowX:"auto"}}>
+          {btnPill(filtro==="ativos",()=>setFiltro("ativos"),"Em andamento")}
+          {btnPill(filtro==="clientes",()=>setFiltro("clientes"),"Clientes")}
+          {btnPill(filtro==="encerrados",()=>setFiltro("encerrados"),"Sem interesse/Perdido")}
+          {btnPill(filtro==="todos",()=>setFiltro("todos"),"Todos")}
+        </div>
+
+        {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"28px 18px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>
+          <div style={{fontSize:30,marginBottom:6}}>📡</div>
+          {prospects.length===0
+            ?<>Nenhum prospect ainda.<br/>Cadastre o primeiro para começar a organizar a prospecção.</>
+            :<>Nenhum prospect neste filtro.</>}
+        </div>}
+        {lista.map(p=>{
+          const fw=prFollowEf(p,hoje);
+          return(
+            <div key={p.id} onClick={()=>{setSelId(p.id);setTab("ficha");}} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,padding:14,marginBottom:10,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{minWidth:180}}>
+                  <div style={{fontWeight:700,color:C.cafe,fontSize:15}}>{p.empresa}</div>
+                  <div style={{fontSize:12,color:C.oliva}}>{p.responsavel}{p.segmento?` · ${p.segmento}`:""}{p.cidadeUf?` · ${p.cidadeUf}`:""}</div>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}><PrChip t={p.status}/></div>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.oliva,marginTop:8,flexWrap:"wrap",gap:6}}>
+                <span>{p.origem}{(p.contatos||[]).length>0?` · ${(p.contatos||[]).length} contato(s)`:" · sem contato ainda"}</span>
+                {p.proximoContato&&<span style={{color:fw==="atrasado"?C.vermelho:fw==="hoje"?"#8A6D1F":C.oliva,fontWeight:fw?700:400}}>
+                  {fw==="atrasado"?"⚠ atrasado":"📅"} próx. contato {fmtDate(p.proximoContato.data)}
+                </span>}
+              </div>
+            </div>
+          );
+        })}
+        {modais}
+      </div>
+    );
+  }
+
+  // ═════════ PROSPECT ABERTO ═════════
+  const p=sel;
+  const abas=[["ficha","📋 Ficha"],["contatos","📞 Histórico de contatos"]];
+
+  const renderFicha=()=>{
+    const fw=prFollowEf(p,hoje);
+    const eventos=prLinhaTempo(p).slice(0,8);
+    return(<div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:12}}>
+        <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Origem</div><div style={{fontSize:14,fontWeight:700,color:C.cafe,marginTop:3}}>{p.origem}</div></div>
+        <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Contatos</div><div style={{fontSize:14,fontWeight:700,color:C.cafe,marginTop:3}}>{(p.contatos||[]).length}</div></div>
+        <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Cadastrado em</div><div style={{fontSize:14,fontWeight:700,color:C.cafe,marginTop:3}}>{fmtDate(p.criadoEm)}</div></div>
+      </div>
+
+      {p.proximoContato&&<div style={{background:fw==="atrasado"?"#FBE7E4":"#FFF7E0",borderRadius:8,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,color:fw==="atrasado"?C.vermelho:"#8A6D1F"}}>
+          <b>{fw==="atrasado"?"⚠ Follow-up atrasado":"📅 Próximo contato"}:</b> {fmtDate(p.proximoContato.data)}{p.proximoContato.motivo?` — ${p.proximoContato.motivo}`:""}
+          {p.proximoContato.obs&&<div style={{fontSize:12,marginTop:2}}>{p.proximoContato.obs}</div>}
+        </div>
+        <Btn sm v="ghost" onClick={limparProximo}>Remover</Btn>
+      </div>}
+
+      <Divider label="Dados da empresa"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:2}}>
+        {campo("CNPJ",p.cnpj)}{campo("Segmento",p.segmento)}{campo("Porte",p.porte)}{campo("Cidade/UF",p.cidadeUf)}
+        {campo("Site",p.site)}{campo("Instagram",p.instagram)}{campo("LinkedIn",p.linkedin)}
+      </div>
+      <Divider label="Contato"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:2}}>
+        {campo("Responsável",p.responsavel)}{campo("Cargo",p.cargo)}{campo("Telefone",p.telefone)}{campo("WhatsApp",p.whatsapp)}{campo("E-mail",p.email)}
+      </div>
+      {p.obs&&<><Divider label="Observações"/><div style={{fontSize:13,color:C.oliva,whiteSpace:"pre-line"}}>{p.obs}</div></>}
+
+      {eventos.length>0&&<>
+        <Divider label="Últimas atualizações"/>
+        {eventos.map(e=>(
+          <div key={e.id} style={{display:"flex",gap:10,fontSize:12,color:C.oliva,padding:"4px 0",borderBottom:`1px dashed ${C.areia}`}}>
+            <span style={{minWidth:72,color:C.cafe,fontWeight:600}}>{fmtDate(e.data)}</span><span>{e.texto}</span>
+          </div>))}
+      </>}
+    </div>);
+  };
+
+  const renderContatos=()=>{
+    const lista=(p.contatos||[]).slice().sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novoContato}>+ Registrar contato</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{lista.length} contato(s)</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum contato registrado ainda.</div>}
+      {lista.map(c=>(
+        <div key={c.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${cor.primaria}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>{fmtDate(c.data)}</div>
+            <span style={{background:"#F3F0F7",color:C.oliva,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700}}>{c.canal}</span>
+          </div>
+          <div style={{color:C.cafe,fontWeight:600,fontSize:14,marginTop:2}}>{c.tipo}</div>
+          {campo("Descrição",c.descricao)}{campo("Resposta recebida",c.resposta)}{campo("Próximo passo",c.proximoPasso)}
+          {c.proxData&&<div style={{fontSize:12,color:"#8A6D1F",marginTop:6,fontWeight:600}}>📅 Próximo contato agendado: {fmtDate(c.proxData)}{c.proxMotivo?` — ${c.proxMotivo}`:""}</div>}
+          <div style={{display:"flex",gap:6,marginTop:10}}>
+            <Btn sm v="ghost" onClick={()=>{setForm({...c,proxData:"",proxMotivo:"",proxObs:""});setModal("contato");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>excluirContato(c)}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
+  return(
+    <div className="fade" style={{padding:14}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+        <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:22,color:C.oliva,lineHeight:1,padding:"2px 4px"}} title="Voltar aos prospects">←</button>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:16,fontWeight:700,color:C.cafe}}>{p.empresa}</div>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:6}}>{p.responsavel}{p.segmento?` · ${p.segmento}`:""}</div>
+          <PrChip t={p.status}/>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <Btn sm v="ghost" onClick={()=>{setForm(prForm(p));setModal("prospect");}}>✎ Editar</Btn>
+          <Btn sm v="ghost" onClick={excluirProspect}>🗑</Btn>
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Mover etapa</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+          {PR_STATUS.map(s=>btnPill(p.status===s,()=>upd(pp=>prMoverStatus(pp,s)),s))}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:2}}>
+        {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
+      </div>
+      {tab==="ficha"&&renderFicha()}
+      {tab==="contatos"&&renderContatos()}
+      {modais}
+    </div>
+  );
+};
+// PR-END
+
 // Wrapper: duas abas no topo. A aba "Pedidos e atendimentos" é o módulo que já existia, sem alterações.
 const Consultoria=(props)=>{
   const [aba,setAba]=useState("pedidos");
-  const [visitou,setVisitou]=useState(false);
-  const abrir=(k)=>{setAba(k);if(k==="continua")setVisitou(true);};
+  const [visitouContinua,setVisitouContinua]=useState(false);
+  const [visitouProspec,setVisitouProspec]=useState(false);
+  const abrir=(k)=>{setAba(k);if(k==="continua")setVisitouContinua(true);if(k==="prospec")setVisitouProspec(true);};
   const tabBtn=(k,l)=>(
     <button key={k} onClick={()=>abrir(k)} style={{padding:"9px 16px",borderRadius:"8px 8px 0 0",border:`1.5px solid ${aba===k?CORES_CONSUL.primaria:C.areia}`,borderBottom:"none",background:aba===k?CORES_CONSUL.primaria:"#fff",color:aba===k?"#fff":C.oliva,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{l}</button>
   );
@@ -4495,10 +4825,14 @@ const Consultoria=(props)=>{
       <div style={{display:"flex",gap:6,padding:"10px 14px 0",overflowX:"auto"}}>
         {tabBtn("pedidos","📋 Pedidos e atendimentos")}
         {tabBtn("continua","🧭 Projetos CONTÍNUA")}
+        {tabBtn("prospec","📡 Prospecção Comercial")}
       </div>
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
-      {visitou&&<div style={{display:aba==="continua"?"block":"none"}}>
+      {visitouContinua&&<div style={{display:aba==="continua"?"block":"none"}}>
         <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config}/>
+      </div>}
+      {visitouProspec&&<div style={{display:aba==="prospec"?"block":"none"}}>
+        <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients}/>
       </div>}
     </div>
   );
@@ -5051,7 +5385,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v15</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v16</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -6518,6 +6852,7 @@ function App() {
   const [volumes,     setVolumes    ]=useStorage("volumes",     []);
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
+  const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
   // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
@@ -6591,7 +6926,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
-          {view==="consultoria"  &&<Consultoria projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {view==="consultoria"  &&<Consultoria prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
