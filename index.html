@@ -5024,6 +5024,7 @@ const IS_COR={
   "🔴 Não iniciado":["#F3E1DE","#c0392b"],"🟡 Em adaptação":["#F6EFD9","#8A6D1F"],"🟢 No sistema":["#DDF0E6","#1F7A4D"],
   "🔴 Não pronto":["#F3E1DE","#c0392b"],"🟡 Parcial":["#F6EFD9","#8A6D1F"],"🟢 Pronto para treinar":["#DDF0E6","#1F7A4D"]
 };
+const IS_MODULOS=["📇 Cadastros","🔲 Produtos","🧺 Compras","🛍️ Vendas","📋 Contrato","🚶‍♂️ Serviços","🧮 Faturamento","📊 Financeiro","🥞 Estoque","🚚 Frota"];
 const IS_PERGUNTAS_DEV_PADRAO=[
   "Quais módulos/processos serão implantados nesta empresa?",
   "O que precisa estar pronto antes de iniciarmos o treinamento?",
@@ -5063,7 +5064,7 @@ const isForm=(p)=>{
 // ── regras (funções puras) ──
 const isEv=(p,tipo,texto,data)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:data||isHoje(),tipo,texto}]});
 const isNovo=(f)=>{
-  const p={id:uid(),levantamentoDev:isPerguntasDevIniciais(),diagnostico:{},mapaOperacao:[],checklist:[],eventos:[],horasUtilizadas:0,criadoEm:isHoje()};
+  const p={id:uid(),levantamentoDev:isPerguntasDevIniciais(),modulos:[],diagnostico:{},mapaOperacao:[],checklist:[],eventos:[],horasUtilizadas:0,criadoEm:isHoje()};
   IS_CAMPOS.forEach(k=>{p[k]=f[k]===undefined||f[k]===null?"":f[k];});
   p.horasContratadas=Number(f.horasContratadas)||0;
   if(!p.status)p.status="Em implantação";
@@ -5081,6 +5082,13 @@ const isPerguntasDevIniciais=()=>IS_PERGUNTAS_DEV_PADRAO.map(q=>({id:uid(),pergu
 const isSalvarRespostaDev=(p,id,resposta)=>({...p,levantamentoDev:(p.levantamentoDev||[]).map(x=>x.id===id?{...x,resposta}:x)});
 const isAdicionarPerguntaDev=(p,pergunta)=>({...p,levantamentoDev:[...(p.levantamentoDev||[]),{id:uid(),pergunta,resposta:""}]});
 const isExcluirPerguntaDev=(p,id)=>({...p,levantamentoDev:(p.levantamentoDev||[]).filter(x=>x.id!==id)});
+const isToggleModulo=(p,m)=>{
+  const sel=new Set(p.modulos||[]);
+  sel.has(m)?sel.delete(m):sel.add(m);
+  return {...p,modulos:IS_MODULOS.filter(x=>sel.has(x))};
+};
+const isTodosModulos=(p)=>({...p,modulos:[...IS_MODULOS]});
+const isNenhumModulo=(p)=>({...p,modulos:[]});
 const isLevantamentoPct=(p)=>{
   const lista=p.levantamentoDev||[];
   if(lista.length===0)return 0;
@@ -5128,11 +5136,56 @@ const isChecklistResultado=(p)=>{
   return "🟡 Parcial";
 };
 
+const IS_STATUS_ITEM=["Pendente","Em andamento","Concluída"];
+const IS_COR_ITEM={"Pendente":["#F0ECF6","#3D5A8A"],"Em andamento":["#F6EFD9","#8A6D1F"],"Concluída":["#DDF0E6","#1F7A4D"]};
+
+// ── linha do tempo (cronograma com dependências) ──
+const isSalvarAtividade=(p,f)=>{
+  const lista=p.cronograma||[];
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,cronograma:lista.map(x=>x.id===f.id?{...x,...f}:x)};
+  return isEv({...p,cronograma:[...lista,{...f,id:uid()}]},"cronograma",`Atividade adicionada à linha do tempo: ${f.atividade}`);
+};
+const isExcluirAtividade=(p,id)=>({...p,cronograma:(p.cronograma||[]).filter(x=>x.id!==id)});
+const isMoverAtividade=(p,id,dir)=>{
+  const l=[...(p.cronograma||[])];const i=l.findIndex(x=>x.id===id);const j=i+dir;
+  if(i<0||j<0||j>=l.length)return p;
+  [l[i],l[j]]=[l[j],l[i]];return {...p,cronograma:l};
+};
+const isStatusAtividade=(p,id,status)=>({...p,cronograma:(p.cronograma||[]).map(x=>x.id===id?{...x,status}:x)});
+const isCronogramaResumo=(p)=>{
+  const l=p.cronograma||[];
+  const concluidas=l.filter(x=>x.status==="Concluída").length;
+  const horasPrevistas=l.reduce((s,x)=>s+(Number(x.previsto)||0),0);
+  return {total:l.length,concluidas,horasPrevistas,pct:l.length?Math.round(concluidas/l.length*100):0};
+};
+
+// ── plano de treinamento (por processo) ──
+const isSalvarTreino=(p,f)=>{
+  const lista=p.planoTreinamento||[];
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,planoTreinamento:lista.map(x=>x.id===f.id?{...x,...f}:x)};
+  return isEv({...p,planoTreinamento:[...lista,{...f,id:uid()}]},"treino",`Treinamento planejado: ${f.conteudo} — ${f.usuario}`);
+};
+const isExcluirTreino=(p,id)=>({...p,planoTreinamento:(p.planoTreinamento||[]).filter(x=>x.id!==id)});
+const isMoverTreino=(p,id,dir)=>{
+  const l=[...(p.planoTreinamento||[])];const i=l.findIndex(x=>x.id===id);const j=i+dir;
+  if(i<0||j<0||j>=l.length)return p;
+  [l[i],l[j]]=[l[j],l[i]];return {...p,planoTreinamento:l};
+};
+const isStatusTreino=(p,id,status)=>({...p,planoTreinamento:(p.planoTreinamento||[]).map(x=>x.id===id?{...x,status}:x)});
+const isTreinoResumo=(p)=>{
+  const l=p.planoTreinamento||[];
+  const concluidos=l.filter(x=>x.status==="Concluída").length;
+  const horasPrevistas=l.reduce((s,x)=>s+(Number(x.horasPrevistas)||0),0);
+  return {total:l.length,concluidos,horasPrevistas,pct:l.length?Math.round(concluidos/l.length*100):0};
+};
+
 const isEtapas=(p)=>[
   {k:"lev",l:"Levantamento c/ desenvolvedor",ok:isLevantamentoPct(p)>=100},
   {k:"diag",l:"Diagnóstico",ok:!!(p.diagnostico||{}).concluido},
   {k:"mapa",l:"Mapa da operação",ok:(p.mapaOperacao||[]).length>0},
-  {k:"check",l:"Pré-implantação",ok:isChecklistResultado(p)==="🟢 Pronto para treinar"}
+  {k:"check",l:"Pré-implantação",ok:isChecklistResultado(p)==="🟢 Pronto para treinar"},
+  {k:"cronograma",l:"Linha do tempo",ok:(p.cronograma||[]).length>0},
+  {k:"treino",l:"Plano de treinamento",ok:(p.planoTreinamento||[]).length>0}
 ];
 
 const IsChip=({t,sm})=>{const c=IS_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
@@ -5197,6 +5250,20 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     upd(p=>isSalvarProcesso(p,form));setModal(null);showSavedGlobal("Processo mapeado!");
   };
 
+  // ── linha do tempo ──
+  const novaAtividade=()=>{setForm({atividade:"",responsavel:"",dependencia:"",previsto:"",status:"Pendente"});setModal("atividade");};
+  const salvarAtividade=()=>{
+    if(!String(form.atividade||"").trim()){alert("Informe a atividade.");return;}
+    upd(p=>isSalvarAtividade(p,form));setModal(null);showSavedGlobal("Atividade salva!");
+  };
+
+  // ── plano de treinamento ──
+  const novoTreino=()=>{setForm({usuario:"",conteudo:"",horasPrevistas:"",status:"Pendente"});setModal("treino");};
+  const salvarTreino=()=>{
+    if(!String(form.conteudo||"").trim()){alert("Informe o conteúdo do treinamento.");return;}
+    upd(p=>isSalvarTreino(p,form));setModal(null);showSavedGlobal("Treinamento planejado!");
+  };
+
   const btnPill=(ativo,onClick,label)=>(
     <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
   );
@@ -5238,6 +5305,33 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarProjeto}>💾 Salvar implantação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="atividade"&&form&&<Modal wide title={form.id?"✎ Editar atividade":"🗓 Nova atividade"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Atividade" value={form.atividade} onChange={v=>F("atividade",v)} placeholder="Ex: Treinamento Comercial"/></div>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Inp label="Dependência" value={form.dependencia} onChange={v=>F("dependencia",v)} placeholder="Ex: depende do Diagnóstico"/>
+        <Inp label="Horas previstas" type="number" value={form.previsto} onChange={v=>F("previsto",v)}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={IS_STATUS_ITEM}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarAtividade}>💾 Salvar atividade</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="treino"&&form&&<Modal wide title={form.id?"✎ Editar treinamento":"🎓 Novo treinamento"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <Inp label="Usuário / área" value={form.usuario} onChange={v=>F("usuario",v)} placeholder="Ex: Administrativo"/>
+        <Inp label="Horas previstas" type="number" value={form.horasPrevistas} onChange={v=>F("horasPrevistas",v)}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Conteúdo (processo, não tela)" value={form.conteudo} onChange={v=>F("conteudo",v)} placeholder="Ex: Cadastros"/></div>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={IS_STATUS_ITEM}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarTreino}>💾 Salvar treinamento</Btn>
       </div>
     </Modal>}
 
@@ -5307,7 +5401,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   // ═════════ IMPLANTAÇÃO ABERTA ═════════
   const p=sel;
   const et=isEtapas(p);
-  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"]];
+  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["cronograma","🗓 Linha do Tempo"],["treino","🎓 Plano de Treinamento"]];
 
   const renderResumo=()=>{
     const eventos=(p.eventos||[]).slice(-6).reverse();
@@ -5336,6 +5430,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {cartao("Diagnóstico",(p.diagnostico||{}).concluido?"Concluído":`${isDiagPct(p)}% preenchido`)}
         {cartao("Mapa da operação",`${mr.total} processo(s)`,mr.total>0?(mr.pct===100?C.verde:undefined):undefined)}
         {cartao("Pré-implantação",isChecklistResultado(p),isChecklistResultado(p)==="🟢 Pronto para treinar"?C.verde:isChecklistResultado(p)==="🔴 Não pronto"?C.vermelho:undefined)}
+        {cartao("Linha do tempo",`${isCronogramaResumo(p).concluidas}/${isCronogramaResumo(p).total}`)}
+        {cartao("Plano de treinamento",`${isTreinoResumo(p).concluidos}/${isTreinoResumo(p).total}`)}
       </div>
 
       {p.obs&&<><Divider label="Observações"/><div style={{fontSize:13,color:C.oliva,whiteSpace:"pre-line"}}>{p.obs}</div></>}
@@ -5352,7 +5448,23 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
   const renderLevantamento=()=>{
     const lista=p.levantamentoDev||[];
+    const mods=p.modulos||[];
     return(<div>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Módulos desta implantação</div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Selecione o que faz parte desta implantação — nem toda empresa usa todos os módulos do sistema.</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
+        {IS_MODULOS.map(m=>{
+          const ativo=mods.includes(m);
+          return(
+            <button key={m} onClick={()=>upd(pp=>isToggleModulo(pp,m))} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{ativo?"✓ ":""}{m}</button>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <Btn sm v="ghost" onClick={()=>upd(isTodosModulos)}>Selecionar todos</Btn>
+        <Btn sm v="ghost" onClick={()=>upd(isNenhumModulo)}>Limpar seleção</Btn>
+      </div>
+      <Divider label="Perguntas ao desenvolvedor"/>
       <div style={{fontSize:12,color:C.oliva,marginBottom:12}}>Perguntas fixas para alinhar com o desenvolvedor antes de começar — a mesma empresa que usa o mesmo sistema de outro cliente ainda pode operar diferente.</div>
       {lista.map(q=>(
         <div key={q.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
@@ -5425,6 +5537,65 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     </div>);
   };
 
+  const renderCronograma=()=>{
+    const lista=p.cronograma||[];
+    const r=isCronogramaResumo(p);
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novaAtividade}>+ Nova atividade</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{r.concluidas} de {r.total} concluídas{r.horasPrevistas>0?` · ${r.horasPrevistas}h previstas`:""}</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma atividade na linha do tempo ainda.<br/>Monte a sequência com responsável, dependência e horas previstas.</div>}
+      {lista.map((x,i)=>(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR_ITEM[x.status]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14}}><span style={{color:C.oliva,fontWeight:400}}>#{i+1}</span> {x.atividade}</div>
+            <IsChip t={x.status} sm/>
+          </div>
+          {campo("Responsável",x.responsavel)}{campo("Dependência",x.dependencia)}{Number(x.previsto)>0&&campo("Horas previstas",`${x.previsto}h`)}
+          <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverAtividade(pp,x.id,-1))}>↑</Btn>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverAtividade(pp,x.id,1))}>↓</Btn>
+            {IS_STATUS_ITEM.filter(s=>s!==x.status).map(s=>(
+              <Btn key={s} sm v="ghost" onClick={()=>upd(pp=>isStatusAtividade(pp,x.id,s))}>{s}</Btn>
+            ))}
+            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("atividade");}}>✎</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta atividade?"))upd(pp=>isExcluirAtividade(pp,x.id));}}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
+  const renderTreino=()=>{
+    const lista=p.planoTreinamento||[];
+    const r=isTreinoResumo(p);
+    return(<div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Planeje por processo, não por tela do sistema — "como vocês fazem isso hoje" em vez de "tela 1, tela 2".</div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novoTreino}>+ Novo treinamento</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{r.concluidos} de {r.total} concluídos{r.horasPrevistas>0?` · ${r.horasPrevistas}h previstas`:""}</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum treinamento planejado ainda.</div>}
+      {lista.map((x,i)=>(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR_ITEM[x.status]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14}}><span style={{color:C.oliva,fontWeight:400}}>#{i+1}</span> {x.conteudo}</div>
+            <IsChip t={x.status} sm/>
+          </div>
+          {campo("Usuário/área",x.usuario)}{Number(x.horasPrevistas)>0&&campo("Horas previstas",`${x.horasPrevistas}h`)}
+          <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverTreino(pp,x.id,-1))}>↑</Btn>
+            <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverTreino(pp,x.id,1))}>↓</Btn>
+            {IS_STATUS_ITEM.filter(s=>s!==x.status).map(s=>(
+              <Btn key={s} sm v="ghost" onClick={()=>upd(pp=>isStatusTreino(pp,x.id,s))}>{s}</Btn>
+            ))}
+            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("treino");}}>✎</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este treinamento?"))upd(pp=>isExcluirTreino(pp,x.id));}}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
   return(
     <div className="fade" style={{padding:14}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
@@ -5447,6 +5618,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       {tab==="diag"&&renderDiag()}
       {tab==="mapa"&&renderMapa()}
       {tab==="check"&&renderCheck()}
+      {tab==="cronograma"&&renderCronograma()}
+      {tab==="treino"&&renderTreino()}
       {modais}
     </div>
   );
@@ -6032,7 +6205,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v18</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v19</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
