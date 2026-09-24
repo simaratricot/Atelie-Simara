@@ -5013,12 +5013,453 @@ const ProspeccaoComercial=({prospects=[],setProspects,clients=[],setClients,proj
 };
 // PR-END
 
+// ─── IMPLANTAÇÃO DE SISTEMA — Procedimento Padrão de Implantação e Treinamento ─
+// IS-START
+const IS_STATUS=["Em implantação","Pausada","Concluída","Concluída com pendências","Não concluída","Cancelada"];
+const IS_ENCERRADOS=["Concluída","Concluída com pendências","Não concluída","Cancelada"];
+const IS_SITUACAO_PROC=["🔴 Não iniciado","🟡 Em adaptação","🟢 No sistema"];
+const IS_COR={
+  "Em implantação":["#E4EEF9","#3D5A8A"],"Pausada":["#F6EFD9","#8A6D1F"],"Concluída":["#DDF0E6","#1F7A4D"],
+  "Concluída com pendências":["#F3EEE0","#8A6D1F"],"Não concluída":["#F3E1DE","#c0392b"],"Cancelada":["#F0F0F0","#8C8499"],
+  "🔴 Não iniciado":["#F3E1DE","#c0392b"],"🟡 Em adaptação":["#F6EFD9","#8A6D1F"],"🟢 No sistema":["#DDF0E6","#1F7A4D"],
+  "🔴 Não pronto":["#F3E1DE","#c0392b"],"🟡 Parcial":["#F6EFD9","#8A6D1F"],"🟢 Pronto para treinar":["#DDF0E6","#1F7A4D"]
+};
+const IS_PERGUNTAS_DEV_PADRAO=[
+  "Quais módulos/processos serão implantados nesta empresa?",
+  "O que precisa estar pronto antes de iniciarmos o treinamento?",
+  "Qual é a sequência recomendada de treinamento?",
+  "Quantas horas cada etapa provavelmente exige?",
+  "O que depende do desenvolvedor?",
+  "O que depende do cliente?",
+  "O que depende da treinadora (Simara)?",
+  "Existe alguma particularidade desta operação que precisa ser considerada?"
+];
+const IS_DIAG_CAMPOS=[
+  ["situacao","Como o processo é realizado hoje"],
+  ["quemExecuta","Quem executa cada etapa"],
+  ["informacoes","Quais informações são utilizadas e onde estão hoje"],
+  ["controlesManuais","Quais controles são manuais"],
+  ["planilhasSistemas","Quais planilhas/sistemas são utilizados hoje"],
+  ["problemas","Principais problemas da rotina atual"],
+  ["expectativa","O que o cliente espera resolver com o sistema"],
+  ["processosMigrar","Quais processos serão migrados para o sistema"],
+  ["particularidades","Particularidades da operação a considerar"]
+];
+const IS_CHECKLIST_ITENS=[
+  "Usuários definidos","Responsáveis definidos","Processos identificados","Dados levantados",
+  "Cadastros necessários disponíveis","Informações organizadas","Parametrizações realizadas",
+  "Ambiente disponível","Acessos liberados","Rotina do cliente compreendida",
+  "Cronograma definido","Participantes confirmados"
+];
+
+const isHoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().split("T")[0];};
+const IS_CAMPOS=["clientId","clienteNome","empresa","sistema","responsavel","desenvolvedor","dataInicio","dataPrevista","horasContratadas","status","obs"];
+const isForm=(p)=>{
+  const base={clientId:"",clienteNome:"",empresa:"",sistema:"",responsavel:"Simara Lobui",desenvolvedor:"",dataInicio:isHoje(),dataPrevista:"",horasContratadas:"",status:"Em implantação",obs:""};
+  if(!p)return base;
+  const o={id:p.id};IS_CAMPOS.forEach(k=>{o[k]=p[k]===undefined||p[k]===null?base[k]:p[k];});return o;
+};
+
+// ── regras (funções puras) ──
+const isEv=(p,tipo,texto,data)=>({...p,eventos:[...(p.eventos||[]),{id:uid(),data:data||isHoje(),tipo,texto}]});
+const isNovo=(f)=>{
+  const p={id:uid(),levantamentoDev:isPerguntasDevIniciais(),diagnostico:{},mapaOperacao:[],checklist:[],eventos:[],horasUtilizadas:0,criadoEm:isHoje()};
+  IS_CAMPOS.forEach(k=>{p[k]=f[k]===undefined||f[k]===null?"":f[k];});
+  p.horasContratadas=Number(f.horasContratadas)||0;
+  if(!p.status)p.status="Em implantação";
+  if(!String(p.sistema||"").trim())p.sistema="Sistema";
+  return isEv(p,"projeto",`Implantação iniciada: ${p.sistema} — ${p.clienteNome}`);
+};
+const isEditar=(p,f)=>{
+  const n={...p};IS_CAMPOS.forEach(k=>{if(f[k]!==undefined)n[k]=f[k];});
+  n.horasContratadas=Number(f.horasContratadas)||0;
+  return p.status!==n.status?isEv(n,"status",`Status: ${p.status} → ${n.status}`):n;
+};
+
+// ── levantamento com o desenvolvedor ──
+const isPerguntasDevIniciais=()=>IS_PERGUNTAS_DEV_PADRAO.map(q=>({id:uid(),pergunta:q,resposta:""}));
+const isSalvarRespostaDev=(p,id,resposta)=>({...p,levantamentoDev:(p.levantamentoDev||[]).map(x=>x.id===id?{...x,resposta}:x)});
+const isAdicionarPerguntaDev=(p,pergunta)=>({...p,levantamentoDev:[...(p.levantamentoDev||[]),{id:uid(),pergunta,resposta:""}]});
+const isExcluirPerguntaDev=(p,id)=>({...p,levantamentoDev:(p.levantamentoDev||[]).filter(x=>x.id!==id)});
+const isLevantamentoPct=(p)=>{
+  const lista=p.levantamentoDev||[];
+  if(lista.length===0)return 0;
+  const respondidas=lista.filter(x=>String(x.resposta||"").trim()).length;
+  return Math.round(respondidas/lista.length*100);
+};
+
+// ── diagnóstico ──
+const isSalvarDiag=(p,texto)=>({...p,diagnostico:{...(p.diagnostico||{}),...texto}});
+const isConcluirDiag=(p)=>isEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:true,dataConclusao:isHoje()}},"diagnostico","Diagnóstico do cliente concluído");
+const isReabrirDiag=(p)=>({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}});
+const isDiagPct=(p)=>{
+  const dd=p.diagnostico||{};
+  const preenchidos=IS_DIAG_CAMPOS.filter(([k])=>String(dd[k]||"").trim()).length;
+  return Math.round(preenchidos/IS_DIAG_CAMPOS.length*100);
+};
+
+// ── mapa da operação ──
+const isSalvarProcesso=(p,f)=>{
+  const lista=p.mapaOperacao||[];
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,mapaOperacao:lista.map(x=>x.id===f.id?{...x,...f}:x)};
+  return isEv({...p,mapaOperacao:[...lista,{...f,id:uid()}]},"mapa",`Processo mapeado: ${f.processo}`);
+};
+const isExcluirProcesso=(p,id)=>({...p,mapaOperacao:(p.mapaOperacao||[]).filter(x=>x.id!==id)});
+const isMapaResumo=(p)=>{
+  const l=p.mapaOperacao||[];
+  const prontos=l.filter(x=>x.situacao==="🟢 No sistema").length;
+  return {total:l.length,prontos,pct:l.length?Math.round(prontos/l.length*100):0};
+};
+
+// ── checklist de pré-implantação ──
+const isChecklist=(p)=>{
+  const marcados=new Set((p.checklist||[]));
+  return IS_CHECKLIST_ITENS.map(item=>({item,ok:marcados.has(item)}));
+};
+const isToggleChecklist=(p,item)=>{
+  const marcados=new Set(p.checklist||[]);
+  marcados.has(item)?marcados.delete(item):marcados.add(item);
+  return {...p,checklist:[...marcados]};
+};
+const isChecklistResultado=(p)=>{
+  const n=(p.checklist||[]).length;const total=IS_CHECKLIST_ITENS.length;
+  if(n===0)return "🔴 Não pronto";
+  if(n===total)return "🟢 Pronto para treinar";
+  return "🟡 Parcial";
+};
+
+const isEtapas=(p)=>[
+  {k:"lev",l:"Levantamento c/ desenvolvedor",ok:isLevantamentoPct(p)>=100},
+  {k:"diag",l:"Diagnóstico",ok:!!(p.diagnostico||{}).concluido},
+  {k:"mapa",l:"Mapa da operação",ok:(p.mapaOperacao||[]).length>0},
+  {k:"check",l:"Pré-implantação",ok:isChecklistResultado(p)==="🟢 Pronto para treinar"}
+];
+
+const IsChip=({t,sm})=>{const c=IS_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
+
+const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients})=>{
+  const cor=CORES_CONSUL;
+  const [selId,setSelId]=useState(null);
+  const [tab,setTab]=useState("resumo");
+  const [filtro,setFiltro]=useState("ativas");
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState(null);
+  const [novoCli,setNovoCli]=useState(null);
+  useEffect(()=>{if(modal!=="projeto")setNovoCli(null);},[modal]);
+  const sel=implantacoes.find(p=>p.id===selId)||null;
+
+  const upd=(fn)=>setImplantacoes&&setImplantacoes(prev=>prev.map(p=>p.id===selId?fn(p):p));
+  const F=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  // ── projeto: criar / editar / excluir ──
+  const cadastrarCliente=()=>{
+    const nome=String((novoCli&&novoCli.name)||"").trim();
+    if(!nome){alert("Informe o nome do cliente.");return;}
+    if(clients.some(c=>String(c.name||"").trim().toLowerCase()===nome.toLowerCase())&&!window.confirm(`Já existe um cliente chamado "${nome}". Cadastrar outro mesmo assim? (Se for o mesmo, escolha-o na lista.)`))return;
+    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"Implantação",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:isHoje()};
+    setClients(prev=>[...prev,c].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt")));
+    setForm(f=>({...f,clientId:c.id,clienteNome:c.name,empresa:c.empresa||f.empresa}));
+    setNovoCli(null);showSavedGlobal("Cliente cadastrado!");
+  };
+  const salvarProjeto=()=>{
+    if(!form.clientId){alert("Escolha o cliente desta implantação.");return;}
+    if(form.id){
+      setImplantacoes(prev=>prev.map(p=>p.id===form.id?isEditar(p,form):p));
+    } else {
+      const novo=isNovo(form);
+      setImplantacoes(prev=>[...prev,novo]);
+      setSelId(novo.id);setTab("resumo");
+    }
+    setModal(null);showSavedGlobal("Implantação salva!");
+  };
+  const excluirProjeto=()=>{
+    if(!sel)return;
+    if(!window.confirm(`Excluir a implantação de "${sel.sistema}" em ${sel.clienteNome}? Todo o levantamento, diagnóstico, mapa e checklist serão apagados.\n\nEssa ação não pode ser desfeita.`))return;
+    setImplantacoes(prev=>prev.filter(p=>p.id!==sel.id));
+    setSelId(null);
+  };
+
+  // ── diagnóstico ──
+  const [dg,setDg]=useState({});
+  const [dgSujo,setDgSujo]=useState(false);
+  useEffect(()=>{
+    const d=(sel&&sel.diagnostico)||{};
+    const t={};IS_DIAG_CAMPOS.forEach(([k])=>{t[k]=d[k]||"";});
+    setDg(t);setDgSujo(false);
+  },[selId]);
+  const salvarDiag=()=>{upd(p=>isSalvarDiag(p,dg));setDgSujo(false);showSavedGlobal("Diagnóstico salvo!");};
+  const concluirDiag=()=>{upd(isConcluirDiag);setDgSujo(false);showSavedGlobal("Diagnóstico concluído!");};
+
+  // ── mapa da operação ──
+  const novoProcesso=()=>{setForm({processo:"",quemExecuta:"",comoFazHoje:"",comoFaraSistema:"",situacao:IS_SITUACAO_PROC[0]});setModal("processo");};
+  const salvarProcesso=()=>{
+    if(!String(form.processo||"").trim()){alert("Informe o processo.");return;}
+    upd(p=>isSalvarProcesso(p,form));setModal(null);showSavedGlobal("Processo mapeado!");
+  };
+
+  const btnPill=(ativo,onClick,label)=>(
+    <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
+  );
+  const campo=(rot,val)=>val?<div style={{fontSize:12,color:C.oliva,marginTop:3}}><b style={{color:C.cafe}}>{rot}:</b> {val}</div>:null;
+
+  const modais=(<>
+    {modal==="projeto"&&form&&<Modal wide title={form.id?"✎ Editar implantação":"🖥️ Nova implantação"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}>
+          <Sel label="Cliente" value={form.clientId} onChange={v=>{const c=clients.find(x=>x.id===v);setForm(f=>({...f,clientId:v,clienteNome:c?c.name:"",empresa:(c&&c.empresa)||f.empresa}));}}
+            options={[{v:"",l:"— selecione um cliente cadastrado —"},...[...clients].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""))).map(c=>({v:c.id,l:c.name}))]}/>
+        </div>
+        {!form.id&&setClients&&<div style={{gridColumn:"1 / -1"}}>
+          {!novoCli
+            ?<button onClick={()=>setNovoCli({name:"",phone:"",empresa:""})} style={{background:"none",border:"none",color:C.cafe,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textDecoration:"underline",fontFamily:"inherit"}}>+ Cliente ainda não cadastrado? Cadastrar agora</button>
+            :<div style={{background:C.linho,borderRadius:8,padding:12}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Cadastro rápido de cliente</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+                <Inp label="Nome" value={novoCli.name} onChange={v=>setNovoCli(n=>({...n,name:v}))}/>
+                <Inp label="WhatsApp" value={novoCli.phone} onChange={v=>setNovoCli(n=>({...n,phone:v}))}/>
+                <Inp label="Empresa" value={novoCli.empresa} onChange={v=>setNovoCli(n=>({...n,empresa:v}))}/>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
+                <Btn sm v="ghost" onClick={()=>setNovoCli(null)}>Cancelar</Btn>
+                <Btn sm onClick={cadastrarCliente}>Cadastrar e selecionar</Btn>
+              </div>
+            </div>}
+        </div>}
+        <Inp label="Empresa" value={form.empresa} onChange={v=>F("empresa",v)}/>
+        <Inp label="Sistema" value={form.sistema} onChange={v=>F("sistema",v)} placeholder="Nome do sistema a implantar"/>
+        <Inp label="Responsável pela implantação" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Inp label="Desenvolvedor" value={form.desenvolvedor} onChange={v=>F("desenvolvedor",v)}/>
+        <Inp label="Data de início" type="date" value={form.dataInicio} onChange={v=>F("dataInicio",v)}/>
+        <Inp label="Previsão de conclusão" type="date" value={form.dataPrevista} onChange={v=>F("dataPrevista",v)}/>
+        <Inp label="Horas contratadas/estimadas" type="number" value={form.horasContratadas} onChange={v=>F("horasContratadas",v)}/>
+        <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={IS_STATUS}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observações" rows={2} value={form.obs} onChange={v=>F("obs",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarProjeto}>💾 Salvar implantação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="processo"&&form&&<Modal wide title={form.id?"✎ Editar processo":"🧩 Mapear processo"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Processo" value={form.processo} onChange={v=>F("processo",v)} placeholder="Ex: Cadastro de clientes"/></div>
+        <Inp label="Quem executa" value={form.quemExecuta} onChange={v=>F("quemExecuta",v)}/>
+        <Sel label="Situação" value={form.situacao} onChange={v=>F("situacao",v)} options={IS_SITUACAO_PROC}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Como faz hoje" rows={2} value={form.comoFazHoje} onChange={v=>F("comoFazHoje",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Como fará no sistema" rows={2} value={form.comoFaraSistema} onChange={v=>F("comoFaraSistema",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarProcesso}>💾 Salvar processo</Btn>
+      </div>
+    </Modal>}
+  </>);
+
+  // ═════════ LISTA DE IMPLANTAÇÕES ═════════
+  if(!sel){
+    const lista=implantacoes.filter(p=>filtro==="todas"?true:filtro==="concluidas"?IS_ENCERRADOS.includes(p.status):!IS_ENCERRADOS.includes(p.status));
+    return(
+      <div className="fade" style={{padding:14}}>
+        <div style={{background:`linear-gradient(135deg,${cor.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:8,color:cor.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Procedimento Padrão</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Implantação e Treinamento</div>
+          </div>
+          <Btn onClick={()=>{setForm(isForm());setModal("projeto");}}>+ Nova implantação</Btn>
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto"}}>
+          {btnPill(filtro==="ativas",()=>setFiltro("ativas"),"Em andamento")}
+          {btnPill(filtro==="concluidas",()=>setFiltro("concluidas"),"Encerradas")}
+          {btnPill(filtro==="todas",()=>setFiltro("todas"),"Todas")}
+        </div>
+        {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"28px 18px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>
+          <div style={{fontSize:30,marginBottom:6}}>🖥️</div>
+          {implantacoes.length===0
+            ?<>Nenhuma implantação ainda.<br/>Cadastre a primeira empresa que você vai treinar no sistema.</>
+            :<>Nenhuma implantação neste filtro.</>}
+        </div>}
+        {lista.map(p=>{
+          const et=isEtapas(p);
+          const feitas=et.filter(e=>e.ok).length;
+          return(
+            <div key={p.id} onClick={()=>{setSelId(p.id);setTab("resumo");}} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,padding:14,marginBottom:10,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{minWidth:180}}>
+                  <div style={{fontWeight:700,color:C.cafe,fontSize:15}}>{p.sistema}</div>
+                  <div style={{fontSize:12,color:C.oliva}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+                </div>
+                <IsChip t={p.status}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.oliva,margin:"10px 0 4px",flexWrap:"wrap",gap:6}}>
+                <span>{feitas} de {et.length} etapas iniciais concluídas</span>
+                <span>{fmtDate(p.dataInicio)} → {p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}{Number(p.horasContratadas)>0?` · ${p.horasContratadas}h previstas`:""}</span>
+              </div>
+              <PcBarra pct={Math.round(feitas/et.length*100)}/>
+            </div>
+          );
+        })}
+        {modais}
+      </div>
+    );
+  }
+
+  // ═════════ IMPLANTAÇÃO ABERTA ═════════
+  const p=sel;
+  const et=isEtapas(p);
+  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"]];
+
+  const renderResumo=()=>{
+    const eventos=(p.eventos||[]).slice(-6).reverse();
+    const mr=isMapaResumo(p);
+    const cartao=(rot,val,cl)=>(
+      <div style={{background:C.linho,borderRadius:8,padding:"10px 12px"}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{rot}</div>
+        <div style={{fontSize:15,fontWeight:700,color:cl||C.cafe,marginTop:3,wordBreak:"break-word"}}>{val}</div>
+      </div>);
+    return(<div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:12}}>
+        {cartao("Cliente",p.clienteNome||"—")}
+        {cartao("Desenvolvedor",p.desenvolvedor||"—")}
+        {cartao("Período",`${fmtDate(p.dataInicio)} → ${p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}`)}
+        {cartao("Horas previstas",p.horasContratadas>0?`${p.horasContratadas}h`:"—")}
+      </div>
+
+      <Divider label="Preparação para o treinamento"/>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {et.map(e=>(
+          <span key={e.k} style={{padding:"6px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:e.ok?"#DDF0E6":"#F3F0F7",color:e.ok?"#1F7A4D":"#8C8499"}}>{e.ok?"✓ ":"○ "}{e.l}</span>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+        {cartao("Levantamento c/ dev.",`${isLevantamentoPct(p)}%`)}
+        {cartao("Diagnóstico",(p.diagnostico||{}).concluido?"Concluído":`${isDiagPct(p)}% preenchido`)}
+        {cartao("Mapa da operação",`${mr.total} processo(s)`,mr.total>0?(mr.pct===100?C.verde:undefined):undefined)}
+        {cartao("Pré-implantação",isChecklistResultado(p),isChecklistResultado(p)==="🟢 Pronto para treinar"?C.verde:isChecklistResultado(p)==="🔴 Não pronto"?C.vermelho:undefined)}
+      </div>
+
+      {p.obs&&<><Divider label="Observações"/><div style={{fontSize:13,color:C.oliva,whiteSpace:"pre-line"}}>{p.obs}</div></>}
+
+      {eventos.length>0&&<>
+        <Divider label="Últimas atualizações"/>
+        {eventos.map(e=>(
+          <div key={e.id} style={{display:"flex",gap:10,fontSize:12,color:C.oliva,padding:"4px 0",borderBottom:`1px dashed ${C.areia}`}}>
+            <span style={{minWidth:72,color:C.cafe,fontWeight:600}}>{fmtDate(e.data)}</span><span>{e.texto}</span>
+          </div>))}
+      </>}
+    </div>);
+  };
+
+  const renderLevantamento=()=>{
+    const lista=p.levantamentoDev||[];
+    return(<div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:12}}>Perguntas fixas para alinhar com o desenvolvedor antes de começar — a mesma empresa que usa o mesmo sistema de outro cliente ainda pode operar diferente.</div>
+      {lista.map(q=>(
+        <div key={q.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+            <div style={{color:C.cafe,fontWeight:600,fontSize:13,flex:1}}>{q.pergunta}</div>
+            <button onClick={()=>{if(window.confirm("Excluir esta pergunta?"))upd(pp=>isExcluirPerguntaDev(pp,q.id));}} style={{background:"none",border:"none",cursor:"pointer",color:C.oliva,fontSize:13}}>🗑</button>
+          </div>
+          <div style={{marginTop:6}}>
+            <Inp rows={2} value={q.resposta} onChange={v=>upd(pp=>isSalvarRespostaDev(pp,q.id,v))} placeholder="Resposta do desenvolvedor..."/>
+          </div>
+        </div>))}
+      <Btn sm v="ghost" onClick={()=>{
+        const texto=window.prompt("Nova pergunta para o desenvolvedor:");
+        if(texto&&texto.trim())upd(pp=>isAdicionarPerguntaDev(pp,texto.trim()));
+      }}>+ Adicionar pergunta</Btn>
+    </div>);
+  };
+
+  const renderDiag=()=>(<div>
+    {(p.diagnostico||{}).concluido&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <span>✓ Diagnóstico concluído em {fmtDate((p.diagnostico||{}).dataConclusao)}</span>
+      <Btn sm v="ghost" onClick={()=>upd(isReabrirDiag)}>↩ Reabrir</Btn>
+    </div>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+      {IS_DIAG_CAMPOS.map(([k,l])=>(
+        <div key={k}><Inp label={l} rows={4} value={dg[k]} onChange={v=>{setDg(d=>({...d,[k]:v}));setDgSujo(true);}}/></div>
+      ))}
+    </div>
+    <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
+      <Btn onClick={salvarDiag}>💾 Salvar diagnóstico</Btn>
+      {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
+      {!(p.diagnostico||{}).concluido&&<Btn v="oliva" onClick={concluirDiag}>✓ Concluir diagnóstico</Btn>}
+    </div>
+  </div>);
+
+  const renderMapa=()=>{
+    const lista=p.mapaOperacao||[];
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novoProcesso}>+ Mapear processo</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{lista.length} processo(s)</span>
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum processo mapeado ainda.<br/>Registre como cada atividade é feita hoje e como será feita no sistema.</div>}
+      {lista.map(x=>(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR[x.situacao]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{color:C.cafe,fontWeight:600,fontSize:14,flex:1,minWidth:200}}>{x.processo}</div>
+            <IsChip t={x.situacao} sm/>
+          </div>
+          {campo("Quem executa",x.quemExecuta)}{campo("Como faz hoje",x.comoFazHoje)}{campo("Como fará no sistema",x.comoFaraSistema)}
+          <div style={{display:"flex",gap:6,marginTop:10}}>
+            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("processo");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este processo?"))upd(pp=>isExcluirProcesso(pp,x.id));}}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
+  const renderCheck=()=>{
+    const itens=isChecklist(p);
+    const res=isChecklistResultado(p);
+    return(<div>
+      <div style={{marginBottom:14}}><IsChip t={res}/></div>
+      {itens.map(({item,ok})=>(
+        <label key={item} style={{display:"flex",gap:10,alignItems:"center",cursor:"pointer",padding:"8px 0",borderBottom:`1px dashed ${C.areia}`,fontSize:13,color:ok?"#1F7A4D":C.oliva}}>
+          <input type="checkbox" checked={ok} onChange={()=>upd(pp=>isToggleChecklist(pp,item))}/>
+          {item}
+        </label>
+      ))}
+    </div>);
+  };
+
+  return(
+    <div className="fade" style={{padding:14}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+        <button onClick={()=>setSelId(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:22,color:C.oliva,lineHeight:1,padding:"2px 4px"}} title="Voltar às implantações">←</button>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:16,fontWeight:700,color:C.cafe}}>{p.sistema}</div>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:6}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+          <IsChip t={p.status}/>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <Btn sm v="ghost" onClick={()=>{setForm(isForm(p));setModal("projeto");}}>✎ Editar</Btn>
+          <Btn sm v="ghost" onClick={excluirProjeto}>🗑</Btn>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:2}}>
+        {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
+      </div>
+      {tab==="resumo"&&renderResumo()}
+      {tab==="lev"&&renderLevantamento()}
+      {tab==="diag"&&renderDiag()}
+      {tab==="mapa"&&renderMapa()}
+      {tab==="check"&&renderCheck()}
+      {modais}
+    </div>
+  );
+};
+// IS-END
+
 // Wrapper: duas abas no topo. A aba "Pedidos e atendimentos" é o módulo que já existia, sem alterações.
 const Consultoria=(props)=>{
   const [aba,setAba]=useState("pedidos");
   const [visitouContinua,setVisitouContinua]=useState(false);
   const [visitouProspec,setVisitouProspec]=useState(false);
-  const abrir=(k)=>{setAba(k);if(k==="continua")setVisitouContinua(true);if(k==="prospec")setVisitouProspec(true);};
+  const [visitouImplant,setVisitouImplant]=useState(false);
+  const abrir=(k)=>{setAba(k);if(k==="continua")setVisitouContinua(true);if(k==="prospec")setVisitouProspec(true);if(k==="implant")setVisitouImplant(true);};
   const tabBtn=(k,l)=>(
     <button key={k} onClick={()=>abrir(k)} style={{padding:"9px 16px",borderRadius:"8px 8px 0 0",border:`1.5px solid ${aba===k?CORES_CONSUL.primaria:C.areia}`,borderBottom:"none",background:aba===k?CORES_CONSUL.primaria:"#fff",color:aba===k?"#fff":C.oliva,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{l}</button>
   );
@@ -5028,13 +5469,17 @@ const Consultoria=(props)=>{
         {tabBtn("pedidos","📋 Pedidos e atendimentos")}
         {tabBtn("continua","🧭 Projetos CONTÍNUA")}
         {tabBtn("prospec","📡 Prospecção Comercial")}
+        {tabBtn("implant","🖥️ Implantação Sistema")}
       </div>
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
       {visitouContinua&&<div style={{display:aba==="continua"?"block":"none"}}>
         <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config}/>
       </div>}
       {visitouProspec&&<div style={{display:aba==="prospec"?"block":"none"}}>
-        <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients}/>
+        <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients} projetosContinua={props.projetosContinua||[]} setProjetosContinua={props.setProjetosContinua}/>
+      </div>}
+      {visitouImplant&&<div style={{display:aba==="implant"?"block":"none"}}>
+        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients}/>
       </div>}
     </div>
   );
@@ -5587,7 +6032,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v17</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v18</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -7055,6 +7500,7 @@ function App() {
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
+  const [implantacoes, setImplantacoes]=useStorage("implantacoes", []);
   // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
@@ -7128,7 +7574,7 @@ function App() {
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
-          {view==="consultoria"  &&<Consultoria prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
