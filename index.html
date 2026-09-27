@@ -5106,17 +5106,49 @@ const isDiagPct=(p)=>{
   return Math.round(preenchidos/IS_DIAG_CAMPOS.length*100);
 };
 
-// ── mapa da operação ──
-const isSalvarProcesso=(p,f)=>{
+// ── mapa do sistema: quais módulos/itens entram nesta implantação ──
+const IS_MENU_PADRAO=[
+  ["Cadastros",["Empresa","Participante"]],
+  ["Produtos",["Grupo","Subgrupo","Unidade de medida","Tabela de preço","Grade de confeccionado","Produtos"]],
+  ["Compras",["Tipo de compra","Requisição de compras","Pedido de compras"]],
+  ["Vendas",["Painel de vendas","Tipo de pedido","Orçamentos","Pedido","PDV"]],
+  ["Contrato",["Painel comercial","Painel de contratos","Tipo de contrato","Eventos","Orçamentos","Contratos","Manifesto de resíduos"]],
+  ["Serviços",["Painel de OS","Higienizações por base","Tipo de serviço","Análise de OS","Ordem de serviço"]],
+  ["Faturamento",["Painel de faturamento","Regra fiscal","Código de serviço","NF-e Movimentação","NFS-e Movimentação","Análise de faturamento","Contratos para faturamento"]],
+  ["Financeiro",["Painel financeiro","Categoria","Centro de custo","Conta financeira","Forma de pagamento","Condição de pagamento","Contas a pagar","Contas a receber","Caixa e banco","Integração bancária"]],
+  ["Estoque",["Almoxarifado","Painel de estoque","Tipo de movimento","Departamento","Remessa","Inventário","Manutenção"]],
+  ["Frota",["Tipo de veículo","Veículo","Rota"]],
+  ["Utilitários",["Calendário","Suporte / Chamados","Chamados Next01","Manual do usuário","Protocolo de documentos","Usuários"]]
+];
+const IS_APLICA_OPCOES=["🟢 Aplica","🟡 Aplica parcialmente","🔴 Não aplica"];
+const IS_TREINA_OPCOES=["Sim","Não","A definir"];
+IS_COR["🟢 Aplica"]=["#DDF0E6","#1F7A4D"];IS_COR["🟡 Aplica parcialmente"]=["#F6EFD9","#8A6D1F"];IS_COR["🔴 Não aplica"]=["#F0F0F0","#8C8499"];
+IS_COR["Sim"]=["#DDF0E6","#1F7A4D"];IS_COR["Não"]=["#F0F0F0","#8C8499"];IS_COR["A definir"]=["#F6EFD9","#8A6D1F"];
+const isCarregarMenuPadrao=(p)=>{
   const lista=p.mapaOperacao||[];
-  if(f.id&&lista.some(x=>x.id===f.id))return {...p,mapaOperacao:lista.map(x=>x.id===f.id?{...x,...f}:x)};
-  return isEv({...p,mapaOperacao:[...lista,{...f,id:uid()}]},"mapa",`Processo mapeado: ${f.processo}`);
+  const existe=new Set(lista.map(x=>`${x.modulo}::${x.item}`));
+  const novos=[];
+  IS_MENU_PADRAO.forEach(([modulo,itens])=>{
+    itens.forEach(item=>{
+      if(!existe.has(`${modulo}::${item}`))novos.push({id:uid(),modulo,item,aplica:"🟢 Aplica",treina:"Sim",obs:""});
+    });
+  });
+  if(novos.length===0)return p;
+  return isEv({...p,mapaOperacao:[...lista,...novos]},"mapa",`Menu padrão carregado: ${novos.length} item(ns)`);
 };
-const isExcluirProcesso=(p,id)=>({...p,mapaOperacao:(p.mapaOperacao||[]).filter(x=>x.id!==id)});
+const isAdicionarItemMapa=(p,f)=>{
+  const lista=p.mapaOperacao||[];
+  return isEv({...p,mapaOperacao:[...lista,{id:uid(),modulo:f.modulo||"Outros",item:f.item,aplica:"🟢 Aplica",treina:"Sim",obs:""}]},"mapa",`Item adicionado ao mapa: ${f.item}`);
+};
+const isCicloAplica=(p,id)=>({...p,mapaOperacao:(p.mapaOperacao||[]).map(x=>x.id===id?{...x,aplica:IS_APLICA_OPCOES[(IS_APLICA_OPCOES.indexOf(x.aplica)+1)%IS_APLICA_OPCOES.length]}:x)});
+const isCicloTreina=(p,id)=>({...p,mapaOperacao:(p.mapaOperacao||[]).map(x=>x.id===id?{...x,treina:IS_TREINA_OPCOES[(IS_TREINA_OPCOES.indexOf(x.treina)+1)%IS_TREINA_OPCOES.length]}:x)});
+const isSalvarObsMapa=(p,id,obs)=>({...p,mapaOperacao:(p.mapaOperacao||[]).map(x=>x.id===id?{...x,obs}:x)});
+const isExcluirItemMapa=(p,id)=>({...p,mapaOperacao:(p.mapaOperacao||[]).filter(x=>x.id!==id)});
 const isMapaResumo=(p)=>{
   const l=p.mapaOperacao||[];
-  const prontos=l.filter(x=>x.situacao==="🟢 No sistema").length;
-  return {total:l.length,prontos,pct:l.length?Math.round(prontos/l.length*100):0};
+  const aplicaveis=l.filter(x=>x.aplica!=="🔴 Não aplica").length;
+  const treinar=l.filter(x=>x.aplica!=="🔴 Não aplica"&&x.treina==="Sim").length;
+  return {total:l.length,aplicaveis,treinar,pct:aplicaveis?Math.round(treinar/aplicaveis*100):0};
 };
 
 // ── checklist de pré-implantação ──
@@ -5262,6 +5294,57 @@ const isSessoesDaAtividade=(p,atividadeId)=>(p.sessoes||[]).filter(x=>x.atividad
 const isPendenciasDaAtividade=(p,atividadeId)=>(p.pendencias||[]).filter(x=>x.atividadeId===atividadeId);
 const isPendAbertasDaAtividade=(p,atividadeId)=>isPendenciasDaAtividade(p,atividadeId).filter(x=>x.status!=="Concluída");
 
+const IS_NIVEL_VALIDACAO=["Autônomo","Assistido","Não consolidado"];
+IS_COR["Autônomo"]=["#DDF0E6","#1F7A4D"];IS_COR["Assistido"]=["#F6EFD9","#8A6D1F"];IS_COR["Não consolidado"]=["#F3E1DE","#c0392b"];
+const IS_ENCERRAMENTO_ITENS=["Processos treinados","Usuários treinados","Pendências críticas resolvidas","Usuários validados","Documentação registrada","Horas fechadas","Pendências finais registradas","Cliente ciente do status"];
+const IS_STATUS_FINAL=["Concluída","Concluída com pendências","Não concluída"];
+const IS_DIARIO_PERGUNTAS=[
+  ["aconteceu","O que aconteceu?"],
+  ["dificuldade","Onde tivemos dificuldade?"],
+  ["consumiuTempo","O que consumiu mais tempo?"],
+  ["deveriaPerguntar","O que eu deveria ter perguntado antes?"],
+  ["clienteNaoPreparado","O que o cliente não estava preparado para fazer?"],
+  ["devPoderiaEntregar","O que o desenvolvedor poderia ter entregue antes?"],
+  ["funcionou","O que funcionou?"],
+  ["checklistProxima","O que precisa entrar no checklist da próxima implantação?"],
+  ["regraNova","Que regra nova o CONTÍNUA ganhou?"]
+];
+
+// ── validação por usuário/processo ──
+const isSalvarValidacao=(p,f)=>{
+  const lista=p.validacoes||[];
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,validacoes:lista.map(x=>x.id===f.id?{...x,...f}:x)};
+  return isEv({...p,validacoes:[...lista,{...f,id:uid()}]},"validacao",`Validação registrada: ${f.processo} — ${f.usuario} (${f.nivel})`);
+};
+const isExcluirValidacao=(p,id)=>({...p,validacoes:(p.validacoes||[]).filter(x=>x.id!==id)});
+const isValidacaoResumo=(p)=>{
+  const l=p.validacoes||[];
+  return {total:l.length,autonomos:l.filter(x=>x.nivel==="Autônomo").length,assistidos:l.filter(x=>x.nivel==="Assistido").length,naoConsolidados:l.filter(x=>x.nivel==="Não consolidado").length};
+};
+
+// ── encerramento ──
+const isToggleEncerramentoItem=(p,item)=>{
+  const marcados=new Set(p.encerramentoChecklist||[]);
+  marcados.has(item)?marcados.delete(item):marcados.add(item);
+  return {...p,encerramentoChecklist:[...marcados]};
+};
+const isEncerramentoPct=(p)=>{
+  const n=(p.encerramentoChecklist||[]).length;
+  return IS_ENCERRAMENTO_ITENS.length?Math.round(n/IS_ENCERRAMENTO_ITENS.length*100):0;
+};
+const isConcluirImplantacao=(p,statusFinal,obs)=>{
+  const n=isEv({...p,status:statusFinal,encerramento:{data:isHoje(),obs:obs||"",statusFinal}},"status",`Implantação encerrada: ${statusFinal}`);
+  return n;
+};
+const isReabrirImplantacao=(p)=>isEv({...p,status:"Em implantação"},"status","Implantação reaberta");
+
+// ── diário da implantação ──
+const isSalvarDiario=(p,f)=>{
+  const registro={...f,id:uid(),data:f.data||isHoje()};
+  return isEv({...p,diario:[...(p.diario||[]),registro]},"diario","Registro no diário da implantação",registro.data);
+};
+const isExcluirDiario=(p,id)=>({...p,diario:(p.diario||[]).filter(x=>x.id!==id)});
+
 const isEtapas=(p)=>[
   {k:"lev",l:"Levantamento c/ desenvolvedor",ok:isLevantamentoPct(p)>=100},
   {k:"diag",l:"Diagnóstico",ok:!!(p.diagnostico||{}).concluido},
@@ -5328,11 +5411,18 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   const concluirDiag=()=>{upd(isConcluirDiag);setDgSujo(false);showSavedGlobal("Diagnóstico concluído!");};
 
   // ── mapa da operação ──
-  const novoProcesso=()=>{setForm({processo:"",quemExecuta:"",comoFazHoje:"",comoFaraSistema:"",situacao:IS_SITUACAO_PROC[0]});setModal("processo");};
-  const salvarProcesso=()=>{
-    if(!String(form.processo||"").trim()){alert("Informe o processo.");return;}
-    upd(p=>isSalvarProcesso(p,form));setModal(null);showSavedGlobal("Processo mapeado!");
+  const carregarMenuPadrao=()=>{
+    const antes=(sel.mapaOperacao||[]).length;
+    upd(isCarregarMenuPadrao);
+    showSavedGlobal("Menu padrão carregado!");
   };
+  const novoItemMapa=()=>{setForm({modulo:"",item:""});setModal("itemMapa");};
+  const salvarItemMapa=()=>{
+    if(!String(form.item||"").trim()){alert("Informe o item.");return;}
+    upd(p=>isAdicionarItemMapa(p,form));setModal(null);showSavedGlobal("Item adicionado!");
+  };
+  const abrirObsMapa=(x)=>{setForm({id:x.id,obs:x.obs||""});setModal("obsMapa");};
+  const salvarObsMapa=()=>{upd(p=>isSalvarObsMapa(p,form.id,form.obs));setModal(null);showSavedGlobal("Observação salva!");};
 
   // ── linha do tempo ──
   const novaAtividade=()=>{setForm({atividade:"",responsavel:"",dependencia:"",previsto:"",status:"Pendente"});setModal("atividade");};
@@ -5362,6 +5452,28 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const horasUtilizadas=calc>0?calc:(Number(form.horasUtilizadas)||0);
     upd(p=>isSalvarSessao(p,{...form,horasUtilizadas}));setModal(null);showSavedGlobal("Sessão registrada!");
   };
+
+  // ── validação ──
+  const novaValidacao=()=>{setForm({processo:"",usuario:"",nivel:IS_NIVEL_VALIDACAO[0],necessidade:"",proximaAcao:""});setModal("validacao");};
+  const salvarValidacao=()=>{
+    if(!String(form.processo||"").trim()){alert("Informe o processo.");return;}
+    if(!String(form.usuario||"").trim()){alert("Informe o usuário.");return;}
+    upd(p=>isSalvarValidacao(p,form));setModal(null);showSavedGlobal("Validação registrada!");
+  };
+
+  // ── encerramento ──
+  const abrirEncerrar=()=>{setForm({statusFinal:IS_STATUS_FINAL[0],obs:(sel.encerramento&&sel.encerramento.obs)||""});setModal("encerrar");};
+  const concluirImplantacao=()=>{
+    const pct=isEncerramentoPct(sel);
+    const msg=pct<100?`O checklist de encerramento está em ${pct}%. Encerrar mesmo assim?`:`Encerrar esta implantação como "${form.statusFinal}"?`;
+    if(!window.confirm(msg))return;
+    upd(p=>isConcluirImplantacao(p,form.statusFinal,form.obs));setModal(null);showSavedGlobal("Implantação encerrada!");
+  };
+  const reabrirImplantacao=()=>{if(window.confirm("Reabrir esta implantação?"))upd(isReabrirImplantacao);};
+
+  // ── diário da implantação ──
+  const novoDiario=()=>{const f={data:isHoje()};IS_DIARIO_PERGUNTAS.forEach(([k])=>f[k]="");setForm(f);setModal("diario");};
+  const salvarDiario=()=>{upd(p=>isSalvarDiario(p,form));setModal(null);showSavedGlobal("Registrado no diário!");};
 
   // ── pendências ──
   const novaPendencia=(atividade)=>{setForm({item:"",responsavel:IS_RESP_PEND[0],origem:IS_MOTIVO_DIF[0],prazo:"",status:"Pendente",atividadeId:atividade?atividade.id:""});setModal("pendencia");};
@@ -5483,17 +5595,62 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       </div>
     </Modal>}
 
-    {modal==="processo"&&form&&<Modal wide title={form.id?"✎ Editar processo":"🧩 Mapear processo"} onClose={()=>setModal(null)}>
+    {modal==="validacao"&&form&&<Modal wide title={form.id?"✎ Editar validação":"✅ Registrar validação"} onClose={()=>setModal(null)}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Processo" value={form.processo} onChange={v=>F("processo",v)} placeholder="Ex: Cadastro de clientes"/></div>
-        <Inp label="Quem executa" value={form.quemExecuta} onChange={v=>F("quemExecuta",v)}/>
-        <Sel label="Situação" value={form.situacao} onChange={v=>F("situacao",v)} options={IS_SITUACAO_PROC}/>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Como faz hoje" rows={2} value={form.comoFazHoje} onChange={v=>F("comoFazHoje",v)}/></div>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Como fará no sistema" rows={2} value={form.comoFaraSistema} onChange={v=>F("comoFaraSistema",v)}/></div>
+        <Inp label="Processo" value={form.processo} onChange={v=>F("processo",v)} placeholder="Ex: Cadastro de cliente"/>
+        <Inp label="Usuário" value={form.usuario} onChange={v=>F("usuario",v)}/>
+        <Sel label="Nível" value={form.nivel} onChange={v=>F("nivel",v)} options={IS_NIVEL_VALIDACAO}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Necessidade" value={form.necessidade} onChange={v=>F("necessidade",v)} placeholder="Ex: reforço"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Próxima ação" value={form.proximaAcao} onChange={v=>F("proximaAcao",v)} placeholder="Ex: nova prática"/></div>
       </div>
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-        <Btn onClick={salvarProcesso}>💾 Salvar processo</Btn>
+        <Btn onClick={salvarValidacao}>💾 Salvar validação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="encerrar"&&form&&<Modal wide title="🏁 Encerrar implantação" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Sel label="Status final" value={form.statusFinal} onChange={v=>F("statusFinal",v)} options={IS_STATUS_FINAL}/>
+        <Inp label="Observações do encerramento" rows={3} value={form.obs} onChange={v=>F("obs",v)}/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Checklist de encerramento: {isEncerramentoPct(sel)}% preenchido. Não é obrigatório estar em 100% para encerrar.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn v="oliva" onClick={concluirImplantacao}>✓ Encerrar implantação</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="diario"&&form&&<Modal wide title="🧠 Novo registro no diário" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        {IS_DIARIO_PERGUNTAS.map(([k,l])=>(
+          <Inp key={k} label={l} rows={2} value={form[k]} onChange={v=>F(k,v)}/>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarDiario}>💾 Salvar registro</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="itemMapa"&&form&&<Modal title="🧩 Item personalizado" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Módulo" value={form.modulo} onChange={v=>F("modulo",v)} placeholder="Ex: Cadastros"/>
+        <Inp label="Item" value={form.item} onChange={v=>F("item",v)} placeholder="Ex: Fornecedores"/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Use quando o item não estiver no menu padrão do sistema.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarItemMapa}>💾 Adicionar</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="obsMapa"&&form&&<Modal title="📝 Observação" onClose={()=>setModal(null)}>
+      <Inp label="Observação" rows={3} value={form.obs} onChange={v=>F("obs",v)}/>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarObsMapa}>💾 Salvar</Btn>
       </div>
     </Modal>}
   </>);
@@ -5549,7 +5706,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   // ═════════ IMPLANTAÇÃO ABERTA ═════════
   const p=sel;
   const et=isEtapas(p);
-  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["cronograma","🗓 Linha do Tempo"],["treino","🎓 Plano de Treinamento"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"]];
+  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["cronograma","🗓 Linha do Tempo"],["treino","🎓 Plano de Treinamento"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"],["valid","✅ Validação"],["encerrar","🏁 Encerramento"],["espInt","📊 Espelho Interno"],["espCli","📈 Espelho do Cliente"],["diario","🧠 Diário"]];
 
   const renderResumo=()=>{
     const eventos=(p.eventos||[]).slice(-6).reverse();
@@ -5576,7 +5733,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
         {cartao("Levantamento c/ dev.",`${isLevantamentoPct(p)}%`)}
         {cartao("Diagnóstico",(p.diagnostico||{}).concluido?"Concluído":`${isDiagPct(p)}% preenchido`)}
-        {cartao("Mapa da operação",`${mr.total} processo(s)`,mr.total>0?(mr.pct===100?C.verde:undefined):undefined)}
+        {cartao("Mapa do sistema",`${mr.aplicaveis} de ${mr.total} aplicam`,mr.total>0?(mr.pct===100?C.verde:undefined):undefined)}
         {cartao("Pré-implantação",isChecklistResultado(p),isChecklistResultado(p)==="🟢 Pronto para treinar"?C.verde:isChecklistResultado(p)==="🔴 Não pronto"?C.vermelho:undefined)}
         {cartao("Linha do tempo",`${isCronogramaResumo(p).concluidas}/${isCronogramaResumo(p).total}`)}
         {cartao("Plano de treinamento",`${isTreinoResumo(p).concluidos}/${isTreinoResumo(p).total}`)}
@@ -5653,23 +5810,31 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
   const renderMapa=()=>{
     const lista=p.mapaOperacao||[];
+    const mr=isMapaResumo(p);
+    const porModulo={};lista.forEach(x=>{(porModulo[x.modulo]=porModulo[x.modulo]||[]).push(x);});
+    const modulos=Object.keys(porModulo);
+    const pillCiclo=(valor,onClick)=>{const c=IS_COR[valor]||["#EEE","#555"];return(
+      <button onClick={onClick} style={{padding:"3px 10px",borderRadius:14,border:"none",background:c[0],color:c[1],fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{valor}</button>
+    );};
     return(<div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:12}}>O mapa é dos módulos do sistema que entram nesta implantação — não da rotina do cliente. Clique nos rótulos coloridos para alternar.</div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn onClick={novoProcesso}>+ Mapear processo</Btn>
-        <span style={{fontSize:12,color:C.oliva}}>{lista.length} processo(s)</span>
+        <Btn onClick={carregarMenuPadrao}>📥 Carregar menu padrão</Btn>
+        <Btn v="ghost" onClick={novoItemMapa}>+ Item personalizado</Btn>
+        {mr.total>0&&<span style={{fontSize:12,color:C.oliva}}>{mr.aplicaveis} de {mr.total} aplicam · {mr.treinar} entram no treinamento</span>}
       </div>
-      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum processo mapeado ainda.<br/>Registre como cada atividade é feita hoje e como será feita no sistema.</div>}
-      {lista.map(x=>(
-        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR[x.situacao]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
-          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
-            <div style={{color:C.cafe,fontWeight:600,fontSize:14,flex:1,minWidth:200}}>{x.processo}</div>
-            <IsChip t={x.situacao} sm/>
-          </div>
-          {campo("Quem executa",x.quemExecuta)}{campo("Como faz hoje",x.comoFazHoje)}{campo("Como fará no sistema",x.comoFaraSistema)}
-          <div style={{display:"flex",gap:6,marginTop:10}}>
-            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("processo");}}>✎ Editar</Btn>
-            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este processo?"))upd(pp=>isExcluirProcesso(pp,x.id));}}>🗑</Btn>
-          </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum item mapeado ainda.<br/>Clique em "Carregar menu padrão" para trazer os módulos do sistema.</div>}
+      {modulos.map(modulo=>(
+        <div key={modulo} style={{marginBottom:16}}>
+          <Divider label={modulo}/>
+          {porModulo[modulo].map(x=>(
+            <div key={x.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"7px 0",borderBottom:`1px dashed ${C.areia}`}}>
+              <span style={{flex:1,minWidth:140,fontSize:13,color:C.cafe}}>{x.item}{x.obs&&<span style={{display:"block",fontSize:11,color:C.oliva}}>📝 {x.obs}</span>}</span>
+              {pillCiclo(x.aplica,()=>upd(pp=>isCicloAplica(pp,x.id)))}
+              {pillCiclo(x.treina==="Sim"?"Sim":x.treina==="Não"?"Não":"A definir",()=>upd(pp=>isCicloTreina(pp,x.id)))}
+              <button onClick={()=>abrirObsMapa(x)} title="Observação" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.oliva}}>📝</button>
+              <button onClick={()=>{if(window.confirm("Excluir este item do mapa?"))upd(pp=>isExcluirItemMapa(pp,x.id));}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.oliva}}>🗑</button>
+            </div>))}
         </div>))}
     </div>);
   };
@@ -5911,6 +6076,134 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     </div>);
   };
 
+  const renderValidacao=()=>{
+    const lista=p.validacoes||[];
+    const r=isValidacaoResumo(p);
+    return(<div>
+      <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={novaValidacao}>+ Registrar validação</Btn>
+        {r.total>0&&<span style={{fontSize:12,color:C.oliva}}>🟢 {r.autonomos} autônomo(s) · 🟡 {r.assistidos} assistido(s) · 🔴 {r.naoConsolidados} não consolidado(s)</span>}
+      </div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma validação registrada ainda.<br/>Depois de cada módulo, registre se o usuário consegue executar sozinho.</div>}
+      {lista.map(x=>(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR[x.nivel]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>{x.processo}<span style={{color:C.oliva,fontWeight:400}}> · {x.usuario}</span></div>
+            <IsChip t={x.nivel} sm/>
+          </div>
+          {campo("Necessidade",x.necessidade)}{campo("Próxima ação",x.proximaAcao)}
+          <div style={{display:"flex",gap:6,marginTop:10}}>
+            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("validacao");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta validação?"))upd(pp=>isExcluirValidacao(pp,x.id));}}>🗑</Btn>
+          </div>
+        </div>))}
+    </div>);
+  };
+
+  const renderEncerramento=()=>{
+    const itens=IS_ENCERRAMENTO_ITENS.map(item=>({item,ok:(p.encerramentoChecklist||[]).includes(item)}));
+    const pct=isEncerramentoPct(p);
+    const encerrada=IS_ENCERRADOS.includes(p.status);
+    return(<div>
+      {encerrada&&p.encerramento&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span>✓ Encerrada em {fmtDate(p.encerramento.data)} · {p.status}</span>
+        <Btn sm v="ghost" onClick={reabrirImplantacao}>↩ Reabrir</Btn>
+      </div>}
+      {p.encerramento&&p.encerramento.obs&&<div style={{fontSize:13,color:C.oliva,marginBottom:14,whiteSpace:"pre-line"}}><b style={{color:C.cafe}}>Observações:</b> {p.encerramento.obs}</div>}
+      <div style={{marginBottom:14}}><span style={{fontSize:13,fontWeight:700,color:C.cafe}}>Checklist final — {pct}%</span></div>
+      {itens.map(({item,ok})=>(
+        <label key={item} style={{display:"flex",gap:10,alignItems:"center",cursor:"pointer",padding:"8px 0",borderBottom:`1px dashed ${C.areia}`,fontSize:13,color:ok?"#1F7A4D":C.oliva}}>
+          <input type="checkbox" checked={ok} onChange={()=>upd(pp=>isToggleEncerramentoItem(pp,item))}/>
+          {item}
+        </label>
+      ))}
+      {!encerrada&&<div style={{marginTop:16}}><Btn v="oliva" onClick={abrirEncerrar}>🏁 Encerrar implantação</Btn></div>}
+    </div>);
+  };
+
+  const renderEspelhoInterno=()=>{
+    const et=isEtapas(p);
+    const cr=isCronogramaResumo(p);const tr=isTreinoResumo(p);const trl=isTrilhaGeral(p);
+    const hs=isSessoesResumo(p);const pr=isPendenciasResumo(p);
+    const abertas=(p.pendencias||[]).filter(x=>x.status!=="Concluída");
+    const porResp={};IS_RESP_PEND.forEach(r=>porResp[r]=abertas.filter(x=>x.responsavel===r).length);
+    return(<div>
+      <div style={{fontSize:11,color:C.oliva,marginBottom:12}}>Visão técnica — para você e o desenvolvedor.</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:14}}>
+        {[["Etapas concluídas",`${et.filter(e=>e.ok).length}/${et.length}`],["Horas previstas",hs.previstas>0?`${hs.previstas}h`:"—"],["Horas utilizadas",`${hs.realizadas}h`],["Saldo",hs.previstas>0?`${hs.saldo}h`:"—"],["Pendências abertas",pr.abertas]].map(([r,v])=>(
+          <div key={r} style={{background:C.linho,borderRadius:8,padding:"9px 11px"}}><div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{r}</div><div style={{fontSize:15,fontWeight:700,color:C.cafe,marginTop:2}}>{v}</div></div>
+        ))}
+      </div>
+      <Divider label="Evolução por etapa"/>
+      {[["Preparação (checklist)",isChecklistResultado(p)==="🟢 Pronto para treinar"?100:isChecklistResultado(p)==="🟡 Parcial"?50:0],["Plano de treinamento",tr.pct],["Trilha do sistema",trl.pct],["Linha do tempo",cr.pct]].map(([l,pct])=>(
+        <div key={l} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{width:150,fontSize:11,color:C.oliva,flexShrink:0}}>{l}</span>
+          <div style={{flex:1,background:"#EEE8F4",borderRadius:5,height:14,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor.primaria}}/></div>
+          <span style={{width:34,fontSize:11,fontWeight:700,color:C.cafe,textAlign:"right",flexShrink:0}}>{pct}%</span>
+        </div>))}
+      <Divider label="Gargalos (pendências em aberto)"/>
+      {abertas.length===0&&<div style={{fontSize:12,color:C.oliva}}>Nenhuma pendência em aberto. 👏</div>}
+      {abertas.map(x=>{
+        const atv=x.atividadeId?(p.cronograma||[]).find(z=>z.id===x.atividadeId):null;
+        return(<div key={x.id} style={{fontSize:12,color:C.oliva,padding:"5px 0",borderBottom:`1px dashed ${C.areia}`}}>
+          <b style={{color:C.cafe}}>{x.item}</b> · {x.origem} · 👤 {x.responsavel}{x.prazo?` · 📅 ${fmtDate(x.prazo)}`:""}{atv?` · 🔗 ${atv.atividade}`:""}
+        </div>);})}
+      <Divider label="Pendências por responsável"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8}}>
+        {IS_RESP_PEND.map(r=>(<div key={r} style={{background:C.linho,borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:9,fontWeight:700,color:C.oliva,textTransform:"uppercase"}}>{r}</div><div style={{fontSize:14,fontWeight:700,color:porResp[r]>0?C.vermelho:C.cafe}}>{porResp[r]}</div></div>))}
+      </div>
+      <Divider label="Horas por categoria"/>
+      {IS_CATEGORIA_HORA.map(c=>(<div key={c} style={{fontSize:12,color:C.oliva,marginBottom:3}}><b style={{color:C.cafe}}>{c}:</b> {hs.porCategoria[c]}h</div>))}
+    </div>);
+  };
+
+  const renderEspelhoCliente=()=>{
+    const trl=isTrilhaGeral(p);const tr=isTreinoResumo(p);
+    const etapasCliente=[
+      ["Diagnóstico",(p.diagnostico||{}).concluido?100:isDiagPct(p)],
+      ["Preparação",isChecklistResultado(p)==="🟢 Pronto para treinar"?100:isChecklistResultado(p)==="🟡 Parcial"?50:0],
+      ["Treinamento",trl.pct],
+      ["Validação",isValidacaoResumo(p).total>0?Math.round(isValidacaoResumo(p).autonomos/Math.max(1,isValidacaoResumo(p).total)*100):0]
+    ];
+    const concluidos=(p.planoTreinamento||[]).filter(x=>x.status==="Concluída");
+    const andamento=(p.planoTreinamento||[]).filter(x=>x.status==="Em andamento");
+    const proximos=(p.cronograma||[]).filter(x=>x.status!=="Concluída").slice(0,4);
+    return(<div>
+      <div style={{fontSize:11,color:C.oliva,marginBottom:12}}>Visão simples e visual — pronta para compartilhar com o cliente.</div>
+      <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"14px",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.cafe}}>Evolução da implantação — {p.sistema}</div>
+        <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+      </div>
+      {etapasCliente.map(([l,pct])=>(
+        <div key={l} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <span style={{width:110,fontSize:12,color:C.oliva,flexShrink:0}}>{pct>=100?"🟢":pct>0?"🟡":"⚪"} {l}</span>
+          <div style={{flex:1,background:"#EEE8F4",borderRadius:5,height:14,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor.primaria}}/></div>
+        </div>))}
+      <Divider label="O que já foi trabalhado"/>
+      {concluidos.length===0?<div style={{fontSize:12,color:C.oliva}}>Em breve.</div>:concluidos.map(x=>(<div key={x.id} style={{fontSize:13,color:C.oliva,marginBottom:3}}>✔ {x.conteudo}</div>))}
+      <Divider label="Em andamento"/>
+      {andamento.length===0?<div style={{fontSize:12,color:C.oliva}}>—</div>:andamento.map(x=>(<div key={x.id} style={{fontSize:13,color:C.oliva,marginBottom:3}}>🔄 {x.conteudo}</div>))}
+      <Divider label="Próximos passos"/>
+      {proximos.length===0?<div style={{fontSize:12,color:C.oliva}}>—</div>:proximos.map(x=>(<div key={x.id} style={{fontSize:13,color:C.oliva,marginBottom:3}}>➜ {x.atividade}</div>))}
+      {p.dataPrevista&&<div style={{marginTop:14,background:C.linho,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.oliva}}><b style={{color:C.cafe}}>Previsão de conclusão:</b> {fmtDate(p.dataPrevista)}</div>}
+    </div>);
+  };
+
+  const renderDiario=()=>{
+    const lista=(p.diario||[]).slice().sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+    return(<div>
+      <div style={{fontSize:11,color:C.oliva,marginBottom:12}}>Espaço só seu — para registrar o que essa implantação está ensinando ao método.</div>
+      <div style={{marginBottom:14}}><Btn onClick={novoDiario}>+ Novo registro</Btn></div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum registro ainda.</div>}
+      {lista.map(x=>(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${cor.primaria}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{fontSize:11,color:C.oliva,fontWeight:700,marginBottom:6}}>{fmtDate(x.data)}</div>
+          {IS_DIARIO_PERGUNTAS.map(([k,l])=>String(x[k]||"").trim()?<div key={k} style={{fontSize:12,color:C.oliva,marginBottom:5}}><b style={{color:C.cafe}}>{l}</b><br/>{x[k]}</div>:null)}
+          <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este registro?"))upd(pp=>isExcluirDiario(pp,x.id));}}>🗑</Btn>
+        </div>))}
+    </div>);
+  };
+
   return(
     <div className="fade" style={{padding:14}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10,flexWrap:"wrap"}}>
@@ -5939,6 +6232,11 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       {tab==="pend"&&renderPendencias()}
       {tab==="horas"&&renderHoras()}
       {tab==="trilha"&&renderTrilha()}
+      {tab==="valid"&&renderValidacao()}
+      {tab==="encerrar"&&renderEncerramento()}
+      {tab==="espInt"&&renderEspelhoInterno()}
+      {tab==="espCli"&&renderEspelhoCliente()}
+      {tab==="diario"&&renderDiario()}
       {modais}
     </div>
   );
@@ -6524,7 +6822,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v23</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v25</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
