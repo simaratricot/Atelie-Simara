@@ -5191,6 +5191,15 @@ const isCronogramaResumo=(p)=>{
   return {total:l.length,concluidas,horasPrevistas,pct:l.length?Math.round(concluidas/l.length*100):0};
 };
 
+const IS_TREINO_PADRAO=IS_MENU_PADRAO.map(([modulo])=>modulo);
+const isCarregarTreinoPadrao=(p)=>{
+  const lista=p.planoTreinamento||[];
+  const existe=new Set(lista.map(x=>x.conteudo));
+  const novos=IS_TREINO_PADRAO.filter(m=>!existe.has(m)).map(m=>({id:uid(),usuario:"",conteudo:m,horasPrevistas:"",status:"Pendente"}));
+  if(novos.length===0)return p;
+  return isEv({...p,planoTreinamento:[...lista,...novos]},"treino",`Plano padrão carregado: ${novos.length} item(ns)`);
+};
+
 // ── plano de treinamento (por processo) ──
 const isSalvarTreino=(p,f)=>{
   const lista=p.planoTreinamento||[];
@@ -5345,6 +5354,12 @@ const isSalvarDiario=(p,f)=>{
 };
 const isExcluirDiario=(p,id)=>({...p,diario:(p.diario||[]).filter(x=>x.id!==id)});
 
+const isLancarTreinoNaLinha=(p,treino)=>{
+  const atividade=treino.usuario?`${treino.conteudo} — ${treino.usuario}`:treino.conteudo;
+  const nova={id:uid(),atividade,data:"",responsavel:treino.usuario||"",dependencia:"",previsto:treino.horasPrevistas||"",status:"Pendente",treinoId:treino.id};
+  return isEv({...p,cronograma:[...(p.cronograma||[]),nova]},"cronograma",`Lançado na linha do tempo a partir do plano: ${atividade}`);
+};
+
 const isEtapas=(p)=>[
   {k:"lev",l:"Levantamento c/ desenvolvedor",ok:isLevantamentoPct(p)>=100},
   {k:"diag",l:"Diagnóstico",ok:!!(p.diagnostico||{}).concluido},
@@ -5357,7 +5372,7 @@ const isEtapas=(p)=>[
 
 const IsChip=({t,sm})=>{const c=IS_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
 
-const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients})=>{
+const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients,config})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -5366,6 +5381,103 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   const [form,setForm]=useState(null);
   const [novoCli,setNovoCli]=useState(null);
   useEffect(()=>{if(modal!=="projeto")setNovoCli(null);},[modal]);
+
+  const isHdr=(pj,titulo)=>`<div class="hdr"><div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Implantação e Treinamento de Sistemas</div></div><div class="hdr-doc"><b>${titulo}</b><br>${pj.sistema} — ${pj.clienteNome}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div><div class="badge">${pj.status}</div>`;
+  const isAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
+  const docRelatorioImplantacao=(pj)=>{
+    const et=isEtapas(pj);const cr=isCronogramaResumo(pj);const tr=isTreinoResumo(pj);const trl=isTrilhaGeral(pj);
+    const hs=isSessoesResumo(pj);const pr=isPendenciasResumo(pj);
+    const abertas=(pj.pendencias||[]).filter(x=>x.status!=="Concluída");
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Implantação — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"RELATÓRIO DE IMPLANTAÇÃO")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <h2>Resumo</h2>
+    <div class="campo"><b>Etapas concluídas:</b> ${et.filter(e=>e.ok).length}/${et.length}</div>
+    <div class="campo"><b>Horas previstas:</b> ${hs.previstas>0?hs.previstas+"h":"—"} · <b>Utilizadas:</b> ${hs.realizadas}h · <b>Saldo:</b> ${hs.previstas>0?hs.saldo+"h":"—"}</div>
+    <div class="campo"><b>Pendências abertas:</b> ${pr.abertas}</div>
+    <h2>Evolução por etapa</h2>
+    <table><tr><th>Etapa</th><th>%</th></tr>
+    <tr><td>Plano de treinamento</td><td>${tr.pct}%</td></tr>
+    <tr><td>Trilha do sistema</td><td>${trl.pct}%</td></tr>
+    <tr><td>Linha do tempo</td><td>${cr.pct}%</td></tr>
+    </table>
+    <h2>Gargalos (pendências em aberto)</h2>
+    ${abertas.length===0?'<div class="campo">Nenhuma.</div>':`<table><tr><th>Pendência</th><th>Origem</th><th>Responsável</th><th>Prazo</th></tr>${abertas.map(x=>`<tr><td>${x.item}</td><td>${x.origem}</td><td>${x.responsavel}</td><td>${x.prazo?fmtDate(x.prazo):"—"}</td></tr>`).join("")}</table>`}
+    <h2>Horas por categoria</h2>
+    ${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${hs.porCategoria[c]}h</div>`).join("")}
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docRelatorioEvolucao=(pj)=>{
+    const trl=isTrilhaGeral(pj);
+    const concluidos=(pj.planoTreinamento||[]).filter(x=>x.status==="Concluída");
+    const andamento=(pj.planoTreinamento||[]).filter(x=>x.status==="Em andamento");
+    const proximos=(pj.cronograma||[]).filter(x=>x.status!=="Concluída").slice(0,6);
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Evolução — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"RELATÓRIO DE EVOLUÇÃO")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <h2>Progresso do treinamento</h2><div class="campo">${trl.pct}% da trilha concluída (${trl.feitos} de ${trl.total} itens)</div>
+    <h2>O que já foi trabalhado</h2>${concluidos.length===0?'<div class="campo">—</div>':concluidos.map(x=>`<div class="campo">✔ ${x.conteudo}</div>`).join("")}
+    <h2>Em andamento</h2>${andamento.length===0?'<div class="campo">—</div>':andamento.map(x=>`<div class="campo">🔄 ${x.conteudo}</div>`).join("")}
+    <h2>Próximos passos</h2>${proximos.length===0?'<div class="campo">—</div>':proximos.map(x=>`<div class="campo">➜ ${x.atividade}${x.data?` — ${fmtDate(x.data)}`:""}</div>`).join("")}
+    ${pj.dataPrevista?`<h2>Previsão</h2><div class="campo">Conclusão prevista: ${fmtDate(pj.dataPrevista)}</div>`:""}
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docPlanoTreinamentoImpl=(pj)=>{
+    const l=pj.planoTreinamento||[];
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Plano de Treinamento — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"PLANO DE TREINAMENTO")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <h2>Treinamentos (${l.length})</h2>
+    ${l.length===0?'<div class="campo">Nenhum treinamento planejado.</div>':`<table><tr><th>#</th><th>Conteúdo</th><th>Usuário/área</th><th>Horas prev.</th><th>Status</th></tr>${l.map((x,i)=>`<tr><td>${i+1}</td><td>${x.conteudo}</td><td>${x.usuario||"—"}</td><td>${Number(x.horasPrevistas)>0?x.horasPrevistas+"h":"—"}</td><td>${x.status}</td></tr>`).join("")}</table>`}
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docDiarioReunioes=(pj)=>{
+    const l=(pj.cronograma||[]).slice();
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Diário de Reuniões — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"DIÁRIO DE REUNIÕES")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <h2>Linha do tempo (${l.length})</h2>
+    ${l.length===0?'<div class="campo">Nenhuma atividade registrada.</div>':l.map((x,i)=>{
+      const sess=isSessoesDaAtividade(pj,x.id);const pend=isPendenciasDaAtividade(pj,x.id);
+      return `<div class="campo" style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee">
+        <b>#${i+1} ${x.atividade}</b>${x.data?` — ${fmtDate(x.data)}`:""} <i>(${x.status})</i><br>
+        ${x.responsavel?`Responsável: ${x.responsavel}<br>`:""}${x.dependencia?`Dependência: ${x.dependencia}<br>`:""}
+        ${sess.map(s=>`Sessão ${fmtDate(s.data)}: ${s.objetivo}${s.horasUtilizadas>0?` (${s.horasUtilizadas}h)`:""}<br>`).join("")}
+        ${pend.map(pd=>`Pendência: ${pd.item} — ${pd.responsavel} (${pd.status})<br>`).join("")}
+      </div>`;
+    }).join("")}
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docPendenciasImpl=(pj)=>{
+    const l=pj.pendencias||[];
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pendências — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"PENDÊNCIAS")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <h2>Pendências (${l.length})</h2>
+    ${l.length===0?'<div class="campo">Nenhuma pendência.</div>':`<table><tr><th>Pendência</th><th>Responsável</th><th>Origem</th><th>Prazo</th><th>Status</th></tr>${l.map(x=>`<tr><td>${x.item}</td><td>${x.responsavel}</td><td>${x.origem}</td><td>${x.prazo?fmtDate(x.prazo):"—"}</td><td>${x.status}</td></tr>`).join("")}</table>`}
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docControleHorasImpl=(pj)=>{
+    const hs=isSessoesResumo(pj);const contratadas=Number(pj.horasContratadas)||0;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Controle de Horas — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,"CONTROLE DE HORAS")}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <div class="campo"><b>Contratadas:</b> ${contratadas>0?contratadas+"h":"—"} · <b>Utilizadas:</b> ${hs.realizadas}h · <b>Saldo:</b> ${contratadas>0?(contratadas-hs.realizadas)+"h":"—"}</div>
+    <h2>Por categoria</h2>${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${hs.porCategoria[c]}h</div>`).join("")}
+    <h2>Por sessão</h2>
+    <table><tr><th>Data</th><th>Objetivo</th><th>Prev.</th><th>Real.</th></tr>
+    ${(pj.sessoes||[]).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(x=>`<tr><td>${fmtDate(x.data)}</td><td>${x.objetivo}</td><td>${x.horasPrevistas||0}h</td><td>${x.horasUtilizadas||0}h</td></tr>`).join("")}
+    </table>
+    ${pcRodape(config)}</body></html>`;
+  };
+  const IS_DOCS=[
+    ["impl","📊 Relatório de Implantação",docRelatorioImplantacao],
+    ["evol","📈 Relatório de Evolução",docRelatorioEvolucao],
+    ["treino","🎓 Plano de Treinamento",docPlanoTreinamentoImpl],
+    ["diario2","📖 Diário de Reuniões (Linha do Tempo)",docDiarioReunioes],
+    ["pend2","🧩 Pendências",docPendenciasImpl],
+    ["horas2","⏱️ Controle de Horas",docControleHorasImpl]
+  ];
   const sel=implantacoes.find(p=>p.id===selId)||null;
 
   const upd=(fn)=>setImplantacoes&&setImplantacoes(prev=>prev.map(p=>p.id===selId?fn(p):p));
@@ -5425,13 +5537,14 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   const salvarObsMapa=()=>{upd(p=>isSalvarObsMapa(p,form.id,form.obs));setModal(null);showSavedGlobal("Observação salva!");};
 
   // ── linha do tempo ──
-  const novaAtividade=()=>{setForm({atividade:"",responsavel:"",dependencia:"",previsto:"",status:"Pendente"});setModal("atividade");};
+  const novaAtividade=()=>{setForm({atividade:"",data:"",responsavel:"",dependencia:"",previsto:"",status:"Pendente"});setModal("atividade");};
   const salvarAtividade=()=>{
     if(!String(form.atividade||"").trim()){alert("Informe a atividade.");return;}
     upd(p=>isSalvarAtividade(p,form));setModal(null);showSavedGlobal("Atividade salva!");
   };
 
   // ── plano de treinamento ──
+  const carregarTreinoPadrao=()=>{upd(isCarregarTreinoPadrao);showSavedGlobal("Plano padrão carregado!");};
   const novoTreino=()=>{setForm({usuario:"",conteudo:"",horasPrevistas:"",status:"Pendente"});setModal("treino");};
   const salvarTreino=()=>{
     if(!String(form.conteudo||"").trim()){alert("Informe o conteúdo do treinamento.");return;}
@@ -5449,7 +5562,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     if(!form.data){alert("Informe a data da sessão.");return;}
     if(!String(form.objetivo||"").trim()){alert("Informe o objetivo da sessão.");return;}
     const calc=isCalcHoras(form.horaInicio,form.horaFim);
-    const horasUtilizadas=calc>0?calc:(Number(form.horasUtilizadas)||0);
+    const horasUtilizadas=Math.round((calc>0?calc:(Number(form.horasUtilizadas)||0))*100)/100;
     upd(p=>isSalvarSessao(p,{...form,horasUtilizadas}));setModal(null);showSavedGlobal("Sessão registrada!");
   };
 
@@ -5535,6 +5648,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     {modal==="atividade"&&form&&<Modal wide title={form.id?"✎ Editar atividade":"🗓 Nova atividade"} onClose={()=>setModal(null)}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
         <div style={{gridColumn:"1 / -1"}}><Inp label="Atividade" value={form.atividade} onChange={v=>F("atividade",v)} placeholder="Ex: Treinamento Comercial"/></div>
+        <Inp label="Agenda (data do treinamento/próximo agendamento)" type="date" value={form.data} onChange={v=>F("data",v)}/>
         <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
         <Inp label="Dependência" value={form.dependencia} onChange={v=>F("dependencia",v)} placeholder="Ex: depende do Diagnóstico"/>
         <Inp label="Horas previstas" type="number" value={form.previsto} onChange={v=>F("previsto",v)}/>
@@ -5592,6 +5706,20 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         <Btn v="ghost" onClick={()=>setModal(null)}>Fechar</Btn>
         <Btn v="ghost" onClick={()=>salvarPendencia(true)}>💾 Salvar e adicionar outra</Btn>
         <Btn onClick={()=>salvarPendencia(false)}>💾 Salvar pendência</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="documentos"&&<Modal wide title="📄 Documentos" onClose={()=>setModal(null)}>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:12}}>Gerados a partir dos dados já registrados nesta implantação.</div>
+      {IS_DOCS.map(([k,rot,fn])=>(
+        <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 14px",marginBottom:8}}>
+          <span style={{color:C.cafe,fontWeight:700,fontSize:13}}>{rot}</span>
+          <Btn sm v="ghost" onClick={()=>isAbrirImprimir(fn(sel))}>🖨 Imprimir</Btn>
+        </div>
+      ))}
+      <div style={{fontSize:11,color:C.oliva,marginTop:6}}>Por enquanto só impressão (vira PDF direto na tela de imprimir do navegador). Envio por PDF/WhatsApp fica para uma próxima parte, se você quiser.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Fechar</Btn>
       </div>
     </Modal>}
 
@@ -5706,7 +5834,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   // ═════════ IMPLANTAÇÃO ABERTA ═════════
   const p=sel;
   const et=isEtapas(p);
-  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["cronograma","🗓 Linha do Tempo"],["treino","🎓 Plano de Treinamento"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"],["valid","✅ Validação"],["encerrar","🏁 Encerramento"],["espInt","📊 Espelho Interno"],["espCli","📈 Espelho do Cliente"],["diario","🧠 Diário"]];
+  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["treino","🎓 Plano de Treinamento"],["cronograma","🗓 Linha do Tempo"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"],["valid","✅ Validação"],["encerrar","🏁 Encerramento"],["espInt","📊 Espelho Interno"],["espCli","📈 Espelho do Cliente"],["diario","🧠 Diário"]];
 
   const renderResumo=()=>{
     const eventos=(p.eventos||[]).slice(-6).reverse();
@@ -5741,6 +5869,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {cartao("Pendências abertas",isPendenciasResumo(p).abertas,isPendenciasResumo(p).abertas>0?C.vermelho:C.verde)}
         {cartao("Trilha do treinamento",`${isTrilhaGeral(p).pct}%`,isTrilhaGeral(p).pct===100?C.verde:undefined)}
       </div>
+
+      <div style={{marginBottom:14}}><Btn v="ghost" onClick={()=>setModal("documentos")}>📄 Documentos</Btn></div>
 
       {p.obs&&<><Divider label="Observações"/><div style={{fontSize:13,color:C.oliva,whiteSpace:"pre-line"}}>{p.obs}</div></>}
 
@@ -5873,7 +6003,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <div style={{color:C.cafe,fontWeight:700,fontSize:14}}><span style={{color:C.oliva,fontWeight:400}}>#{i+1}</span> {x.atividade}</div>
             <IsChip t={x.status} sm/>
           </div>
-          {campo("Responsável",x.responsavel)}{campo("Dependência",x.dependencia)}{Number(x.previsto)>0&&campo("Horas previstas",`${x.previsto}h`)}
+          {x.treinoId&&<div style={{fontSize:11,color:cor.primaria,fontWeight:700}}>🎓 do plano de treinamento</div>}
+          {x.data&&campo("Agenda",fmtDate(x.data))}{campo("Responsável",x.responsavel)}{campo("Dependência",x.dependencia)}{Number(x.previsto)>0&&campo("Horas previstas",`${x.previsto}h`)}
           {sessoesX.length>0&&<div style={{fontSize:12,color:C.oliva,marginTop:6}}>🎬 {sessoesX.length} sessão(ões) · {horasUsadasX}h utilizadas</div>}
           {pendAbertasX.length>0&&<div style={{fontSize:12,color:C.vermelho,fontWeight:700,marginTop:4}}>⚠ {pendAbertasX.length} pendência(s) aberta(s) — confira antes do próximo item</div>}
           {pendX.length>0&&pendAbertasX.length===0&&<div style={{fontSize:12,color:C.verde,marginTop:4}}>✓ {pendX.length} pendência(s), todas resolvidas</div>}
@@ -5898,18 +6029,23 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     return(<div>
       <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Planeje por processo, não por tela do sistema — "como vocês fazem isso hoje" em vez de "tela 1, tela 2".</div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-        <Btn onClick={novoTreino}>+ Novo treinamento</Btn>
+        <Btn onClick={carregarTreinoPadrao}>📥 Carregar plano padrão</Btn>
+        <Btn v="ghost" onClick={novoTreino}>+ Novo treinamento</Btn>
         <span style={{fontSize:12,color:C.oliva}}>{r.concluidos} de {r.total} concluídos{r.horasPrevistas>0?` · ${r.horasPrevistas}h previstas`:""}</span>
       </div>
       {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum treinamento planejado ainda.</div>}
-      {lista.map((x,i)=>(
+      {lista.map((x,i)=>{
+        const jaLancado=(p.cronograma||[]).some(z=>z.treinoId===x.id);
+        return(
         <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR_ITEM[x.status]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
           <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
             <div style={{color:C.cafe,fontWeight:700,fontSize:14}}><span style={{color:C.oliva,fontWeight:400}}>#{i+1}</span> {x.conteudo}</div>
             <IsChip t={x.status} sm/>
           </div>
           {campo("Usuário/área",x.usuario)}{Number(x.horasPrevistas)>0&&campo("Horas previstas",`${x.horasPrevistas}h`)}
+          {jaLancado&&<div style={{fontSize:11,color:C.verde,fontWeight:700,marginTop:4}}>✓ já está na Linha do Tempo</div>}
           <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+            <Btn sm v="oliva" onClick={()=>{upd(pp=>isLancarTreinoNaLinha(pp,x));showSavedGlobal("Lançado na Linha do Tempo!");}}>🗓 Lançar na Linha do Tempo</Btn>
             <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverTreino(pp,x.id,-1))}>↑</Btn>
             <Btn sm v="ghost" onClick={()=>upd(pp=>isMoverTreino(pp,x.id,1))}>↓</Btn>
             {IS_STATUS_ITEM.filter(s=>s!==x.status).map(s=>(
@@ -5918,7 +6054,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("treino");}}>✎</Btn>
             <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este treinamento?"))upd(pp=>isExcluirTreino(pp,x.id));}}>🗑</Btn>
           </div>
-        </div>))}
+        </div>);})}
     </div>);
   };
 
@@ -6269,7 +6405,7 @@ const Consultoria=(props)=>{
         <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients} projetosContinua={props.projetosContinua||[]} setProjetosContinua={props.setProjetosContinua}/>
       </div>}
       {visitouImplant&&<div style={{display:aba==="implant"?"block":"none"}}>
-        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients}/>
+        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients} config={props.config}/>
       </div>}
     </div>
   );
@@ -6822,7 +6958,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v25</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v26</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
