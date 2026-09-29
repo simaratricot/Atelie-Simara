@@ -57,15 +57,15 @@ const NOME_PIX = "Simara Aparecida de Souza Lobui";
 
 // ─── CORES ───────────────────────────────────────────────────────────────────
 const C = {
-  cafe:"#7B4FA6",    // roxo médio — mais suave
-  oliva:"#3D5A8A",   // azul médio — menos escuro
-  areia:"#E0C8F0",   // lilás claro
-  linho:"#F5EFF9",   // fundo lilás bem suave
-  branco:"#FDFAFF",  // branco levemente lilás
-  dourado:"#9B6DC0", // roxo suave
+  cafe:"#6B4530",    // marrom café — cor principal do ambiente CONTÍNUA
+  oliva:"#5B4636",   // marrom escuro para texto
+  areia:"#E5D9C8",   // bege claro
+  linho:"#F7F1E6",   // fundo creme suave
+  branco:"#FDFBF7",  // branco quente
+  dourado:"#C9A063", // dourado/tan de destaque
   verde:"#2E6B5E",   // verde para confirmações
   vermelho:"#c0392b",
-  d20:"rgba(123,79,166,0.12)", c15:"rgba(123,79,166,0.08)",
+  d20:"rgba(107,69,48,0.12)", c15:"rgba(107,69,48,0.08)",
 };
 
 // ─── ESTILOS GLOBAIS ──────────────────────────────────────────────────────────
@@ -571,61 +571,79 @@ const NAV = [
   {k:"config",i:"⊙",l:"Configurações"},
 ];
 
+const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
+const NAV_GROUPS=[
+  {label:"Início",items:[NAV_BY_KEY.dashboard]},
+  {label:"Meu Negócio",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
+  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.reports]},
+  {label:"Cadastros",items:[NAV_BY_KEY.clients]},
+  {label:"Minha Rotina",items:[NAV_BY_KEY.agenda,NAV_BY_KEY.metas,NAV_BY_KEY.diario,NAV_BY_KEY.projects]},
+  {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
+  {label:"Sistema",items:[NAV_BY_KEY.config]},
+];
+const isGrupoDe=(k)=>NAV_GROUPS.findIndex(g=>g.items.some(it=>it&&it.k===k));
+
 const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
   const unread=orders.filter(o=>!o.read).length;
-  const NAV_GROUPS=[
-    {label:"Principal",items:NAV.slice(0,2)},
-    {label:"Gestão",items:NAV.slice(2,7)},
-    {label:"Criativo",items:NAV.slice(7,12)},
-    {label:"Sistema",items:NAV.slice(12)},
-  ];
+  const [aberto,setAberto]=useState(()=>isGrupoDe(active));
+  useEffect(()=>{setAberto(isGrupoDe(active));},[active]);
   return (
-    <div style={{width:mobile?"100vw":224,minHeight:"100vh",background:"#0E0F40",display:"flex",flexDirection:"column",position:mobile?"fixed":"relative",top:0,left:0,zIndex:100,overflowY:"auto"}}>
+    <div style={{width:mobile?"100vw":224,minHeight:"100vh",background:"#2B1B12",display:"flex",flexDirection:"column",position:mobile?"fixed":"relative",top:0,left:0,zIndex:100,overflowY:"auto"}}>
       {/* HEADER */}
-      <div style={{padding:"22px 20px 18px",background:"linear-gradient(135deg,#1A0A2E,#23355A)",borderBottom:"1px solid rgba(165,99,162,0.25)"}}>
+      <div style={{padding:"22px 20px 18px",background:"linear-gradient(135deg,#3A2418,#5C3A28)",borderBottom:"1px solid rgba(201,160,99,0.25)"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-          <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#A563A2,#D8B4CE)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>🧶</div>
+          <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#C9A063,#E5D9C8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>🌿</div>
           <div>
-            <div style={{fontSize:9,color:"rgba(233,210,227,0.85)",letterSpacing:"2px",textTransform:"uppercase"}}>Ateliê Digital</div>
-            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,color:"#FDFAFF",fontStyle:"italic",lineHeight:1.1,marginTop:1}}>{BRAND_SHORT}</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,color:"#FDFBF7",fontStyle:"italic",lineHeight:1.1}}>CONTÍNUA</div>
+            <div style={{fontSize:9,color:"rgba(240,228,214,0.85)",letterSpacing:"1px",marginTop:2}}>Organização que gera resultado</div>
           </div>
         </div>
-        <div style={{fontSize:8,color:"#A563A2",letterSpacing:"3px",textTransform:"uppercase",fontWeight:600}}>✦ Tricot · Amor · Arte</div>
+        <div style={{fontSize:8,color:"rgba(240,228,214,0.7)",letterSpacing:"2px",textTransform:"uppercase",fontWeight:600}}>{BRAND_SHORT}</div>
       </div>
 
       {/* NAV */}
       <nav style={{flex:1,padding:"8px 0"}}>
-        {NAV_GROUPS.map(g=>(
-          <div key={g.label}>
-            <div style={{fontSize:8,color:"rgba(233,210,227,0.75)",letterSpacing:"3px",textTransform:"uppercase",padding:"14px 20px 5px",fontWeight:700}}>{g.label}</div>
-            {g.items.map(n=>{
-              const isActive=active===n.k;
-              return(
-                <button key={n.k} onClick={()=>{setActive(n.k);onClose?.();}}
-                  style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 20px",
-                    background:isActive?"rgba(165,99,162,0.2)":"transparent",
-                    border:"none",
-                    color:isActive?"#FDFAFF":"rgba(236,220,232,0.92)",
-                    fontSize:12,fontWeight:isActive?600:400,cursor:"pointer",
-                    textAlign:"left",
-                    borderLeft:isActive?"3px solid #A563A2":"3px solid transparent",
-                    transition:"all 0.15s",position:"relative"}}>
-                  <span style={{fontSize:13,width:18,textAlign:"center",opacity:isActive?1:0.9}}>{n.i}</span>
-                  <span style={{flex:1}}>{n.l}</span>
-                  {n.k==="orders"&&unread>0&&(
-                    <span className="pulse" style={{background:"#A563A2",color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 7px",marginLeft:"auto"}}>{unread}</span>
-                  )}
-                  {isActive&&<span style={{width:4,height:4,borderRadius:"50%",background:"#A563A2",flexShrink:0}}/>}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+        {NAV_GROUPS.map((g,gi)=>{
+          const itemBtn=(n)=>{
+            const isActive=active===n.k;
+            return(
+              <button key={n.k} onClick={()=>{setActive(n.k);onClose?.();}}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 20px",
+                  background:isActive?"rgba(201,160,99,0.2)":"transparent",
+                  border:"none",
+                  color:isActive?"#FDFBF7":"rgba(240,228,214,0.92)",
+                  fontSize:12,fontWeight:isActive?600:400,cursor:"pointer",
+                  textAlign:"left",
+                  borderLeft:isActive?"3px solid #C9A063":"3px solid transparent",
+                  transition:"all 0.15s",position:"relative"}}>
+                <span style={{fontSize:13,width:18,textAlign:"center",opacity:isActive?1:0.9}}>{n.i}</span>
+                <span style={{flex:1}}>{n.l}</span>
+                {n.k==="orders"&&unread>0&&(
+                  <span className="pulse" style={{background:"#C9A063",color:"#fff",fontSize:9,fontWeight:700,borderRadius:10,padding:"1px 7px",marginLeft:"auto"}}>{unread}</span>
+                )}
+                {isActive&&<span style={{width:4,height:4,borderRadius:"50%",background:"#C9A063",flexShrink:0}}/>}
+              </button>
+            );
+          };
+          if(g.items.length===1)return<div key={g.label}>{itemBtn(g.items[0])}</div>;
+          const isAberto=aberto===gi;
+          return(
+            <div key={g.label}>
+              <button onClick={()=>setAberto(isAberto?-1:gi)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"12px 20px 8px",background:"none",border:"none",cursor:"pointer",
+                  fontSize:9,color:"rgba(240,228,214,0.8)",letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,textAlign:"left"}}>
+                <span style={{flex:1}}>{g.label}</span>
+                <span style={{fontSize:9,transition:"transform 0.15s",transform:isAberto?"rotate(90deg)":"none"}}>›</span>
+              </button>
+              {isAberto&&g.items.filter(Boolean).map(itemBtn)}
+            </div>
+          );
+        })}
       </nav>
 
       {/* FOOTER */}
-      <div style={{padding:"12px 20px",borderTop:"1px solid rgba(165,99,162,0.15)",background:"rgba(0,0,0,0.2)"}}>
-        <div style={{fontSize:9,color:"rgba(216,180,206,0.55)",letterSpacing:"1px"}}>v5.1 · 2026 · Firebase ☁️</div>
+      <div style={{padding:"12px 20px",borderTop:"1px solid rgba(201,160,99,0.15)",background:"rgba(0,0,0,0.2)"}}>
+        <div style={{fontSize:9,color:"rgba(216,190,165,0.55)",letterSpacing:"1px"}}>v5.1 · 2026 · Firebase ☁️</div>
       </div>
     </div>
   );
@@ -6958,7 +6976,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v26</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v27</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
