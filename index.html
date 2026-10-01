@@ -667,7 +667,8 @@ const TAREFAS_CONTEUDO=[
   "Responder comentários","Responder Direct","Planejar conteúdo do dia seguinte"
 ];
 
-const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,publicacoes,cartas,volumes,setCartas,setFrases,setView}) => {
+const TAREFA_CATS=["Consultoria","Artesanato","Casa","Obra","Pessoal"];
+const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,setCompromissos,publicacoes,cartas,volumes,setCartas,setFrases,setView,focoDia,setFocoDia}) => {
   const ativos=orders.filter(o=>!["Concluído","Enviado","Cancelado"].includes(o.status));
   const agenda=orders.filter(o=>o.delivery&&o.delivery>=today&&!["Concluído","Cancelado"].includes(o.status)).sort((a,b)=>a.delivery.localeCompare(b.delivery));
   const frasesAtivas=frases.filter(f=>f.ativa);
@@ -690,7 +691,37 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
   const pubPct=pubHoje.length>0?Math.round((pubConc/pubHoje.length)*100):0;
 
   // Compromissos do dia
-  const compHoje=compromissos.filter(c=>c.data===today).sort((a,b)=>(a.hora||"").localeCompare(b.hora||""));
+  const compHoje=compromissos.filter(c=>c.data===today&&c.tipo!=="Tarefa").sort((a,b)=>(a.hora||"").localeCompare(b.hora||""));
+
+  // Amanhã — previsão
+  const amanha=new Date(Date.now()+864e5).toISOString().split("T")[0];
+  const compAmanha=compromissos.filter(c=>c.data===amanha&&c.tipo!=="Tarefa");
+  const entregasAmanha=orders.filter(o=>o.delivery===amanha&&!["Concluído","Cancelado"].includes(o.status));
+
+  // Foco do dia + tarefas rápidas
+  const [focoEdit,setFocoEdit]=useState(focoDia[today]||"");
+  useEffect(()=>{setFocoEdit(focoDia[today]||"");},[today]);
+  const salvarFoco=()=>{setFocoDia(prev=>({...prev,[today]:focoEdit}));showSavedGlobal("Foco do dia salvo!");};
+  const tarefasHoje=compromissos.filter(c=>c.tipo==="Tarefa"&&c.data===today);
+  const [novaTarefa,setNovaTarefa]=useState("");
+  const [catTarefa,setCatTarefa]=useState(TAREFA_CATS[0]);
+  const addTarefa=()=>{
+    if(!novaTarefa.trim()||!setCompromissos)return;
+    setCompromissos(prev=>[...prev,{id:uid(),desc:novaTarefa.trim(),data:today,hora:"",prioridade:"Normal",status:"Pendente",tipo:"Tarefa",categoria:catTarefa}]);
+    setNovaTarefa("");
+  };
+  const toggleTarefa=(t)=>{if(setCompromissos)setCompromissos(prev=>prev.map(c=>c.id===t.id?{...c,status:c.status==="Concluído"?"Pendente":"Concluído"}:c));};
+
+  // Tarefas do dia por categoria (pendentes de hoje)
+  const tarefasAbertas=tarefasHoje.filter(t=>t.status!=="Concluído");
+  const tarefasPorCat=TAREFA_CATS.map(cat=>({cat,n:tarefasAbertas.filter(t=>(t.categoria||"Pessoal")===cat).length})).filter(x=>x.n>0);
+
+  // Encomendas em andamento (tabela) e próximas entregas
+  const encAndamento=ativos.slice(0,5);
+  const proxEntregas=agenda.slice(0,5);
+
+  // ocultar/mostrar previsão financeira
+  const [verValores,setVerValores]=useState(false);
 
   // Livro em andamento
   const volAtual=volumes.length>0?volumes[volumes.length-1]:null;
@@ -840,6 +871,32 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
         </div>
       </div>{/* fecha saudação */}
 
+      {/* FOCO DO DIA */}
+      <Card style={{borderLeft:`4px solid ${C.dourado}`}}>
+        <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>🎯 Meu foco de hoje</div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <input value={focoEdit} onChange={e=>setFocoEdit(e.target.value)} onBlur={salvarFoco} onKeyDown={e=>e.key==="Enter"&&salvarFoco()}
+            placeholder="Qual é a prioridade principal de hoje?"
+            style={{flex:1,padding:"9px 12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",color:C.cafe}}/>
+        </div>
+        <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>Demais tarefas</div>
+        {tarefasHoje.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Nenhuma tarefa avulsa para hoje.</div>}
+        {tarefasHoje.map(t=>(
+          <label key={t.id} style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",padding:"4px 0",fontSize:13,color:t.status==="Concluído"?C.oliva:C.cafe,textDecoration:t.status==="Concluído"?"line-through":"none"}}>
+            <input type="checkbox" checked={t.status==="Concluído"} onChange={()=>toggleTarefa(t)}/>
+            {t.desc}{t.categoria&&<span style={{fontSize:10,color:C.oliva,marginLeft:6}}>{t.categoria}</span>}
+          </label>
+        ))}
+        <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+          <input value={novaTarefa} onChange={e=>setNovaTarefa(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTarefa()} placeholder="+ Nova tarefa rápida..."
+            style={{flex:"1 1 140px",padding:"6px 10px",border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12}}/>
+          <select value={catTarefa} onChange={e=>setCatTarefa(e.target.value)} style={{padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12,color:C.cafe}}>
+            {TAREFA_CATS.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <button onClick={addTarefa} style={{fontSize:12,background:C.cafe,color:"#fff",border:"none",borderRadius:4,padding:"6px 14px",cursor:"pointer"}}>Adicionar</button>
+        </div>
+      </Card>
+
       {/* AGENDA DE HOJE */}
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -864,22 +921,89 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,p
             <Badge label={c.prioridade==="Alta"?"🔴 Alta":c.status} sm/>
           </div>
         ))}
+        {(compAmanha.length>0||entregasAmanha.length>0)&&<div style={{marginTop:10,paddingTop:8,borderTop:`1px dashed ${C.areia}`}}>
+          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>Amanhã — previsão</div>
+          {compAmanha.map(c=>(<div key={c.id} style={{fontSize:12,color:C.oliva,padding:"2px 0"}}>{c.hora||"📌"} {c.desc}</div>))}
+          {entregasAmanha.map(o=>(<div key={o.id} style={{fontSize:12,color:C.oliva,padding:"2px 0"}}>📦 Entrega — {o.client}</div>))}
+        </div>}
       </Card>
 
-      {/* ENCOMENDAS + FINANCEIRO */}
+      {/* ENCOMENDAS EM ANDAMENTO */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>🧶 Encomendas em andamento</div>
+          <button onClick={()=>setView("orders")} style={{fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver todas</button>
+        </div>
+        {encAndamento.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhuma encomenda em andamento.</div>}
+        {encAndamento.length>0&&<div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{textAlign:"left",color:C.oliva}}><th style={{padding:"4px 6px"}}>Cliente</th><th style={{padding:"4px 6px"}}>Prazo</th><th style={{padding:"4px 6px"}}>Status</th></tr></thead>
+            <tbody>{encAndamento.map(o=>{
+              const dias=o.delivery?Math.ceil((new Date(o.delivery+"T00:00")-new Date())/864e5):null;
+              return(<tr key={o.id} style={{borderTop:`1px solid ${C.linho}`}}>
+                <td style={{padding:"5px 6px",fontWeight:600,color:C.cafe}}>{o.client}</td>
+                <td style={{padding:"5px 6px",color:dias!==null&&dias<=1?C.vermelho:C.oliva}}>{dias===null?"—":dias<=0?"Hoje!":dias===1?"Amanhã":`${dias}d`}</td>
+                <td style={{padding:"5px 6px"}}><Badge label={o.status} sm/></td>
+              </tr>);
+            })}</tbody>
+          </table>
+        </div>}
+      </Card>
+
+      {/* PRÓXIMAS ENTREGAS */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>🚚 Próximas entregas</div>
+          <button onClick={()=>setView("agenda")} style={{fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver calendário</button>
+        </div>
+        {proxEntregas.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhuma entrega prevista.</div>}
+        {proxEntregas.length>0&&<div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{textAlign:"left",color:C.oliva}}><th style={{padding:"4px 6px"}}>Data</th><th style={{padding:"4px 6px"}}>Cliente</th><th style={{padding:"4px 6px"}}>Status</th></tr></thead>
+            <tbody>{proxEntregas.map(o=>(
+              <tr key={o.id} style={{borderTop:`1px solid ${C.linho}`}}>
+                <td style={{padding:"5px 6px",color:C.oliva}}>{fmtDate(o.delivery)}</td>
+                <td style={{padding:"5px 6px",fontWeight:600,color:C.cafe}}>{o.client}</td>
+                <td style={{padding:"5px 6px"}}><Badge label={o.status} sm/></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>}
+      </Card>
+
+      {/* PREVISÃO FINANCEIRA */}
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>💰 Previsão financeira</div>
+          <button onClick={()=>setVerValores(v=>!v)} style={{fontSize:11,color:C.dourado,background:"none",border:`1px solid ${C.dourado}`,borderRadius:16,padding:"4px 12px",cursor:"pointer"}}>{verValores?"🙈 Ocultar":"👁️ Visualizar"}</button>
+        </div>
+        {!verValores
+          ?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",padding:"10px 0"}}>Valores financeiros ocultos.</div>
+          :<div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>A receber hoje</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:recHoje>0?C.dourado:C.oliva}}>{fmtBRL(recHoje)}</div></div>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>A pagar hoje</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:pagHoje>0?C.vermelho:C.oliva}}>{fmtBRL(pagHoje)}</div></div>
+          </div>}
+        <button onClick={()=>setView("finance")} style={{marginTop:10,fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver financeiro completo →</button>
+      </Card>
+
+      {/* TAREFAS DO DIA POR CATEGORIA */}
+      {tarefasPorCat.length>0&&<Card>
+        <div style={{fontSize:13,fontWeight:700,color:C.cafe,marginBottom:10}}>📋 Tarefas do dia</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {tarefasPorCat.map(({cat,n})=>(
+            <div key={cat} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"3px 0"}}>
+              <span style={{color:C.cafe}}>{cat}</span><span style={{fontWeight:700,color:C.dourado}}>{n}</span>
+            </div>
+          ))}
+        </div>
+      </Card>}
+
+      {/* ENCOMENDAS ATIVAS (resumo rápido; valores de Receber/Pagar agora ficam em Previsão Financeira, com opção de ocultar) */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         <Card style={{flex:"1 1 150px"}}>
           <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>📦 Encomendas ativas</div>
           <div style={{fontSize:28,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{ativos.length}</div>
           {agenda[0]&&<div style={{fontSize:11,color:C.oliva,marginTop:4}}>Próx: {agenda[0].client.split(" ")[0]} · {fmtDate(agenda[0].delivery)}</div>}
-        </Card>
-        <Card style={{flex:"1 1 150px",borderLeft:`3px solid ${recHoje>0?C.dourado:C.areia}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>💰 Receber hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:recHoje>0?C.dourado:C.oliva,fontWeight:700}}>{fmtBRL(recHoje)}</div>
-        </Card>
-        <Card style={{flex:"1 1 150px",borderLeft:`3px solid ${pagHoje>0?C.vermelho:C.areia}`}}>
-          <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:4}}>💸 Pagar hoje</div>
-          <div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:pagHoje>0?C.vermelho:C.oliva,fontWeight:700}}>{fmtBRL(pagHoje)}</div>
         </Card>
       </div>
 
@@ -6976,7 +7100,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v27</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v28</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -8437,6 +8561,7 @@ function App() {
   const [metas,     setMetas     ]=useStorage("metas",       INIT.metas);
   const [config,    setConfig    ]=useStorage("config",      INIT.config);
   const [compromissos,setCompromissos]=useStorage("compromissos",[]);
+  const [focoDia,setFocoDia]=useStorage("focoDia",{});
   const [publicacoes, setPublicacoes ]=useStorage("publicacoes", []);
   const [ideias,      setIdeias     ]=useStorage("ideias",      []);
   const [cartas,      setCartas     ]=useStorage("cartas",      []);
@@ -8509,7 +8634,7 @@ function App() {
         </div>
         {/* CONTEÚDO */}
         <div style={{flex:1,overflowY:"auto"}}>
-          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} publicacoes={publicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView}/>}
+          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} config={config} stockSup={stockSup}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
