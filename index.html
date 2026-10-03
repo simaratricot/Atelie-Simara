@@ -3535,6 +3535,60 @@ const pcDefinirNivel=(p,nivel)=>{
   return pcEv({...p,nivel:niv,diagnostico:{...(p.diagnostico||{}),nivelDefinido:niv}},"diagnostico",niv?`Nível do Método CONTÍNUA definido: ${niv}`:"Nível do Método CONTÍNUA voltou para \"a definir\"");
 };
 const pcReabrirDiag=(p)=>pcEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}},"diagnostico","Diagnóstico reaberto para ajustes");
+const PC_QUESTIONARIO=[
+  {bloco:"Passagem de Bastão (Comercial → Operacional)",pergunta:"Os dados cadastrais e fiscais do cliente são totalmente validados pelo Comercial antes da geração do contrato/ordem de serviço?",opcoes:[
+    {pontos:1,texto:"Não. Frequentemente faltam dados ou são alterados depois de gerar notas/contratos."},
+    {pontos:2,texto:"Às vezes. Depende de quem faz a venda ou do porte do cliente."},
+    {pontos:3,texto:"Sim. Existe uma ficha/checklist cadastral obrigatória no ato do fechamento."}]},
+  {bloco:"Passagem de Bastão (Comercial → Operacional)",pergunta:"Como é repassada a informação da venda para a equipe que vai entregar/executar o serviço?",opcoes:[
+    {pontos:1,texto:"De forma verbal, via WhatsApp solto ou sem registro estruturado no ERP."},
+    {pontos:2,texto:"Gera-se a O.S./contrato, mas faltam detalhes de endereço, datas ou particularidades."},
+    {pontos:3,texto:"Integração total via sistema com O.S. clara e particularidades registradas."}]},
+  {bloco:"Execução e Rastreabilidade (Operacional → Faturamento)",pergunta:"Como a operação comprova e registra a conclusão da entrega/serviço no sistema?",opcoes:[
+    {pontos:1,texto:"Papéis/guias físicas que atrasam para chegar ou O.S. que não são encerradas no ERP."},
+    {pontos:2,texto:"É registrado no sistema, mas ocorrem atrasos ou falhas na digitação do patrimônio/itens."},
+    {pontos:3,texto:"Apontamento e encerramento em tempo real com comprovação documental/digital."}]},
+  {bloco:"Execução e Rastreabilidade (Operacional → Faturamento)",pergunta:"Existem equipamentos ou serviços rodando no cliente sem contrato formal ou sem O.S. encerrada no sistema?",opcoes:[
+    {pontos:1,texto:'Sim, é frequente (contratos "fakes", instalações sem registro ou itens sem baixa).'},
+    {pontos:2,texto:"Ocorre esporadicamente em prazos curtos ou urgências de clientes."},
+    {pontos:3,texto:"Não. O sistema possui travas e nada opera sem O.S. e contrato válidos."}]},
+  {bloco:"Faturamento e Liquidez (Faturamento → Financeiro)",pergunta:"Qual é o nível de retrabalho ou devolução de notas/faturas devido a divergências de valores, períodos ou medições?",opcoes:[
+    {pontos:1,texto:'Alto. O Faturamento precisa ficar "caçando" o Comercial para pedir informações ou corrigir notas.'},
+    {pontos:2,texto:"Médio. Ocorre principalmente em grandes contas que exigem medições prévias."},
+    {pontos:3,texto:"Baixo/Nulo. O Faturamento apenas confere o espelho da medição/contrato e transmite."}]},
+  {bloco:"Faturamento e Liquidez (Faturamento → Financeiro)",pergunta:"Como é calculada e controlada a proporcionalidade e a vigência das locações/serviços no fechamento do mês?",opcoes:[
+    {pontos:1,texto:'Manualmente em planilhas à parte ou "de cabeça", gerando dúvidas no cliente.'},
+    {pontos:2,texto:"O sistema calcula, mas exige edições constantes por falta de alinhamento nas datas."},
+    {pontos:3,texto:"Regras de faturamento automáticas e padronizadas conforme o contrato."}]},
+  {bloco:"Governança e Dependência de Pessoas",pergunta:"A empresa possui Procedimentos Operacionais Padrão (POPs) ou Checklists de rotina para cada função?",opcoes:[
+    {pontos:1,texto:'Não. Cada colaborador faz do seu jeito e o conhecimento está "na cabeça" das pessoas.'},
+    {pontos:2,texto:"Existem manuais/arquivos antigos, mas que não são seguidos na rotina diária."},
+    {pontos:3,texto:"Sim. O fluxo é documentado, atualizado e utilizado no onboarding de novos funcionários."}]},
+  {bloco:"Governança e Dependência de Pessoas",pergunta:"Quando entra um funcionário novo, qual é o impacto na operação e na qualidade das tarefas?",opcoes:[
+    {pontos:1,texto:"Desastre/Gargalo. A rotatividade gera erros imediatos no Faturamento e reclamações de clientes."},
+    {pontos:2,texto:"Médio. Exige muito tempo do gestor/colegas ensinando a rotina do zero."},
+    {pontos:3,texto:"Baixo. O novo colaborador segue o checklist/onboarding com autonomia rápida."}]},
+  {bloco:"Tecnologia e Visão de Indicadores",pergunta:"As travas de segurança do ERP (permissões de acesso, bloqueio pós-faturamento) estão ativas e alinhadas ao processo?",opcoes:[
+    {pontos:1,texto:"Não. Qualquer usuário altera contratos faturados, O.S. ou cadastros sem aprovação."},
+    {pontos:2,texto:'Existem algumas travas, mas são frequentemente desativadas para "facilitar".'},
+    {pontos:3,texto:"Sim. A matriz de permissões é rígida e mudanças exigem aditivos ou alçada superior."}]},
+  {bloco:"Tecnologia e Visão de Indicadores",pergunta:"A diretoria/gestão consegue acompanhar a saúde dos contratos e os indicadores em tempo real sem precisar perguntar ao time?",opcoes:[
+    {pontos:1,texto:"Não. É necessário pedir relatórios manuais ou somar planilhas para entender o cenário."},
+    {pontos:2,texto:"Consegue ver o financeiro, mas não tem clareza dos gargalos operacionais/comerciais."},
+    {pontos:3,texto:"Sim. O painel/relatórios do ERP fornecem a visão integrada de ponta a ponta."}]}
+];
+const pcNivelPorPontos=(total)=>total<=16?"CONTÍNUA ESSENCIAL":total<=24?"CONTÍNUA EM AÇÃO":"CONTÍNUA ESTRATÉGICA";
+const pcSalvarRespostaDiag=(p,idx,pontos)=>{
+  const respostas={...((p.diagnostico||{}).respostas||{}),[idx]:pontos};
+  let n={...p,diagnostico:{...(p.diagnostico||{}),respostas}};
+  if(Object.keys(respostas).length===PC_QUESTIONARIO.length){
+    const total=Object.values(respostas).reduce((s,v)=>s+v,0);
+    const nivel=pcNivelPorPontos(total);
+    n={...n,diagnostico:{...n.diagnostico,pontuacaoTotal:total},nivel};
+    n=pcEv(n,"diagnostico",`Nível do Método CONTÍNUA definido pelo questionário: ${nivel} (${total} pts)`);
+  }
+  return n;
+};
 const pcImportar=(p)=>{
   const linhas=String((p.diagnostico||{}).problemas||"").split("\n").map(s=>s.replace(/^[-•*\d.)\s]+/,"").trim()).filter(Boolean);
   const ja=new Set((p.prioridades||[]).map(x=>String(x.problema||"").trim().toLowerCase()));
@@ -4316,14 +4370,40 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         <Btn onClick={salvarDiag}>💾 Salvar diagnóstico</Btn>
         {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
       </div>
-      <div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
-        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Nível do Método CONTÍNUA</div>
-        <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
-          <div style={{flex:1,minWidth:220}}><Sel label="Nível identificado" value={nivelDg} onChange={setNivelDg} options={[{v:"",l:"A definir (ainda sem dados suficientes)"},...PC_NIVEIS.map(n=>({v:n,l:n}))]}/></div>
-          <Btn v="ghost" onClick={salvarNivel}>💾 Salvar nível</Btn>
-        </div>
-        <div style={{fontSize:11,color:C.oliva,marginTop:8}}>{nivelDg!==(p.nivel||"")?<b style={{color:C.vermelho}}>● nível ainda não salvo. </b>:null}Pode definir agora ou depois, quando tiver os dados do cliente.</div>
-      </div>
+      {(()=>{
+        const respostas=dd.respostas||{};
+        const nRes=Object.keys(respostas).length;
+        const totalQ=PC_QUESTIONARIO.length;
+        const totalPts=Object.values(respostas).reduce((s,v)=>s+v,0);
+        const completo=nRes===totalQ;
+        return(<div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Questionário de avaliação — define o nível</div>
+            <div style={{fontSize:12,color:C.cafe,fontWeight:600}}>{nRes}/{totalQ} respondidas · {totalPts} pts</div>
+          </div>
+          {completo&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:700}}>
+            ✓ Pontuação {totalPts}/{totalQ*3} → Nível: {pcNivelPorPontos(totalPts)}
+          </div>}
+          {PC_QUESTIONARIO.map((q,i)=>(
+            <div key={i} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:0.5,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>{q.bloco}</div>
+              <div style={{fontSize:13,fontWeight:600,color:C.cafe,marginBottom:8}}>{i+1}. {q.pergunta}</div>
+              {q.opcoes.map((o,oi)=>{
+                const selecionado=respostas[i]===o.pontos;
+                return(<button key={oi} type="button" onClick={()=>upd(pp=>pcSalvarRespostaDiag(pp,i,o.pontos))}
+                  style={{display:"block",width:"100%",textAlign:"left",border:`1px solid ${selecionado?C.oliva:C.areia}`,background:selecionado?C.oliva:"#fff",color:selecionado?"#fff":C.cafe,borderRadius:6,padding:"8px 10px",marginBottom:6,fontSize:12,cursor:"pointer",lineHeight:1.4}}>
+                  <b>{o.pontos} pt{o.pontos>1?"s":""}</b> — {o.texto}
+                </button>);
+              })}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap",marginTop:12,paddingTop:12,borderTop:`1px solid ${C.areia}`}}>
+            <div style={{flex:1,minWidth:220}}><Sel label="Nível identificado (ajuste manual, se precisar)" value={nivelDg} onChange={setNivelDg} options={[{v:"",l:"A definir (ainda sem dados suficientes)"},...PC_NIVEIS.map(n=>({v:n,l:n}))]}/></div>
+            <Btn v="ghost" onClick={salvarNivel}>💾 Salvar nível</Btn>
+          </div>
+          <div style={{fontSize:11,color:C.oliva,marginTop:8}}>{nivelDg!==(p.nivel||"")?<b style={{color:C.vermelho}}>● nível ainda não salvo. </b>:null}Respondendo as {totalQ} perguntas, o nível é preenchido sozinho; o campo acima serve para ajustar manualmente se precisar.</div>
+        </div>);
+      })()}
       {!dd.concluido&&<div style={{marginTop:12,background:C.linho,borderRadius:8,padding:14}}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Concluir diagnóstico</div>
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -7100,7 +7180,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v28</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v29</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
