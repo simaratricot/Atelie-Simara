@@ -3678,10 +3678,11 @@ const PC_LEITURA_NIVEL={
 const PC_STATUS_DIMENSAO={1:"🔴 Atenção",2:"🟡 Em desenvolvimento",3:"🟢 Estruturado",4:"🟢 Avançado"};
 const PC_DISCLAIMER_NIVEL="O resultado apresentado corresponde à leitura inicial obtida a partir das respostas do diagnóstico. A definição final do escopo do projeto considera também a análise da realidade da empresa e as prioridades identificadas na etapa de diagnóstico.";
 const PC_PROXIMO_PASSO_DIAG="Análise das prioridades e definição do projeto CONTÍNUA adequado à realidade da empresa.";
+const pcPontosAtencao=(respostas)=>PC_QUESTIONARIO.map((q,i)=>({nome:q.bloco,pontos:respostas[i]})).filter(x=>x.pontos!==undefined&&x.pontos<=2).map(x=>x.nome);
 const pcDirecionamento=(respostas)=>{
-  const atencao=PC_QUESTIONARIO.map((q,i)=>({nome:q.bloco,pontos:respostas[i]})).filter(x=>x.pontos!==undefined&&x.pontos<=2);
+  const atencao=pcPontosAtencao(respostas);
   if(atencao.length===0)return "A empresa já apresenta boa maturidade nas dimensões avaliadas; o direcionamento deve focar em consolidar e evoluir as práticas existentes.";
-  return `A partir do resultado obtido, recomenda-se concentrar inicialmente a atenção em: ${atencao.map(a=>a.nome.toLowerCase()).join(", ")}. Essas frentes deverão ser aprofundadas na etapa seguinte para definição das prioridades e do escopo adequado de atuação.`;
+  return `A partir do resultado obtido, recomenda-se concentrar inicialmente a atenção em: ${atencao.map(a=>a.toLowerCase()).join(", ")}. Essas frentes deverão ser aprofundadas na etapa seguinte para definição das prioridades e do escopo adequado de atuação.`;
 };
 const pcSalvarRespostaDiag=(p,idx,pontos)=>{
   const respostas={...((p.diagnostico||{}).respostas||{}),[idx]:pontos};
@@ -4047,12 +4048,36 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   };
   const docDiagnostico=()=>{
     const dd=p.diagnostico||{};
-    const linhas=PC_DG_CAMPOS.filter(([k])=>String(dd[k]||"").trim()).map(([k,l])=>`<div class="campo"><b>${l}:</b> ${dd[k]}</div>`).join("");
+    const respostas=dd.respostas||{};
+    const totalQ=PC_QUESTIONARIO.length;
+    const completo=Object.keys(respostas).length===totalQ;
+    const cli=clients.find(c=>c.id===p.clientId)||{};
+    let corpo;
+    if(completo){
+      const total=dd.pontuacaoTotal!==undefined?dd.pontuacaoTotal:Object.values(respostas).reduce((s,v)=>s+v,0);
+      const nivel=p.nivel||pcNivelPorPontos(total);
+      const atencao=pcPontosAtencao(respostas);
+      const dimLinhas=PC_QUESTIONARIO.map((q,i)=>`<tr><td>${q.bloco}</td><td>${PC_STATUS_DIMENSAO[respostas[i]]||"—"}</td></tr>`).join("");
+      corpo=`
+        <h2>Resultado do diagnóstico</h2>
+        <div class="campo"><b>Nível identificado:</b> 🔧 ${nivel}</div>
+        <div class="campo"><b>Pontuação:</b> ${total}/${totalQ*4}</div>
+        <div class="campo"><b>Leitura geral:</b> ${PC_LEITURA_NIVEL[nivel]}</div>
+        <h2>Visão do diagnóstico</h2>
+        <table><tr><th>Dimensão</th><th>Resultado</th></tr>${dimLinhas}</table>
+        <h2>Principais pontos de atenção</h2>
+        ${atencao.length?`<ul>${atencao.map(a=>`<li>${a}</li>`).join("")}</ul>`:'<div class="campo">Nenhum ponto crítico identificado — maturidade equilibrada nas dimensões avaliadas.</div>'}
+        <h2>Direcionamento</h2><div class="campo">${pcDirecionamento(respostas)}</div>
+        <h2>Próximo passo</h2><div class="campo">${PC_PROXIMO_PASSO_DIAG}</div>
+        <div class="campo" style="font-size:11px;color:#777;font-style:italic;margin-top:10px">${PC_DISCLAIMER_NIVEL}</div>
+        <div class="campo" style="font-size:11px;color:#777;font-style:italic">Este diagnóstico serve como base para a definição do escopo do projeto CONTÍNUA mais adequado à realidade da empresa.</div>`;
+    }else{
+      corpo=`<div class="campo">O questionário de diagnóstico ainda está em andamento (${Object.keys(respostas).length}/${totalQ} perguntas respondidas). O resultado completo será gerado assim que o questionário for concluído.</div>`;
+    }
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Diagnóstico — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
     ${pcHdr(p,"DIAGNÓSTICO",dd.concluido?`Concluído em ${fmtDate(dd.dataConclusao)}`:"Em andamento")}
-    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
-    <h2>Diagnóstico</h2>${linhas||'<div class="campo">Diagnóstico ainda não preenchido.</div>'}
-    <h2>Nível do Método CONTÍNUA</h2><div class="campo">${p.nivel||"a definir"}</div>
+    ${pcCliBloco(p,cli)}
+    ${corpo}
     ${pcRodape(config)}</body></html>`;
     return {html,arquivo:`Diagnostico ${p.nome} ${p.clienteNome}`,titulo:"Diagnóstico",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o diagnóstico do projeto "${p.nome}" em anexo. 🤎
 *Simara Lobui · Consultoria*`};
@@ -7307,7 +7332,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v30</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v31</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
