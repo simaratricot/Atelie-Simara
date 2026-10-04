@@ -668,7 +668,8 @@ const TAREFAS_CONTEUDO=[
 ];
 
 const TAREFA_CATS=["Consultoria","Artesanato","Casa","Obra","Pessoal"];
-const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,setCompromissos,publicacoes,cartas,volumes,setCartas,setFrases,setView,focoDia,setFocoDia}) => {
+const TAREFA_CATS_ICONS={"Consultoria":"💼","Artesanato":"🧶","Casa":"🏠","Obra":"🏗️","Pessoal":"❤️"};
+const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,setCompromissos,publicacoes,setPublicacoes,cartas,volumes,setCartas,setFrases,setView,focoDia,setFocoDia}) => {
   const ativos=orders.filter(o=>!["Concluído","Enviado","Cancelado"].includes(o.status));
   const agenda=orders.filter(o=>o.delivery&&o.delivery>=today&&!["Concluído","Cancelado"].includes(o.status)).sort((a,b)=>a.delivery.localeCompare(b.delivery));
   const frasesAtivas=frases.filter(f=>f.ativa);
@@ -689,6 +690,9 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
   const pubHoje=publicacoes.filter(p=>p.data===today);
   const pubConc=pubHoje.filter(p=>p.status==="Concluído").length;
   const pubPct=pubHoje.length>0?Math.round((pubConc/pubHoje.length)*100):0;
+  // Conteúdo de hoje agrupado por canal (Instagram/WhatsApp/Outros), a partir do tipo da publicação
+  const canalPub=(tipo)=>/whatsapp/i.test(tipo||"")?"WhatsApp":"Instagram";
+  const pubPorCanal=["Instagram","WhatsApp"].map(canal=>({canal,itens:pubHoje.filter(p=>canalPub(p.tipo)===canal)})).filter(g=>g.itens.length>0);
 
   // Compromissos do dia
   const compHoje=compromissos.filter(c=>c.data===today&&c.tipo!=="Tarefa").sort((a,b)=>(a.hora||"").localeCompare(b.hora||""));
@@ -698,19 +702,26 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
   const compAmanha=compromissos.filter(c=>c.data===amanha&&c.tipo!=="Tarefa");
   const entregasAmanha=orders.filter(o=>o.delivery===amanha&&!["Concluído","Cancelado"].includes(o.status));
 
-  // Foco do dia + tarefas rápidas
-  const [focoEdit,setFocoEdit]=useState(focoDia[today]||"");
-  useEffect(()=>{setFocoEdit(focoDia[today]||"");},[today]);
-  const salvarFoco=()=>{setFocoDia(prev=>({...prev,[today]:focoEdit}));showSavedGlobal("Foco do dia salvo!");};
+  // Foco do dia — vinculado às tarefas/agenda do dia (não é mais texto livre e separado)
   const tarefasHoje=compromissos.filter(c=>c.tipo==="Tarefa"&&c.data===today);
+  const focoTask=tarefasHoje.find(t=>t.foco&&t.status!=="Concluído")||null;
+  const demaisTarefas=tarefasHoje.filter(t=>!focoTask||t.id!==focoTask.id);
   const [novaTarefa,setNovaTarefa]=useState("");
   const [catTarefa,setCatTarefa]=useState(TAREFA_CATS[0]);
   const addTarefa=()=>{
     if(!novaTarefa.trim()||!setCompromissos)return;
-    setCompromissos(prev=>[...prev,{id:uid(),desc:novaTarefa.trim(),data:today,hora:"",prioridade:"Normal",status:"Pendente",tipo:"Tarefa",categoria:catTarefa}]);
+    setCompromissos(prev=>[...prev,{id:uid(),desc:novaTarefa.trim(),data:today,hora:"",prioridade:"Normal",status:"Pendente",tipo:"Tarefa",categoria:catTarefa,foco:false}]);
     setNovaTarefa("");
   };
   const toggleTarefa=(t)=>{if(setCompromissos)setCompromissos(prev=>prev.map(c=>c.id===t.id?{...c,status:c.status==="Concluído"?"Pendente":"Concluído"}:c));};
+  const toggleFoco=(t)=>{
+    if(!setCompromissos)return;
+    setCompromissos(prev=>prev.map(c=>{
+      if(c.data!==today||c.tipo!=="Tarefa")return c;
+      if(c.id===t.id)return {...c,foco:!c.foco};
+      return c.foco?{...c,foco:false}:c;
+    }));
+  };
 
   // Tarefas do dia por categoria (pendentes de hoje)
   const tarefasAbertas=tarefasHoje.filter(t=>t.status!=="Concluído");
@@ -871,21 +882,31 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
         </div>
       </div>{/* fecha saudação */}
 
-      {/* FOCO DO DIA */}
+      {/* FOCO DO DIA — vinculado às tarefas da agenda */}
       <Card style={{borderLeft:`4px solid ${C.dourado}`}}>
-        <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,marginBottom:8}}>🎯 Meu foco de hoje</div>
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <input value={focoEdit} onChange={e=>setFocoEdit(e.target.value)} onBlur={salvarFoco} onKeyDown={e=>e.key==="Enter"&&salvarFoco()}
-            placeholder="Qual é a prioridade principal de hoje?"
-            style={{flex:1,padding:"9px 12px",border:`1.5px solid ${C.areia}`,borderRadius:4,fontSize:14,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",color:C.cafe}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:9,color:C.dourado,letterSpacing:"2px",textTransform:"uppercase",fontWeight:700}}>🎯 Foco do dia</div>
+          <button onClick={()=>setView("agenda")} style={{fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver todas as tarefas</button>
         </div>
-        <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>Demais tarefas</div>
-        {tarefasHoje.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Nenhuma tarefa avulsa para hoje.</div>}
-        {tarefasHoje.map(t=>(
-          <label key={t.id} style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",padding:"4px 0",fontSize:13,color:t.status==="Concluído"?C.oliva:C.cafe,textDecoration:t.status==="Concluído"?"line-through":"none"}}>
-            <input type="checkbox" checked={t.status==="Concluído"} onChange={()=>toggleTarefa(t)}/>
-            {t.desc}{t.categoria&&<span style={{fontSize:10,color:C.oliva,marginLeft:6}}>{t.categoria}</span>}
+        {focoTask?
+          <label style={{display:"flex",gap:8,alignItems:"flex-start",cursor:"pointer",padding:"8px 10px",background:C.linho,borderRadius:6,marginBottom:12}}>
+            <input type="checkbox" checked={focoTask.status==="Concluído"} onChange={()=>toggleTarefa(focoTask)} style={{marginTop:2}}/>
+            <span style={{flex:1,fontSize:14,fontWeight:700,color:C.cafe,fontFamily:"'Cormorant Garamond',serif"}}>{focoTask.desc}</span>
+            <button onClick={(e)=>{e.preventDefault();toggleFoco(focoTask);}} title="Remover como foco" style={{fontSize:11,background:"none",border:"none",cursor:"pointer",color:C.oliva}}>✕</button>
           </label>
+        :<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:12}}>
+            {tarefasHoje.length===0?"Nenhuma tarefa para hoje ainda. Adicione uma abaixo e marque como foco.":"Escolha abaixo qual tarefa é o foco principal de hoje (⭐)."}
+          </div>}
+        <div style={{fontSize:9,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:6}}>Demais tarefas do dia</div>
+        {demaisTarefas.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:8}}>{focoTask?"Nenhuma outra tarefa para hoje.":"Nenhuma tarefa avulsa para hoje."}</div>}
+        {demaisTarefas.map(t=>(
+          <div key={t.id} style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0"}}>
+            <label style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",flex:1,fontSize:13,color:t.status==="Concluído"?C.oliva:C.cafe,textDecoration:t.status==="Concluído"?"line-through":"none"}}>
+              <input type="checkbox" checked={t.status==="Concluído"} onChange={()=>toggleTarefa(t)}/>
+              {t.desc}{t.categoria&&<span style={{fontSize:10,color:C.oliva,marginLeft:6}}>{t.categoria}</span>}
+            </label>
+            {t.status!=="Concluído"&&<button onClick={()=>toggleFoco(t)} title="Marcar como foco do dia" style={{fontSize:13,background:"none",border:"none",cursor:"pointer"}}>⭐</button>}
+          </div>
         ))}
         <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
           <input value={novaTarefa} onChange={e=>setNovaTarefa(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTarefa()} placeholder="+ Nova tarefa rápida..."
@@ -1007,18 +1028,25 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
         </Card>
       </div>
 
-      {/* CONTEÚDO DO DIA */}
+      {/* CONTEÚDO DE HOJE */}
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:13,fontWeight:700,color:C.cafe}}>📱 Conteúdo de hoje</div>
-          <div style={{fontSize:12,fontWeight:700,color:pubPct===100?C.oliva:C.dourado}}>{pubPct}% concluído</div>
+          <button onClick={()=>setView("agenda")} style={{fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver todo conteúdo</button>
         </div>
-        {pubHoje.length>0&&<PBar pct={pubPct} color={pubPct===100?C.oliva:C.dourado} h={5}/>}
-        {pubHoje.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginTop:6}}>Nenhuma publicação planejada para hoje.</div>
-        :<div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
-          {pubHoje.map(p=><span key={p.id} style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:p.status==="Concluído"?"#D4E8D4":C.linho,color:p.status==="Concluído"?"#2E6B2E":C.oliva,textDecoration:p.status==="Concluído"?"line-through":"none"}}>{p.tipo}</span>)}
-        </div>}
-        <button onClick={()=>setView("agenda")} style={{marginTop:10,fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Planejar conteúdo →</button>
+        {pubHoje.length>0&&<div style={{marginBottom:8}}><PBar pct={pubPct} color={pubPct===100?C.oliva:C.dourado} h={5}/></div>}
+        {pubPorCanal.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhuma publicação planejada para hoje.</div>}
+        {pubPorCanal.map(g=>(
+          <div key={g.canal} style={{marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.cafe,marginBottom:4}}>{g.canal==="WhatsApp"?"🟢":"📷"} {g.canal} <span style={{color:C.oliva,fontWeight:400}}>· {g.itens.length} tarefa{g.itens.length>1?"s":""}</span></div>
+            {g.itens.map(p=>(
+              <label key={p.id} style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer",padding:"3px 0 3px 10px",fontSize:12,color:p.status==="Concluído"?C.oliva:C.cafe,textDecoration:p.status==="Concluído"?"line-through":"none"}}>
+                <input type="checkbox" checked={p.status==="Concluído"} onChange={()=>setPublicacoes&&setPublicacoes(prev=>prev.map(x=>x.id===p.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x))}/>
+                {p.tipo}{p.obs?` — ${p.obs}`:""}
+              </label>
+            ))}
+          </div>
+        ))}
       </Card>
 
       {/* LIVRO EM ANDAMENTO */}
@@ -2802,6 +2830,29 @@ const SUGESTOES_CONTEUDO=[
   {cat:"Fé",sugs:["Versículo do dia","Como a fé guia meu trabalho","Oração de gratidão"]},
 ];
 
+const REP_OPCOES=[{v:"nao",l:"Não repetir"},{v:"semanal",l:"Repetir toda semana"},{v:"quinzenal",l:"Repetir a cada 2 semanas"},{v:"dias",l:"Selecionar dias da semana"}];
+const REP_DIAS_SEMANA=[{v:0,l:"Dom"},{v:1,l:"Seg"},{v:2,l:"Ter"},{v:3,l:"Qua"},{v:4,l:"Qui"},{v:5,l:"Sex"},{v:6,l:"Sáb"}];
+const addDiasData=(dataStr,n)=>{const d=new Date(dataStr+"T00:00");d.setDate(d.getDate()+n);return d.toISOString().split("T")[0];};
+const gerarDatasRecorrencia=(dataInicio,repetir,diasSemana,repetirAte)=>{
+  if(!dataInicio||!repetir||repetir==="nao")return [dataInicio];
+  const limite=repetirAte||addDiasData(dataInicio,364);
+  const datas=[];
+  if(repetir==="semanal"||repetir==="quinzenal"){
+    const passo=repetir==="semanal"?7:14;
+    let d=dataInicio;
+    while(d<=limite&&datas.length<60){datas.push(d);d=addDiasData(d,passo);}
+  }else if(repetir==="dias"){
+    const dias=diasSemana&&diasSemana.length?diasSemana:[new Date(dataInicio+"T00:00").getDay()];
+    let d=dataInicio,count=0;
+    while(d<=limite&&count<180&&datas.length<60){
+      if(dias.includes(new Date(d+"T00:00").getDay()))datas.push(d);
+      d=addDiasData(d,1);count++;
+    }
+  }else{
+    datas.push(dataInicio);
+  }
+  return datas.length?datas:[dataInicio];
+};
 const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,ideias,setIdeias}) => {
   const hoje=new Date();
   const [anoVis,setAnoVis]=useState(hoje.getFullYear());
@@ -2810,7 +2861,7 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
   const [tab,setTab]=useState("calendario");
   const [modal,setModal]=useState(null);
   const [sugestoesModal,setSugestoesModal]=useState(false);
-  const [form,setForm]=useState({desc:"",data:"",hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso"});
+  const [form,setForm]=useState({desc:"",data:"",hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso",repetir:"nao",diasSemanaRep:[],repetirAte:""});
   const [formPub,setFormPub]=useState({data:"",tipo:"",status:"Pendente",obs:""});
   const [formIdeia,setFormIdeia]=useState({titulo:"",desc:"",categoria:"Artesanato",utilizada:false});
   const CATS_IDEIA=["Artesanato","Obra","Empreendedorismo","Clientes","Marketing","Vendas","Propósito","Reflexão","Fé","Produtos","Livro","Criatividade"];
@@ -2826,9 +2877,23 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
   const encDia=(d)=>orders.filter(o=>o.delivery===getDiaStr(d)&&!["Cancelado","Concluído","Enviado"].includes(o.status));
 
   const saveComp=()=>{
-    if(modal==="editComp") setCompromissos(prev=>prev.map(x=>x.id===form.id?form:x));
-    else setCompromissos(prev=>[...prev,{...form,id:uid(),data:getDiaStr(diaSel)}]);
-    setModal(null);showSavedGlobal("Compromisso salvo!");
+    if(modal==="editComp"){
+      setCompromissos(prev=>prev.map(x=>x.id===form.id?form:x));
+      setModal(null);showSavedGlobal("Compromisso salvo!");
+      return;
+    }
+    const base=getDiaStr(diaSel);
+    const {repetir,diasSemanaRep,repetirAte,...dadosComp}=form;
+    if(repetir&&repetir!=="nao"){
+      const datas=gerarDatasRecorrencia(base,repetir,diasSemanaRep,repetirAte);
+      const grupoRepeticaoId=uid();
+      setCompromissos(prev=>[...prev,...datas.map(d=>({...dadosComp,id:uid(),data:d,grupoRepeticaoId}))]);
+      showSavedGlobal(`${datas.length} compromissos criados (repetição)!`);
+    }else{
+      setCompromissos(prev=>[...prev,{...dadosComp,id:uid(),data:base}]);
+      showSavedGlobal("Compromisso salvo!");
+    }
+    setModal(null);
   };
   const savePub=()=>{
     setPublicacoes(prev=>[...prev,{...formPub,id:uid(),data:getDiaStr(diaSel)}]);
@@ -3000,7 +3065,7 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <h3 style={{fontSize:16,fontFamily:"'Cormorant Garamond',serif"}}>{String(diaSel).padStart(2,"0")}/{String(mesVis+1).padStart(2,"0")}/{anoVis}</h3>
             <div style={{display:"flex",gap:6}}>
-              <Btn sm onClick={()=>{setForm({desc:"",data:getDiaStr(diaSel),hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso"});setModal("comp");}}>+ Compromisso</Btn>
+              <Btn sm onClick={()=>{setForm({desc:"",data:getDiaStr(diaSel),hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso",repetir:"nao",diasSemanaRep:[],repetirAte:""});setModal("comp");}}>+ Compromisso</Btn>
               <Btn sm v="ghost" onClick={()=>{setFormPub({data:getDiaStr(diaSel),tipo:"",status:"Pendente",obs:""});setModal("pub");}}>+ Publicação</Btn>
             </div>
           </div>
@@ -3159,6 +3224,23 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
             <Sel label="Prioridade" value={form.prioridade} onChange={v=>setForm(f=>({...f,prioridade:v}))} options={PRIORIDADES}/>
             <Sel label="Status" value={form.status} onChange={v=>setForm(f=>({...f,status:v}))} options={STATUS_COMP}/>
           </div>
+          {modal==="comp"&&<>
+            <Sel label="Repetição" value={form.repetir||"nao"} onChange={v=>setForm(f=>({...f,repetir:v}))} options={REP_OPCOES.map(o=>({v:o.v,l:o.l}))}/>
+            {form.repetir==="dias"&&<div>
+              <div style={{fontSize:11,color:C.oliva,marginBottom:6}}>Dias da semana</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {REP_DIAS_SEMANA.map(ds=>{
+                  const marcado=(form.diasSemanaRep||[]).includes(ds.v);
+                  return(<button key={ds.v} type="button" onClick={()=>setForm(f=>{
+                      const atual=f.diasSemanaRep||[];
+                      return {...f,diasSemanaRep:atual.includes(ds.v)?atual.filter(x=>x!==ds.v):[...atual,ds.v]};
+                    })}
+                    style={{fontSize:12,padding:"6px 10px",borderRadius:16,border:`1.5px solid ${marcado?C.cafe:C.areia}`,background:marcado?C.cafe:"#fff",color:marcado?"#fff":C.cafe,cursor:"pointer"}}>{ds.l}</button>);
+                })}
+              </div>
+            </div>}
+            {form.repetir&&form.repetir!=="nao"&&<Inp label="Repetir até (opcional)" type="date" value={form.repetirAte} onChange={v=>setForm(f=>({...f,repetirAte:v}))} placeholder="Deixe vazio para repetir por até 1 ano"/>}
+          </>}
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
@@ -3536,48 +3618,71 @@ const pcDefinirNivel=(p,nivel)=>{
 };
 const pcReabrirDiag=(p)=>pcEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}},"diagnostico","Diagnóstico reaberto para ajustes");
 const PC_QUESTIONARIO=[
-  {bloco:"Passagem de Bastão (Comercial → Operacional)",pergunta:"Os dados cadastrais e fiscais do cliente são totalmente validados pelo Comercial antes da geração do contrato/ordem de serviço?",opcoes:[
-    {pontos:1,texto:"Não. Frequentemente faltam dados ou são alterados depois de gerar notas/contratos."},
-    {pontos:2,texto:"Às vezes. Depende de quem faz a venda ou do porte do cliente."},
-    {pontos:3,texto:"Sim. Existe uma ficha/checklist cadastral obrigatória no ato do fechamento."}]},
-  {bloco:"Passagem de Bastão (Comercial → Operacional)",pergunta:"Como é repassada a informação da venda para a equipe que vai entregar/executar o serviço?",opcoes:[
-    {pontos:1,texto:"De forma verbal, via WhatsApp solto ou sem registro estruturado no ERP."},
-    {pontos:2,texto:"Gera-se a O.S./contrato, mas faltam detalhes de endereço, datas ou particularidades."},
-    {pontos:3,texto:"Integração total via sistema com O.S. clara e particularidades registradas."}]},
-  {bloco:"Execução e Rastreabilidade (Operacional → Faturamento)",pergunta:"Como a operação comprova e registra a conclusão da entrega/serviço no sistema?",opcoes:[
-    {pontos:1,texto:"Papéis/guias físicas que atrasam para chegar ou O.S. que não são encerradas no ERP."},
-    {pontos:2,texto:"É registrado no sistema, mas ocorrem atrasos ou falhas na digitação do patrimônio/itens."},
-    {pontos:3,texto:"Apontamento e encerramento em tempo real com comprovação documental/digital."}]},
-  {bloco:"Execução e Rastreabilidade (Operacional → Faturamento)",pergunta:"Existem equipamentos ou serviços rodando no cliente sem contrato formal ou sem O.S. encerrada no sistema?",opcoes:[
-    {pontos:1,texto:'Sim, é frequente (contratos "fakes", instalações sem registro ou itens sem baixa).'},
-    {pontos:2,texto:"Ocorre esporadicamente em prazos curtos ou urgências de clientes."},
-    {pontos:3,texto:"Não. O sistema possui travas e nada opera sem O.S. e contrato válidos."}]},
-  {bloco:"Faturamento e Liquidez (Faturamento → Financeiro)",pergunta:"Qual é o nível de retrabalho ou devolução de notas/faturas devido a divergências de valores, períodos ou medições?",opcoes:[
-    {pontos:1,texto:'Alto. O Faturamento precisa ficar "caçando" o Comercial para pedir informações ou corrigir notas.'},
-    {pontos:2,texto:"Médio. Ocorre principalmente em grandes contas que exigem medições prévias."},
-    {pontos:3,texto:"Baixo/Nulo. O Faturamento apenas confere o espelho da medição/contrato e transmite."}]},
-  {bloco:"Faturamento e Liquidez (Faturamento → Financeiro)",pergunta:"Como é calculada e controlada a proporcionalidade e a vigência das locações/serviços no fechamento do mês?",opcoes:[
-    {pontos:1,texto:'Manualmente em planilhas à parte ou "de cabeça", gerando dúvidas no cliente.'},
-    {pontos:2,texto:"O sistema calcula, mas exige edições constantes por falta de alinhamento nas datas."},
-    {pontos:3,texto:"Regras de faturamento automáticas e padronizadas conforme o contrato."}]},
-  {bloco:"Governança e Dependência de Pessoas",pergunta:"A empresa possui Procedimentos Operacionais Padrão (POPs) ou Checklists de rotina para cada função?",opcoes:[
-    {pontos:1,texto:'Não. Cada colaborador faz do seu jeito e o conhecimento está "na cabeça" das pessoas.'},
-    {pontos:2,texto:"Existem manuais/arquivos antigos, mas que não são seguidos na rotina diária."},
-    {pontos:3,texto:"Sim. O fluxo é documentado, atualizado e utilizado no onboarding de novos funcionários."}]},
-  {bloco:"Governança e Dependência de Pessoas",pergunta:"Quando entra um funcionário novo, qual é o impacto na operação e na qualidade das tarefas?",opcoes:[
-    {pontos:1,texto:"Desastre/Gargalo. A rotatividade gera erros imediatos no Faturamento e reclamações de clientes."},
-    {pontos:2,texto:"Médio. Exige muito tempo do gestor/colegas ensinando a rotina do zero."},
-    {pontos:3,texto:"Baixo. O novo colaborador segue o checklist/onboarding com autonomia rápida."}]},
-  {bloco:"Tecnologia e Visão de Indicadores",pergunta:"As travas de segurança do ERP (permissões de acesso, bloqueio pós-faturamento) estão ativas e alinhadas ao processo?",opcoes:[
-    {pontos:1,texto:"Não. Qualquer usuário altera contratos faturados, O.S. ou cadastros sem aprovação."},
-    {pontos:2,texto:'Existem algumas travas, mas são frequentemente desativadas para "facilitar".'},
-    {pontos:3,texto:"Sim. A matriz de permissões é rígida e mudanças exigem aditivos ou alçada superior."}]},
-  {bloco:"Tecnologia e Visão de Indicadores",pergunta:"A diretoria/gestão consegue acompanhar a saúde dos contratos e os indicadores em tempo real sem precisar perguntar ao time?",opcoes:[
-    {pontos:1,texto:"Não. É necessário pedir relatórios manuais ou somar planilhas para entender o cenário."},
-    {pontos:2,texto:"Consegue ver o financeiro, mas não tem clareza dos gargalos operacionais/comerciais."},
-    {pontos:3,texto:"Sim. O painel/relatórios do ERP fornecem a visão integrada de ponta a ponta."}]}
+  {bloco:"Clareza da operação",pergunta:"Quando você pensa na operação da empresa como um todo, o quanto está claro como ela funciona, do início ao fim?",opcoes:[
+    {pontos:1,texto:"Só eu (ou uma pessoa) tenho a visão completa de como tudo funciona; o resto enxerga só pedaços."},
+    {pontos:2,texto:"Existe uma noção geral do funcionamento, mas várias etapas ainda não estão claras nem para quem executa."},
+    {pontos:3,texto:"A operação está mapeada nas suas principais etapas e a maioria da equipe entende onde seu trabalho se encaixa."},
+    {pontos:4,texto:"A operação é clara, documentada e consultada; qualquer pessoa consegue entender o fluxo completo quando precisa."}]},
+  {bloco:"Responsabilidades",pergunta:"Está claro quem é responsável por cada parte do trabalho na empresa?",opcoes:[
+    {pontos:1,texto:"Não. As tarefas vão sendo feitas por quem está disponível no momento, sem responsável fixo."},
+    {pontos:2,texto:"Existem responsáveis informais, mas isso não está combinado nem registrado em lugar nenhum."},
+    {pontos:3,texto:"As responsabilidades estão definidas e a maioria das pessoas sabe o que é seu e o que não é."},
+    {pontos:4,texto:"As responsabilidades são claras, formalizadas e revisadas sempre que a operação muda."}]},
+  {bloco:"Fluxo de informações",pergunta:"Como as informações importantes (pedidos, decisões, combinados) circulam entre as pessoas da empresa?",opcoes:[
+    {pontos:1,texto:"De forma solta, por conversas informais ou mensagens avulsas, fácil de se perder."},
+    {pontos:2,texto:"Existem alguns canais ou registros, mas nem sempre são usados e muita coisa ainda se perde."},
+    {pontos:3,texto:"Existem canais e registros definidos, usados na maior parte do tempo pela equipe."},
+    {pontos:4,texto:"As informações circulam por canais definidos e confiáveis, com histórico acessível e rastreável."}]},
+  {bloco:"Processos e rotinas",pergunta:"As atividades do dia a dia seguem um processo definido ou cada pessoa faz do seu jeito?",opcoes:[
+    {pontos:1,texto:"Cada um faz do seu jeito; não existe uma forma combinada de executar as tarefas."},
+    {pontos:2,texto:"Existem algumas rotinas combinadas verbalmente, mas nem sempre são seguidas."},
+    {pontos:3,texto:"As principais rotinas estão definidas e documentadas, e a equipe geralmente as segue."},
+    {pontos:4,texto:"As rotinas são padronizadas, documentadas e revisadas periodicamente para melhorar."}]},
+  {bloco:"Pessoas e conhecimento",pergunta:"O que acontece com a operação quando uma pessoa-chave falta ou sai da empresa?",opcoes:[
+    {pontos:1,texto:"A operação trava ou sofre bastante, porque o conhecimento está só na cabeça dessa pessoa."},
+    {pontos:2,texto:"Existe algum impacto, mas outras pessoas conseguem segurar as pontas com dificuldade."},
+    {pontos:3,texto:"O impacto é administrável, porque boa parte do conhecimento está registrado ou compartilhado."},
+    {pontos:4,texto:"O impacto é mínimo: o conhecimento está documentado e mais de uma pessoa sabe executar."}]},
+  {bloco:"Atendimento/entrega ao cliente",pergunta:"Como é a experiência do cliente do primeiro contato até a entrega final?",opcoes:[
+    {pontos:1,texto:"Varia muito dependendo de quem atende; não existe um padrão de atendimento ou entrega."},
+    {pontos:2,texto:"Existe uma ideia de como deveria ser, mas na prática o atendimento é inconsistente."},
+    {pontos:3,texto:"O atendimento segue um padrão conhecido pela equipe, com poucas falhas."},
+    {pontos:4,texto:"O atendimento é padronizado, monitorado e ajustado com base no retorno dos clientes."}]},
+  {bloco:"Controles e gestão",pergunta:"Como você acompanha números e resultados da empresa (financeiro, vendas, produção, etc.)?",opcoes:[
+    {pontos:1,texto:"De cabeça ou de forma improvisada; não existe controle organizado dos números."},
+    {pontos:2,texto:"Existem controles soltos (planilhas, anotações), mas não são consolidados nem sempre atualizados."},
+    {pontos:3,texto:"Existem controles organizados, atualizados com regularidade, que ajudam na tomada de decisão."},
+    {pontos:4,texto:"Existem indicadores claros, acompanhados com frequência, que orientam decisões da gestão."}]},
+  {bloco:"Tratamento de problemas e melhoria",pergunta:"Quando um problema ou erro acontece, o que a empresa costuma fazer?",opcoes:[
+    {pontos:1,texto:"Resolve o problema pontual e segue, sem entender a causa nem evitar que se repita."},
+    {pontos:2,texto:"Às vezes busca entender a causa, mas raramente isso vira uma mudança efetiva na rotina."},
+    {pontos:3,texto:"Busca entender a causa e geralmente ajusta o processo para reduzir reincidências."},
+    {pontos:4,texto:"Existe uma prática de analisar causas e melhorar processos de forma contínua."}]},
+  {bloco:"Organização e acompanhamento da rotina",pergunta:"Como está organizado o acompanhamento das tarefas e pendências no dia a dia?",opcoes:[
+    {pontos:1,texto:"Não existe acompanhamento; as pendências ficam na memória das pessoas e se perdem."},
+    {pontos:2,texto:"Existe um controle informal, mas incompleto, de tarefas e pendências."},
+    {pontos:3,texto:"Existe um controle de tarefas e pendências, consultado com regularidade pela equipe."},
+    {pontos:4,texto:"O acompanhamento é sistemático, com prazos e responsáveis claros, revisado com frequência."}]},
+  {bloco:"Continuidade e evolução",pergunta:"A empresa consegue manter o padrão de qualidade e organização mesmo quando cresce ou muda?",opcoes:[
+    {pontos:1,texto:"Não; cada mudança (crescimento, novo funcionário, novo cliente) gera bagunça na operação."},
+    {pontos:2,texto:"Consegue se adaptar, mas com bastante esforço e retrabalho a cada mudança."},
+    {pontos:3,texto:"Consegue se adaptar com razoável estabilidade, mantendo a maior parte da qualidade."},
+    {pontos:4,texto:"A empresa evolui de forma organizada, incorporando mudanças sem perder padrão nem controle."}]}
 ];
-const pcNivelPorPontos=(total)=>total<=16?"CONTÍNUA ESSENCIAL":total<=24?"CONTÍNUA EM AÇÃO":"CONTÍNUA ESTRATÉGICA";
+const pcNivelPorPontos=(total)=>total<=20?"CONTÍNUA ESSENCIAL":total<=30?"CONTÍNUA EM AÇÃO":"CONTÍNUA ESTRATÉGICA";
+const PC_LEITURA_NIVEL={
+  "CONTÍNUA ESSENCIAL":"A empresa está na fase inicial de estruturação da gestão: muitos processos ainda dependem de pessoas específicas e de decisões tomadas no dia a dia. Esse é o momento ideal para organizar as bases — definir responsabilidades, processos e fluxos — antes de crescer mais.",
+  "CONTÍNUA EM AÇÃO":"A empresa já tem partes importantes da gestão organizadas, mas ainda convive com pontos de dependência e inconsistência em algumas frentes. O próximo passo é consolidar o que já funciona e avançar nos pontos que ainda geram retrabalho ou insegurança.",
+  "CONTÍNUA ESTRATÉGICA":"A empresa já opera com boa maturidade de gestão, com processos, responsabilidades e controles estabelecidos na maior parte das áreas. O foco aqui é refinar, acompanhar indicadores e evoluir continuamente, em vez de reconstruir a base."
+};
+const PC_STATUS_DIMENSAO={1:"🔴 Atenção",2:"🟡 Em desenvolvimento",3:"🟢 Estruturado",4:"🟢 Avançado"};
+const PC_DISCLAIMER_NIVEL="O resultado apresentado corresponde à leitura inicial obtida a partir das respostas do diagnóstico. A definição final do escopo do projeto considera também a análise da realidade da empresa e as prioridades identificadas na etapa de diagnóstico.";
+const PC_PROXIMO_PASSO_DIAG="Análise das prioridades e definição do projeto CONTÍNUA adequado à realidade da empresa.";
+const pcDirecionamento=(respostas)=>{
+  const atencao=PC_QUESTIONARIO.map((q,i)=>({nome:q.bloco,pontos:respostas[i]})).filter(x=>x.pontos!==undefined&&x.pontos<=2);
+  if(atencao.length===0)return "A empresa já apresenta boa maturidade nas dimensões avaliadas; o direcionamento deve focar em consolidar e evoluir as práticas existentes.";
+  return `A partir do resultado obtido, recomenda-se concentrar inicialmente a atenção em: ${atencao.map(a=>a.nome.toLowerCase()).join(", ")}. Essas frentes deverão ser aprofundadas na etapa seguinte para definição das prioridades e do escopo adequado de atuação.`;
+};
 const pcSalvarRespostaDiag=(p,idx,pontos)=>{
   const respostas={...((p.diagnostico||{}).respostas||{}),[idx]:pontos};
   let n={...p,diagnostico:{...(p.diagnostico||{}),respostas}};
@@ -4359,6 +4464,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         <span>✓ Diagnóstico concluído em {fmtDate(dd.dataConclusao)}{p.nivel?` · ${p.nivel}`:" · nível a definir"}</span>
         <Btn sm v="ghost" onClick={()=>{upd(pcReabrirDiag);}}>↩ Reabrir</Btn>
       </div>}
+      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.oliva,textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>🔒 Análise interna (uso da consultora — não entra no documento do cliente)</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
         {PC_DG_CAMPOS.map(([k,l])=>(
           <div key={k}>
@@ -4381,9 +4487,30 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
             <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Questionário de avaliação — define o nível</div>
             <div style={{fontSize:12,color:C.cafe,fontWeight:600}}>{nRes}/{totalQ} respondidas · {totalPts} pts</div>
           </div>
-          {completo&&<div style={{background:"#DDF0E6",color:"#1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,fontWeight:700}}>
-            ✓ Pontuação {totalPts}/{totalQ*3} → Nível: {pcNivelPorPontos(totalPts)}
-          </div>}
+          {completo&&(()=>{
+            const nivelCalc=pcNivelPorPontos(totalPts);
+            return(<div style={{background:"#fff",border:"2px solid #1F7A4D",borderRadius:8,padding:16,marginBottom:14}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:"#1F7A4D",textTransform:"uppercase",marginBottom:10}}>🟢 Resultado do diagnóstico — visão do cliente</div>
+              <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:10}}>
+                <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:1}}>Nível identificado</div><div style={{fontSize:16,fontWeight:700,color:"#1F7A4D"}}>🔧 {nivelCalc}</div></div>
+                <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:1}}>Pontuação</div><div style={{fontSize:16,fontWeight:700,color:C.cafe}}>{totalPts}/{totalQ*4}</div></div>
+              </div>
+              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12,fontStyle:"italic"}}>{PC_LEITURA_NIVEL[nivelCalc]}</div>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Visão do diagnóstico por dimensão</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                {PC_QUESTIONARIO.map((q,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 8px",background:C.linho,borderRadius:4}}>
+                    <span style={{color:C.cafe}}>{q.bloco}</span><span style={{fontWeight:600}}>{PC_STATUS_DIMENSAO[respostas[i]]||"—"}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>Direcionamento</div>
+              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12}}>{pcDirecionamento(respostas)}</div>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>Próximo passo</div>
+              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12}}>{PC_PROXIMO_PASSO_DIAG}</div>
+              <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",borderTop:`1px solid ${C.areia}`,paddingTop:8}}>{PC_DISCLAIMER_NIVEL}</div>
+            </div>);
+          })()}
           {PC_QUESTIONARIO.map((q,i)=>(
             <div key={i} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:0.5,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>{q.bloco}</div>
@@ -7180,7 +7307,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v29</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v30</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -8714,7 +8841,7 @@ function App() {
         </div>
         {/* CONTEÚDO */}
         <div style={{flex:1,overflowY:"auto"}}>
-          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
+          {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} config={config} stockSup={stockSup}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
