@@ -3581,7 +3581,8 @@ const PC_COR={
   "Diagnóstico":["#EFE8F7","#7B4FA6"],"Planejamento":["#E4EEF9","#3D5A8A"],"Em execução":["#E4F0EA","#2E6B5E"],
   "Em acompanhamento":["#E6F3F6","#1F6F7A"],"Concluído":["#DDF0E6","#1F7A4D"],"Pausado":["#F6EFD9","#8A6D1F"],"Cancelado":["#F3E1DE","#c0392b"],
   "Pendente":["#F0ECF6","#3D5A8A"],"Em andamento":["#E4EEF9","#3D5A8A"],"Concluída":["#DDF0E6","#1F7A4D"],"Atrasada":["#FBE7E4","#c0392b"],
-  "Alta":["#FBE7E4","#c0392b"],"Média":["#F6EFD9","#8A6D1F"],"Baixa":["#E4F0EA","#2E6B5E"]
+  "Alta":["#FBE7E4","#c0392b"],"Média":["#F6EFD9","#8A6D1F"],"Baixa":["#E4F0EA","#2E6B5E"],
+  "Rascunho":["#F3F0F7","#8C8499"],"Enviado":["#E4EEF9","#3D5A8A"],"Aprovado":["#DDF0E6","#1F7A4D"],"Recusado":["#F3E1DE","#c0392b"]
 };
 
 // data de hoje no fuso local (evita "virar o dia" às 21h por causa do UTC)
@@ -3617,6 +3618,50 @@ const pcDefinirNivel=(p,nivel)=>{
   return pcEv({...p,nivel:niv,diagnostico:{...(p.diagnostico||{}),nivelDefinido:niv}},"diagnostico",niv?`Nível do Método CONTÍNUA definido: ${niv}`:"Nível do Método CONTÍNUA voltou para \"a definir\"");
 };
 const pcReabrirDiag=(p)=>pcEv({...p,diagnostico:{...(p.diagnostico||{}),concluido:false}},"diagnostico","Diagnóstico reaberto para ajustes");
+
+// ── orçamento ──
+const PC_FORMATO_ATEND=["Online","Presencial","Híbrido"];
+const PC_COMPLEXIDADE=["Baixa","Média","Alta"];
+const PC_ORC_STATUS=["Rascunho","Enviado","Aprovado","Recusado"];
+const pcOrcDefault=()=>({
+  escopo:[],
+  formato:"Online",
+  horasOnline:0,horasPresenciais:0,horasDeslocamento:0,km:0,
+  valorHora:0,valorKm:0,alimentacao:0,outrosCustos:0,outrosCustosDesc:"",
+  complexidade:"Baixa",percBaixa:0,percMedia:15,percAlta:30,
+  ajusteManual:false,valorManual:0,motivoAjuste:"",
+  formaPagamento:"PIX",condicoesPagamento:"",
+  cronograma:"",validadeDias:15,
+  status:"Rascunho",dataEnvio:"",dataResposta:"",motivoRecusa:""
+});
+const pcPercComplexidade=(orc)=>({"Baixa":Number(orc.percBaixa)||0,"Média":Number(orc.percMedia)||0,"Alta":Number(orc.percAlta)||0}[orc.complexidade]||0);
+const pcCalcOrcBase=(orc)=>{
+  const horas=(Number(orc.horasOnline)||0)+(Number(orc.horasPresenciais)||0)+(Number(orc.horasDeslocamento)||0);
+  const vHora=horas*(Number(orc.valorHora)||0);
+  const vKm=(Number(orc.km)||0)*(Number(orc.valorKm)||0);
+  const alim=Number(orc.alimentacao)||0;
+  const outros=Number(orc.outrosCustos)||0;
+  return vHora+vKm+alim+outros;
+};
+const pcCalcOrcamento=(orc)=>{
+  const base=pcCalcOrcBase(orc);
+  const perc=pcPercComplexidade(orc);
+  const ajuste=base*(perc/100);
+  const calculado=base+ajuste;
+  const final=orc.ajusteManual?(Number(orc.valorManual)||0):calculado;
+  return {base,perc,ajuste,calculado,final};
+};
+const pcSalvarOrcamento=(p,orcNovo)=>pcEv({...p,orcamento:{...orcNovo}},"orcamento","Orçamento atualizado");
+const pcDefinirStatusOrc=(p,status)=>{
+  const o={...pcOrcDefault(),...(p.orcamento||{})};
+  if(o.status===status)return p;
+  const extra={};
+  if(status==="Enviado")extra.dataEnvio=pcHoje();
+  if(status==="Aprovado"||status==="Recusado")extra.dataResposta=pcHoje();
+  const n={...p,orcamento:{...o,status,...extra}};
+  return pcEv(n,"orcamento",`Orçamento: ${o.status} → ${status}`);
+};
+const pcCancelarProjeto=(p,motivo)=>pcEv({...p,status:"Cancelado"},"status",`Projeto cancelado${motivo?`: ${motivo}`:""}`);
 const PC_QUESTIONARIO=[
   {bloco:"Clareza da operação",pergunta:"Quando você pensa na operação da empresa como um todo, o quanto está claro como ela funciona, do início ao fim?",opcoes:[
     {pontos:1,texto:"Só eu (ou uma pessoa) tenho a visão completa de como tudo funciona; o resto enxerga só pedaços."},
@@ -3825,8 +3870,8 @@ const pcRegistrarInd=(p,indId,r)=>{
 };
 const pcExcluirInd=(p,id)=>({...p,indicadores:(p.indicadores||[]).filter(x=>x.id!==id)});
 const pcLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
-const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0"};
-const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador"};
+const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E"};
+const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador",orcamento:"Orçamento"};
 
 const PcSpark=({pontos})=>{
   if(!pontos||pontos.length<2)return null;
@@ -3852,6 +3897,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const [dg,setDg]=useState({});
   const [dgSujo,setDgSujo]=useState(false);
   const [nivelDg,setNivelDg]=useState("");
+  const [orc,setOrc]=useState(pcOrcDefault());
+  const [orcSujo,setOrcSujo]=useState(false);
   const [novoCli,setNovoCli]=useState(null);
   const [docBusy,setDocBusy]=useState(false);
   const [docPrev,setDocPrev]=useState(null);
@@ -3865,6 +3912,11 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     setDg(t);setDgSujo(false);
     setNivelDg((sel&&sel.nivel)||"");
   },[selId,sel&&sel.nivel]);
+
+  useEffect(()=>{
+    setOrc({...pcOrcDefault(),...((sel&&sel.orcamento)||{})});
+    setOrcSujo(false);
+  },[selId]);
 
   const upd=(fn)=>setProjetos&&setProjetos(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -3898,6 +3950,14 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     if(setCompromissos)setCompromissos(prev=>prev.filter(c=>c.projetoId!==sel.id));
     setSelId(null);
   };
+  const cancelarProjeto=()=>{
+    if(!sel||sel.status==="Cancelado")return;
+    const motivo=window.prompt("Cancelar este projeto. Se quiser, descreva o motivo (orçamento não aprovado, desistência, etc.) — pode deixar em branco:","");
+    if(motivo===null)return;
+    if(!window.confirm(`Confirma o cancelamento do projeto "${sel.nome}"? O projeto fica marcado como "Cancelado" e pode ser consultado depois, mas some das listas de projetos ativos.`))return;
+    upd(pp=>pcCancelarProjeto(pp,motivo.trim()));
+    showSavedGlobal("Projeto cancelado.");
+  };
 
   // ── diagnóstico ──
   const salvarDiag=()=>{upd(p=>pcSalvarDiag(p,dg));setDgSujo(false);showSavedGlobal("Diagnóstico salvo!");};
@@ -3928,6 +3988,31 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const criarAcaoDaPrior=(pr)=>{
     setForm({acao:pr.objetivo||`Resolver: ${pr.problema}`,area:PC_AREAS[0],descricao:`Problema: ${pr.problema}${pr.causa?`\nCausa/gargalo: ${pr.causa}`:""}`,responsavel:pr.responsavel||"",prazo:pr.prazo||"",prioridade:pr.prioridade||"Média",status:"Pendente",prioridadeId:pr.id,resultadoEsperado:pr.impacto||"",resultadoAlcancado:"",obs:""});
     setTab("plano");setModal("acao");
+  };
+
+  // ── orçamento ──
+  const [escopoTxt,setEscopoTxt]=useState("");
+  const O=(k,v)=>{setOrc(o=>({...o,[k]:v}));setOrcSujo(true);};
+  const addEscopoItem=()=>{
+    const t=String(escopoTxt||"").trim();
+    if(!t)return;
+    setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:""}]}));
+    setEscopoTxt("");setOrcSujo(true);
+  };
+  const removerEscopoItem=(id)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).filter(e=>e.id!==id)}));setOrcSujo(true);};
+  const importarPrioridadesEscopo=()=>{
+    const existentes=new Set((orc.escopo||[]).map(e=>e.prioridadeId).filter(Boolean));
+    const novos=((sel&&sel.prioridades)||[]).filter(pr=>!existentes.has(pr.id)).map(pr=>({id:uid(),texto:pr.objetivo||pr.problema,prioridadeId:pr.id}));
+    if(novos.length===0){alert("Não há prioridades novas para trazer para o escopo.");return;}
+    setOrc(o=>({...o,escopo:[...(o.escopo||[]),...novos]}));
+    setOrcSujo(true);showSavedGlobal(`${novos.length} item(ns) trazido(s) das prioridades!`);
+  };
+  const salvarOrc=()=>{upd(p=>pcSalvarOrcamento(p,orc));setOrcSujo(false);showSavedGlobal("Orçamento salvo!");};
+  const mudarStatusOrc=(status)=>{
+    if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?`))return;
+    upd(p=>pcDefinirStatusOrc({...p,orcamento:{...orc}},status));
+    setOrcSujo(false);
+    showSavedGlobal(`Orçamento: ${status}`);
   };
 
   // ── plano de ação ──
@@ -4389,7 +4474,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
+  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["orc","💰 Orçamento"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
@@ -4614,6 +4699,113 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     </div>);
   };
 
+  const renderOrc=()=>{
+    const dd=p.diagnostico||{};
+    const respostas=dd.respostas||{};
+    const totalQ=PC_QUESTIONARIO.length;
+    const completo=Object.keys(respostas).length===totalQ;
+    const totalPts=Object.values(respostas).reduce((s,v)=>s+v,0);
+    const calc=pcCalcOrcamento(orc);
+    const existentesPrior=new Set((orc.escopo||[]).map(e=>e.prioridadeId).filter(Boolean));
+    const priorDisponiveis=((p.prioridades)||[]).filter(pr=>!existentesPrior.has(pr.id));
+    return(<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase"}}>Status do orçamento</span>
+          <PcChip t={orc.status}/>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {orc.status!=="Enviado"&&orc.status!=="Aprovado"&&<Btn sm v="ghost" onClick={()=>mudarStatusOrc("Enviado")}>📤 Marcar como enviado</Btn>}
+          {orc.status!=="Aprovado"&&<Btn sm v="oliva" onClick={()=>mudarStatusOrc("Aprovado")}>✓ Aprovado</Btn>}
+          {orc.status!=="Recusado"&&<Btn sm v="danger" onClick={()=>mudarStatusOrc("Recusado")}>✕ Recusado</Btn>}
+        </div>
+      </div>
+
+      <Divider label="Diagnóstico (referência)"/>
+      <div style={{background:C.linho,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,color:C.cafe}}>
+        {completo?(<>
+          <div><b>Nível:</b> {p.nivel||pcNivelPorPontos(totalPts)}</div>
+          <div><b>Pontuação:</b> {totalPts}/{totalQ*4}</div>
+        </>):<div style={{color:C.oliva}}>Diagnóstico ainda não concluído — conclua o questionário para trazer o nível automaticamente.</div>}
+      </div>
+
+      <Divider label="Escopo do projeto"/>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}><Inp placeholder="Descreva um item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
+        <Btn sm onClick={addEscopoItem}>+ Adicionar</Btn>
+        {priorDisponiveis.length>0&&<Btn sm v="ghost" onClick={importarPrioridadesEscopo}>📥 Trazer das prioridades</Btn>}
+      </div>
+      {(orc.escopo||[]).length===0
+        ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
+        :(orc.escopo||[]).map(e=>(
+          <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
+            <span style={{flex:1,color:C.cafe}}>{e.texto}</span>
+            {e.prioridadeId&&<span style={{fontSize:10,color:C.oliva}}>🔗 prioridade</span>}
+            <Btn sm v="ghost" onClick={()=>removerEscopoItem(e.id)}>🗑</Btn>
+          </div>))}
+
+      <Divider label="Formato de atendimento"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Formato" value={orc.formato} onChange={v=>O("formato",v)} options={PC_FORMATO_ATEND}/>
+        {(orc.formato==="Online"||orc.formato==="Híbrido")&&<Inp label="Horas online" type="number" value={orc.horasOnline} onChange={v=>O("horasOnline",v)}/>}
+        {(orc.formato==="Presencial"||orc.formato==="Híbrido")&&<>
+          <Inp label="Horas presenciais" type="number" value={orc.horasPresenciais} onChange={v=>O("horasPresenciais",v)}/>
+          <Inp label="Horas de deslocamento" type="number" value={orc.horasDeslocamento} onChange={v=>O("horasDeslocamento",v)}/>
+          <Inp label="KM percorridos" type="number" value={orc.km} onChange={v=>O("km",v)}/>
+          <Inp label="Valor por KM (R$)" type="number" value={orc.valorKm} onChange={v=>O("valorKm",v)}/>
+        </>}
+      </div>
+
+      <Divider label="Custos"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:10}}>
+        <Inp label="Valor por hora (R$)" type="number" value={orc.valorHora} onChange={v=>O("valorHora",v)}/>
+        <Inp label="Alimentação (R$)" type="number" value={orc.alimentacao} onChange={v=>O("alimentacao",v)}/>
+        <Inp label="Outros custos (R$)" type="number" value={orc.outrosCustos} onChange={v=>O("outrosCustos",v)}/>
+        <Inp label="Descrição outros custos" value={orc.outrosCustosDesc} onChange={v=>O("outrosCustosDesc",v)}/>
+      </div>
+
+      <Divider label="Complexidade"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Nível de complexidade" value={orc.complexidade} onChange={v=>O("complexidade",v)} options={PC_COMPLEXIDADE}/>
+        <Inp label="% Baixa" type="number" value={orc.percBaixa} onChange={v=>O("percBaixa",v)}/>
+        <Inp label="% Média" type="number" value={orc.percMedia} onChange={v=>O("percMedia",v)}/>
+        <Inp label="% Alta" type="number" value={orc.percAlta} onChange={v=>O("percAlta",v)}/>
+      </div>
+
+      <Divider label="Investimento"/>
+      <div style={{background:C.linho,borderRadius:8,padding:14,marginBottom:10}}>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:8}}>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Base</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.base)}</div></div>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Ajuste complexidade ({calc.perc}%)</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.ajuste)}</div></div>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Valor calculado</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.calculado)}</div></div>
+        </div>
+        <label style={{display:"flex",gap:6,alignItems:"center",fontSize:12,color:C.cafe,marginBottom:8}}>
+          <input type="checkbox" checked={!!orc.ajusteManual} onChange={e=>O("ajusteManual",e.target.checked)}/> Ajustar valor manualmente
+        </label>
+        {orc.ajusteManual&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:8}}>
+          <Inp label="Valor final manual (R$)" type="number" value={orc.valorManual} onChange={v=>O("valorManual",v)}/>
+          <Inp label="Motivo do ajuste" value={orc.motivoAjuste} onChange={v=>O("motivoAjuste",v)}/>
+        </div>}
+        <div style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:1}}>Valor final</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#1F7A4D"}}>{fmtBRL(calc.final)}</div>
+        {orc.ajusteManual&&!String(orc.motivoAjuste||"").trim()&&<div style={{fontSize:11,color:C.vermelho,marginTop:4}}>⚠ Informe o motivo do ajuste manual.</div>}
+      </div>
+
+      <Divider label="Pagamento e cronograma"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Forma de pagamento" value={orc.formaPagamento} onChange={v=>O("formaPagamento",v)} options={["PIX","Boleto","Cartão","Transferência","Outro"]}/>
+        <Inp label="Condições de pagamento" value={orc.condicoesPagamento} onChange={v=>O("condicoesPagamento",v)} placeholder="Ex: 50% na assinatura + 50% na entrega"/>
+        <Inp label="Validade da proposta (dias)" type="number" value={orc.validadeDias} onChange={v=>O("validadeDias",v)}/>
+      </div>
+      <Inp label="Cronograma / etapas" rows={4} value={orc.cronograma} onChange={v=>O("cronograma",v)} placeholder="Descreva as etapas e prazos previstos"/>
+
+      <div style={{display:"flex",gap:8,marginTop:16,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn onClick={salvarOrc}>💾 Salvar orçamento</Btn>
+        {orcSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
+      </div>
+    </div>);
+  };
+
   const renderPlano=()=>{
     const filtros=[["todas","Todas",r.total],["Pendente","Pendentes",r.pendentes],["Em andamento","Em andamento",r.andamento],["Concluída","Concluídas",r.concluidas],["Atrasada","Atrasadas",r.atrasadas]];
     const lista=(p.acoes||[]).filter(a=>fAcao==="todas"||pcStatusAcaoEf(a)===fAcao).slice().sort((a,b)=>{
@@ -4812,8 +5004,9 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           <div style={{fontSize:12,color:C.oliva,marginBottom:6}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><PcChip t={p.status}/><PcNivel n={p.nivel}/></div>
         </div>
-        <div style={{display:"flex",gap:6}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <Btn sm v="ghost" onClick={()=>{setForm(pcForm(p));setModal("projeto");}}>✎ Editar</Btn>
+          {p.status!=="Cancelado"&&<Btn sm v="danger" onClick={cancelarProjeto}>✕ Cancelar projeto</Btn>}
           <Btn sm v="ghost" onClick={excluirProjeto}>🗑</Btn>
         </div>
       </div>
@@ -4823,6 +5016,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       {tab==="resumo"&&renderResumo()}
       {tab==="diag"&&renderDiag()}
       {tab==="prior"&&renderPrior()}
+      {tab==="orc"&&renderOrc()}
       {tab==="plano"&&renderPlano()}
       {tab==="atend"&&renderAtend()}
       {tab==="ind"&&renderInd()}
@@ -7348,7 +7542,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v32</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v33</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
