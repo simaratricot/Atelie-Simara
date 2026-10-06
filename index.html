@@ -3662,6 +3662,25 @@ const pcDefinirStatusOrc=(p,status)=>{
   return pcEv(n,"orcamento",`Orçamento: ${o.status} → ${status}`);
 };
 const pcCancelarProjeto=(p,motivo)=>pcEv({...p,status:"Cancelado"},"status",`Projeto cancelado${motivo?`: ${motivo}`:""}`);
+const pcAprovarOrcamento=(p,orcAtual)=>{
+  const o={...pcOrcDefault(),...orcAtual};
+  const calc=pcCalcOrcamento(o);
+  const oFinal={...o,status:"Aprovado",dataResposta:pcHoje()};
+  let n={...p,orcamento:oFinal,valor:calc.final,formaPag:oFinal.formaPagamento};
+  if(n.status==="Diagnóstico")n.status="Planejamento";
+  return pcEv(n,"orcamento",`Orçamento aprovado — valor definido: ${fmtBRL(calc.final)}`);
+};
+const pcCriarAcoesDoEscopo=(p,orcAtual)=>{
+  const escopo=(orcAtual&&orcAtual.escopo)||(p.orcamento&&p.orcamento.escopo)||[];
+  const existentes=new Set((p.acoes||[]).map(a=>a.escopoId).filter(Boolean));
+  const novos=escopo.filter(e=>!existentes.has(e.id));
+  if(novos.length===0)return p;
+  let n=p;
+  novos.forEach(e=>{
+    n=pcSalvarAcao(n,{acao:e.texto,area:PC_AREAS[0],descricao:"",responsavel:n.responsavel||"",prazo:"",prioridade:"Média",status:"Pendente",prioridadeId:e.prioridadeId||"",resultadoEsperado:"",resultadoAlcancado:"",obs:"",escopoId:e.id});
+  });
+  return n;
+};
 const PC_QUESTIONARIO=[
   {bloco:"Clareza da operação",pergunta:"Quando você pensa na operação da empresa como um todo, o quanto está claro como ela funciona, do início ao fim?",opcoes:[
     {pontos:1,texto:"Só eu (ou uma pessoa) tenho a visão completa de como tudo funciona; o resto enxerga só pedaços."},
@@ -3722,13 +3741,20 @@ const PC_LEITURA_NIVEL={
 };
 const PC_STATUS_DIMENSAO={1:"🔴 Atenção",2:"🟡 Em desenvolvimento",3:"🟢 Estruturado",4:"🟢 Avançado"};
 const PC_DISCLAIMER_NIVEL="O resultado apresentado corresponde à leitura inicial obtida a partir das respostas do diagnóstico. A definição final do escopo do projeto considera também a análise da realidade da empresa e as prioridades identificadas na etapa de diagnóstico.";
-const PC_PROXIMO_PASSO_DIAG="Análise das prioridades e definição do projeto CONTÍNUA adequado à realidade da empresa.";
-const pcPontosAtencao=(respostas)=>PC_QUESTIONARIO.map((q,i)=>({nome:q.bloco,pontos:respostas[i]})).filter(x=>x.pontos!==undefined&&x.pontos<=2).map(x=>x.nome);
-const pcDirecionamento=(respostas)=>{
-  const atencao=pcPontosAtencao(respostas);
-  if(atencao.length===0)return "A empresa já apresenta boa maturidade nas dimensões avaliadas; o direcionamento deve focar em consolidar e evoluir as práticas existentes.";
-  return `A partir do resultado obtido, recomenda-se concentrar inicialmente a atenção em: ${atencao.map(a=>a.toLowerCase()).join(", ")}. Essas frentes deverão ser aprofundadas na etapa seguinte para definição das prioridades e do escopo adequado de atuação.`;
+const PC_LOGICA_NIVEL={"CONTÍNUA ESSENCIAL":"ORGANIZAR","CONTÍNUA EM AÇÃO":"ESTRUTURAR E APLICAR","CONTÍNUA ESTRATÉGICA":"APRIMORAR E EVOLUIR"};
+const PC_DIRECIONAMENTO_NIVEL={
+  "CONTÍNUA ESSENCIAL":"Fortalecer as bases da gestão.\n\nNeste momento, a empresa precisa concentrar esforços na organização do essencial: clareza da operação, responsabilidades, processos, informações e rotinas.\n\nO objetivo é criar uma base mais organizada e funcional para que as atividades aconteçam com maior clareza, continuidade e segurança.",
+  "CONTÍNUA EM AÇÃO":"Estruturar, aplicar e acompanhar a gestão.\n\nA empresa já possui bases de organização, mas existem pontos que precisam ser fortalecidos, integrados ou acompanhados de forma mais consistente.\n\nO foco passa a ser transformar o que já existe em uma rotina mais estruturada, melhorar processos, fortalecer responsabilidades, acompanhar resultados e corrigir os pontos que ainda geram dificuldades.",
+  "CONTÍNUA ESTRATÉGICA":"Aprofundar a gestão e impulsionar a evolução do negócio.\n\nA empresa apresenta um nível maior de estruturação e pode direcionar seus esforços para aprimorar processos, fortalecer indicadores, integrar informações e utilizar a gestão como instrumento de decisão e crescimento.\n\nO foco passa a ser menos a construção das bases e mais a otimização, análise e evolução contínua da empresa."
 };
+const PC_PROXIMO_PASSO_NIVEL={
+  "CONTÍNUA ESSENCIAL":"Identificar as prioridades que precisam ser organizadas primeiro e estruturar um plano de ação adequado à realidade da empresa.",
+  "CONTÍNUA EM AÇÃO":"Identificar as prioridades de melhoria e estruturar ações para consolidar a gestão na prática.",
+  "CONTÍNUA ESTRATÉGICA":"Identificar oportunidades estratégicas, definir prioridades de evolução e estruturar ações de médio e longo prazo."
+};
+const pcPontosAtencao=(respostas)=>PC_QUESTIONARIO.map((q,i)=>({nome:q.bloco,pontos:respostas[i]})).filter(x=>x.pontos!==undefined&&x.pontos<=2).map(x=>x.nome);
+const pcDirecionamento=(nivel)=>PC_DIRECIONAMENTO_NIVEL[nivel]||"";
+const pcProximoPassoNivel=(nivel)=>PC_PROXIMO_PASSO_NIVEL[nivel]||"Análise das prioridades e definição do projeto CONTÍNUA adequado à realidade da empresa.";
 const pcSalvarRespostaDiag=(p,idx,pontos)=>{
   const respostas={...((p.diagnostico||{}).respostas||{}),[idx]:pontos};
   let n={...p,diagnostico:{...(p.diagnostico||{}),respostas}};
@@ -4010,9 +4036,24 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const salvarOrc=()=>{upd(p=>pcSalvarOrcamento(p,orc));setOrcSujo(false);showSavedGlobal("Orçamento salvo!");};
   const mudarStatusOrc=(status)=>{
     if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?`))return;
+    if(status==="Aprovado"){
+      upd(p=>pcAprovarOrcamento(p,orc));
+      setOrcSujo(false);
+      showSavedGlobal(`Orçamento aprovado! Valor e forma de pagamento levados para o projeto.`);
+      return;
+    }
     upd(p=>pcDefinirStatusOrc({...p,orcamento:{...orc}},status));
     setOrcSujo(false);
     showSavedGlobal(`Orçamento: ${status}`);
+  };
+  const criarAcoesDoEscopo=()=>{
+    if(!sel)return;
+    const escopo=orc.escopo||[];
+    const existentes=new Set((sel.acoes||[]).map(a=>a.escopoId).filter(Boolean));
+    const novos=escopo.filter(e=>!existentes.has(e.id));
+    if(novos.length===0){alert("Todos os itens do escopo já têm uma ação criada.");return;}
+    upd(p=>pcCriarAcoesDoEscopo(p,orc));
+    showSavedGlobal(`${novos.length} ação(ões) criada(s) no plano de ação!`);
   };
 
   // ── plano de ação ──
@@ -4159,10 +4200,10 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           <table><tr><th>Dimensão</th><th>Resultado</th></tr>${dimLinhas}</table>
           <h2>Principais pontos de atenção</h2>
           ${atencao.length?`<ul>${atencao.map(a=>`<li>${a}</li>`).join("")}</ul>`:'<div class="campo">Nenhum ponto crítico identificado — maturidade equilibrada nas dimensões avaliadas.</div>'}
-          <h2>Direcionamento</h2><div class="campo">${pcDirecionamento(respostas)}</div>`;
+          <h2>Direcionamento</h2><div class="campo" style="white-space:pre-line">${pcDirecionamento(nivel)}</div>`;
       }
       blocoFechamento=`
-        <h2>Próximo passo</h2><div class="campo">${PC_PROXIMO_PASSO_DIAG}</div>
+        <h2>Próximo passo</h2><div class="campo">${pcProximoPassoNivel(nivel)}</div>
         <div class="campo" style="font-size:11px;color:#777;font-style:italic;margin-top:10px">${PC_DISCLAIMER_NIVEL}</div>
         <div class="campo" style="font-size:11px;color:#777;font-style:italic">Este diagnóstico serve como base para a definição do escopo do projeto CONTÍNUA mais adequado à realidade da empresa.</div>`;
     }else{
@@ -4176,6 +4217,39 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     ${blocoFechamento}
     ${pcRodape(config)}</body></html>`;
     return {html,arquivo:`Diagnostico ${p.nome} ${p.clienteNome}`,titulo:"Diagnóstico",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o diagnóstico do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docOrcamento=()=>{
+    const cli=clients.find(c=>c.id===p.clientId)||{};
+    const o={...pcOrcDefault(),...(p.orcamento||{})};
+    const calc=pcCalcOrcamento(o);
+    const dd=p.diagnostico||{};
+    const respostas=dd.respostas||{};
+    const totalQ=PC_QUESTIONARIO.length;
+    const completo=Object.keys(respostas).length===totalQ;
+    const totalPts=Object.values(respostas).reduce((s,v)=>s+v,0);
+    const nivel=p.nivel||(completo?pcNivelPorPontos(totalPts):"");
+    const atencao=completo?pcPontosAtencao(respostas):[];
+    const direcionamento=completo?pcDirecionamento(nivel):"";
+    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}</li>`).join("");
+    const formatoTxt=o.formato==="Online"?"Atendimento 100% online.":o.formato==="Presencial"?"Atendimento presencial.":"Atendimento híbrido (online e presencial).";
+    const validade=new Date(Date.now()+(Number(o.validadeDias)||15)*86400000).toLocaleDateString("pt-BR");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"ORÇAMENTO",`Status: ${o.status}`)}
+    ${pcCliBloco(p,cli)}
+    ${nivel?`<h2>Nível do Método CONTÍNUA</h2><div class="campo">🔧 ${nivel}</div>`:""}
+    ${atencao.length>0?`<h2>Principais pontos de atenção</h2><ul>${atencao.map(a=>`<li>${a}</li>`).join("")}</ul>`:""}
+    ${p.objetivo?`<h2>Objetivo</h2><div class="campo">${p.objetivo}</div>`:""}
+    ${direcionamento?`<h2>Direcionamento</h2><div class="campo" style="white-space:pre-line">${direcionamento}</div>`:""}
+    <h2>Escopo do projeto</h2>${escopoLinhas?`<ul>${escopoLinhas}</ul>`:'<div class="campo">Escopo a ser detalhado.</div>'}
+    ${o.cronograma?`<h2>Cronograma / etapas</h2><div class="campo" style="white-space:pre-line">${o.cronograma}</div>`:""}
+    <h2>Formato de atendimento</h2><div class="campo">${formatoTxt}</div>
+    <h2>Investimento</h2><div class="campo"><b>Valor do projeto:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>
+    <h2>Pagamento</h2><div class="campo"><b>Forma de pagamento:</b> ${o.formaPagamento}</div>${o.condicoesPagamento?`<div class="campo"><b>Condições:</b> ${o.condicoesPagamento}</div>`:""}
+    <h2>Validade da proposta</h2><div class="campo">Esta proposta é válida até ${validade}.</div>
+    <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${p.clienteNome}<br>Aceite do cliente</div></div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Orcamento ${p.nome} ${p.clienteNome}`,titulo:"Orçamento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o orçamento do projeto "${p.nome}" em anexo. 🤎
 *Simara Lobui · Consultoria*`};
   };
   const docPlano=()=>{
@@ -4234,7 +4308,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     return {html,arquivo:`Encerramento ${p.nome} ${p.clienteNome}`,titulo:"Encerramento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o documento de encerramento do projeto "${p.nome}" em anexo. Foi uma jornada e tanto — obrigada pela confiança! 🤎
 *Simara Lobui · Consultoria*`};
   };
-  const PC_DOCS=[["contrato","📑 Contrato do projeto",docContrato],["diag","🔎 Diagnóstico",docDiagnostico],["plano","✅ Plano de ação",docPlano],["acomp","📈 Relatório de acompanhamento",docAcompanhamento],["evol","🧭 Relatório de evolução",docEvolucao],["enc","🏁 Encerramento",docEncerramento]];
+  const PC_DOCS=[["contrato","📑 Contrato do projeto",docContrato],["diag","🔎 Diagnóstico",docDiagnostico],["orc","💰 Orçamento",docOrcamento],["plano","✅ Plano de ação",docPlano],["acomp","📈 Relatório de acompanhamento",docAcompanhamento],["evol","🧭 Relatório de evolução",docEvolucao],["enc","🏁 Encerramento",docEncerramento]];
 
   const btnPill=(ativo,onClick,label)=>(
     <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
@@ -4626,9 +4700,9 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
                 ))}
               </div>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>Direcionamento</div>
-              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12}}>{pcDirecionamento(respostas)}</div>
+              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12,whiteSpace:"pre-line"}}>{pcDirecionamento(nivelCalc)}</div>
               <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:4}}>Próximo passo</div>
-              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12}}>{PC_PROXIMO_PASSO_DIAG}</div>
+              <div style={{fontSize:13,color:C.cafe,lineHeight:1.6,marginBottom:12}}>{pcProximoPassoNivel(nivelCalc)}</div>
               <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",borderTop:`1px solid ${C.areia}`,paddingTop:8}}>{PC_DISCLAIMER_NIVEL}</div>
               <div style={{marginTop:14,paddingTop:12,borderTop:`1px dashed ${C.areia}`}}>
                 <Inp label="Resultado personalizado (opcional)" rows={5} value={dg.resultadoManual} onChange={v=>{setDg(d=>({...d,resultadoManual:v}));setDgSujo(true);}}
@@ -4803,6 +4877,17 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         <Btn onClick={salvarOrc}>💾 Salvar orçamento</Btn>
         {orcSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
       </div>
+
+      {orc.status==="Aprovado"&&(orc.escopo||[]).length>0&&<>
+        <Divider label="Plano de ação"/>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",background:C.linho,borderRadius:8,padding:"10px 14px"}}>
+          <Btn v="oliva" onClick={criarAcoesDoEscopo}>➜ Criar ações do escopo no Plano de ação</Btn>
+          <span style={{fontSize:11,color:C.oliva,flex:1,minWidth:200}}>Cria uma ação para cada item do escopo que ainda não tem ação no plano. Pode usar mais de uma vez — itens já criados não se duplicam.</span>
+        </div>
+      </>}
+      {orc.status==="Recusado"&&<div style={{marginTop:14,background:"#F3E1DE",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#c0392b"}}>
+        Orçamento recusado. Se o projeto não vai seguir, use "✕ Cancelar projeto" no topo da página.
+      </div>}
     </div>);
   };
 
@@ -7542,7 +7627,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v33</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v34</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
