@@ -161,6 +161,99 @@ const CATS_FIN = ["Moda","Casa","Amigurumi","Suprimentos","Marketing","Despesas"
 const UNIDADES = ["g","kg","m","cm","un","novelo","rolo","par","meada"];
 const TIPOS_SUP = ["Linha/Fio","Embalagem","Brinde/Mimo","Aviamento","Outro"];
 
+// ─── CONTAS PESSOAIS ──────────────────────────────────────────────────────────
+const PF_CAT_DESPESA_DEFAULT = ["Moradia","Alimentação","Contas da casa","Transporte","Saúde","Educação","Lazer","Compras","Família","Impostos pessoais","Cartões","Parcelamentos","Outros"].map(nome=>({id:uid(),nome,ativa:true}));
+const PF_CAT_RECEITA_DEFAULT = ["Pró-labore/Retirada do negócio","Reembolso","Presente","Venda pessoal","Devolução","Outras receitas"].map(nome=>({id:uid(),nome,ativa:true}));
+const PF_FORMAS_PAG = ["Dinheiro","Pix","Débito","Cartão de crédito","Boleto","Transferência","Outro"];
+const PF_FORMAS_RECEB = ["Dinheiro","Pix","Transferência","Depósito","Outro"];
+const PF_TIPOS_DESPESA = ["Fixa","Eventual"];
+const PF_STATUS = ["Pendente","Pago","Atrasado"];
+const pfStatus = d => d.pago?"Pago":(d.vencimento&&d.vencimento<today?"Atrasado":"Pendente");
+
+// ─── CICLO DE FATURA DO CARTÃO (fechamento/vencimento, tipo extrato de banco) ──
+// A qual competência (yyyy-mm, mês em que a fatura FECHA) uma compra pertence
+const pfCompetencia = (diaFechamento,dataStr) => {
+  const d=new Date((dataStr||today)+"T00:00");
+  const dia=d.getDate();
+  let y=d.getFullYear(),m=d.getMonth(); // compra até o dia de fechamento entra na fatura que fecha neste mês
+  if(dia>Number(diaFechamento||1)){ // compra depois do fechamento já é da fatura do mês seguinte
+    const nd=new Date(y,m+1,1); y=nd.getFullYear(); m=nd.getMonth();
+  }
+  return `${y}-${String(m+1).padStart(2,"0")}`;
+};
+// Data de vencimento (pagamento) de uma competência, dado o dia de vencimento do cartão
+const pfVencimentoFatura = (diaVencimento,diaFechamento,competencia) => {
+  const [y,m]=competencia.split("-").map(Number); // m = mês de fechamento (1-12)
+  let vy=y,vm=m-1; // mesmo mês do fechamento, por padrão
+  if(Number(diaVencimento)<Number(diaFechamento||1))vm+=1; // vencimento "roda" pro mês seguinte ao fechamento
+  const dt=new Date(vy,vm,Number(diaVencimento||10));
+  return dt.toISOString().split("T")[0];
+};
+const pfCompetenciaLabel = competencia => {
+  const MESES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const [y,m]=competencia.split("-").map(Number);
+  return `${MESES[m-1]}/${y}`;
+};
+// Divide uma compra no cartão em N parcelas mensais, sem perder centavos no arredondamento,
+// já calculando a competência/vencimento de cada parcela a partir do ciclo do cartão
+const pfGerarParcelas = (form,n,cartao) => {
+  const totalCent=Math.round(Number(form.valor)*100);
+  const baseCent=Math.floor(totalCent/n);
+  const resto=totalCent-baseCent*n;
+  const compraId=uid();
+  const compraBase=new Date((form.dataCompra||form.vencimento||today)+"T00:00");
+  const diaFechamento=(cartao&&cartao.diaFechamento)||1;
+  const diaVencimento=(cartao&&cartao.diaVencimento)||10;
+  return Array.from({length:n},(_,i)=>{
+    const dt=new Date(compraBase.getFullYear(),compraBase.getMonth()+i,compraBase.getDate());
+    const dataCompra=dt.toISOString().split("T")[0];
+    const centavos=baseCent+(i<resto?1:0);
+    const competencia=pfCompetencia(diaFechamento,dataCompra);
+    const vencimento=pfVencimentoFatura(diaVencimento,diaFechamento,competencia);
+    return {...form,id:uid(),compraId,numParcela:i+1,totalParcelas:n,parcelado:true,
+      valor:centavos/100,valorTotalCompra:Number(form.valor),
+      dataCompra,competencia,vencimento,pago:false,dataPagamento:"",faturaId:"",
+      descricao:`${form.descricao} (${i+1}/${n})`};
+  });
+};
+// Gera N lançamentos mensais futuros de uma despesa fixa recorrente, todos Pendentes
+const pfGerarRecorrentes = (form,n) => {
+  const base=new Date((form.vencimento||today)+"T00:00");
+  const recorrenteId=uid();
+  return Array.from({length:n},(_,i)=>{
+    const dt=new Date(base.getFullYear(),base.getMonth()+i,base.getDate());
+    return {...form,id:uid(),recorrenteId,vencimento:dt.toISOString().split("T")[0],pago:false,dataPagamento:""};
+  });
+};
+// Lançamentos soltos (sem fatura fechada ainda) de um cartão numa competência
+const pfItensCompetencia = (despesas,nomeCartao,competencia) =>
+  despesas.filter(d=>d.formaPagamento==="Cartão de crédito"&&d.contaCartao===nomeCartao&&d.competencia===competencia&&!d.faturaId);
+// Limite usado = soma de tudo que foi lançado no cartão e ainda não foi pago (libera ao pagar a fatura)
+const pfLimiteUsado = (despesas,nomeCartao) =>
+  despesas.filter(d=>d.formaPagamento==="Cartão de crédito"&&d.contaCartao===nomeCartao&&!d.pago).reduce((a,d)=>a+Number(d.valor||0),0);
+
+// Painel financeiro pessoal completo (saldo atual + entradas/saídas do mês)
+const pfPainel = (despesas,receitas,mes) => {
+  const soma=(arr,campo="valor")=>arr.reduce((a,x)=>a+Number(x[campo]||0),0);
+  const saldoAtual=soma(receitas)-soma(despesas.filter(d=>d.pago));
+  const recMes=receitas.filter(r=>r.data?.startsWith(mes));
+  const entradaProLabore=soma(recMes.filter(r=>r.categoria==="Pró-labore/Retirada do negócio"));
+  const entradaOutras=soma(recMes.filter(r=>r.categoria==="Outras receitas"));
+  const entradaAvulsa=soma(recMes)-entradaProLabore-entradaOutras;
+  const despPagasMes=despesas.filter(d=>d.pago&&d.dataPagamento?.startsWith(mes));
+  const saidaFixaMes=soma(despPagasMes.filter(d=>d.tipo==="Fixa"));
+  const saidaEventualMes=soma(despPagasMes.filter(d=>d.tipo!=="Fixa"));
+  const entradasMes=soma(recMes);
+  const saidasMes=saidaFixaMes+saidaEventualMes;
+  return {
+    saldoAtual,
+    entradasMes,entradaProLabore,entradaAvulsa,entradaOutras,
+    saidasMes,saidaFixaMes,saidaEventualMes,
+    resultadoMes:entradasMes-saidasMes,
+    pendenteTotal:soma(despesas.filter(d=>!d.pago)),
+  };
+};
+
 // ─── DADOS INICIAIS (só usados se não há nada salvo) ─────────────────────────
 const INIT = {
   products:[],
@@ -169,6 +262,11 @@ const INIT = {
   stockSup:[],
   finance:[],
   contas:[{id:"mp1",nome:"Mercado Pago",tipo:"Conta digital",saldo:0,cor:"#00B1EA"}],
+  personalDespesas:[],
+  personalReceitas:[],
+  personalCategorias:{despesa:PF_CAT_DESPESA_DEFAULT,receita:PF_CAT_RECEITA_DEFAULT},
+  personalContas:[],
+  personalFaturas:[],
   frases:[
     {id:"f1",texto:"Cada ponto dado com amor é uma oração tecida.",categoria:"Fé",ativa:true},
     {id:"f2",texto:"Suas mãos criam beleza que o mundo precisa ver.",categoria:"Entusiasmo",ativa:true},
@@ -560,6 +658,7 @@ const NAV = [
   {k:"production",i:"⟡",l:"Produção"},
   {k:"stock",i:"◇",l:"Estoque"},
   {k:"finance",i:"◉",l:"Financeiro"},
+  {k:"personal",i:"👛",l:"Contas Pessoais"},
   {k:"metas",i:"🎯",l:"Metas"},
   {k:"clients",i:"◈",l:"Cadastros"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
@@ -575,7 +674,7 @@ const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
 const NAV_GROUPS=[
   {label:"Início",items:[NAV_BY_KEY.dashboard]},
   {label:"Meu Negócio",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
-  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.reports]},
+  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.personal,NAV_BY_KEY.reports]},
   {label:"Cadastros",items:[NAV_BY_KEY.clients]},
   {label:"Minha Rotina",items:[NAV_BY_KEY.agenda,NAV_BY_KEY.metas,NAV_BY_KEY.diario,NAV_BY_KEY.projects]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
@@ -2248,7 +2347,7 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   );
 };
 
-const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
+const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetiradaPessoal}) => {
   const [tab,setTab]=useState("lanc");
   const [formModal,setFormModal]=useState(false);
   const [contaModal,setContaModal]=useState(false);
@@ -2330,6 +2429,10 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
     } else {
       setFinance(prev=>[...prev,{...form,id:uid(),value:Number(form.value),pago:false}]);
       showSavedGlobal("Lançamento salvo!");
+    }
+    if(form.type==="despesa"&&form.retiradaPessoal&&onRetiradaPessoal){
+      onRetiradaPessoal({valor:Number(form.value),data:form.date,desc:form.desc});
+      showSavedGlobal("Lançamento salvo! Entrada criada em Contas Pessoais.");
     }
     setFormModal(false);
   };
@@ -2558,6 +2661,10 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
               <input type="checkbox" checked={form.fixa||false} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
               <span style={{fontWeight:600}}>📌 Conta fixa (recorrente)</span>
             </label>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#F7E3E6",padding:"10px 12px",borderRadius:6}}>
+              <input type="checkbox" checked={form.retiradaPessoal||false} onChange={e=>setForm(f=>({...f,retiradaPessoal:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+              <span style={{fontWeight:600,color:"#B5455B"}}>👛 Isto é retirada/pró-labore para mim — criar entrada em Contas Pessoais</span>
+            </label>
             {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:12}}>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Data de início</label>
@@ -2611,6 +2718,417 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[]}) => {
           <Inp label="Observação" value={tForm.nota} onChange={v=>setTForm(f=>({...f,nota:v}))}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setTransModal(false)}>Cancelar</Btn><Btn onClick={doTrans}>Transferir</Btn></div>
+      </Modal>}
+    </div>
+  );
+};
+
+// ─── CONTAS PESSOAIS ──────────────────────────────────────────────────────────
+const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,categorias,setCategorias,contasPF=[],setContasPF,faturas=[],setFaturas}) => {
+  const [tab,setTab]=useState("painel");
+  const [despModal,setDespModal]=useState(false);
+  const [recModal,setRecModal]=useState(false);
+  const [catModal,setCatModal]=useState(null); // {tipo}
+  const [contaModal,setContaModal]=useState(false);
+  const [filtStatus,setFiltStatus]=useState("todos");
+  const [busca,setBusca]=useState("");
+  const dDefault=()=>({descricao:"",categoria:(categorias.despesa||[]).find(c=>c.ativa)?.nome||"",tipo:"Eventual",valor:0,vencimento:today,dataCompra:today,pago:false,dataPagamento:"",formaPagamento:"Dinheiro",contaCartao:"",parcelado:false,numParcelas:2,recorrente:false,qtdMeses:12,observacoes:""});
+  const rDefault=()=>({descricao:"",categoria:(categorias.receita||[]).find(c=>c.ativa)?.nome||"",valor:0,data:today,formaRecebimento:"Dinheiro",origem:"",observacoes:""});
+  const [dForm,setDForm]=useState(dDefault());
+  const [rForm,setRForm]=useState(rDefault());
+  const [catForm,setCatForm]=useState({tipo:"despesa",id:"",nome:""});
+  const [cpForm,setCpForm]=useState({id:"",nome:"",tipo:"Conta"});
+
+  const catsDespAtivas=(categorias.despesa||[]).filter(c=>c.ativa);
+  const catsRecAtivas=(categorias.receita||[]).filter(c=>c.ativa);
+  const cartaoDoForm=contasPF.find(c=>c.nome===dForm.contaCartao);
+
+  const filtraBusca=x=>!busca||x.descricao?.toLowerCase().includes(busca.toLowerCase())||x.categoria?.toLowerCase().includes(busca.toLowerCase());
+  const despFiltradas=despesas.filter(filtraBusca).filter(d=>filtStatus==="todos"||pfStatus(d)===filtStatus);
+
+  const mesAtual=today.slice(0,7);
+  const painel=pfPainel(despesas,receitas,mesAtual);
+  const totalDespPendentes=painel.pendenteTotal;
+  const totalDespPagasMes=painel.saidasMes;
+  const totalRecMes=painel.entradasMes;
+  const saldoMes=painel.resultadoMes;
+
+  const abrirNovaDesp=()=>{setDForm(dDefault());setDespModal(true);};
+  const abrirEditarDesp=d=>{setDForm({...d});setDespModal(true);};
+  const saveDesp=()=>{
+    const ehCartao=dForm.formaPagamento==="Cartão de crédito";
+    const n=Number(dForm.numParcelas)||1;
+    const cartao=contasPF.find(c=>c.nome===dForm.contaCartao);
+    if(!dForm.id&&ehCartao&&dForm.parcelado&&n>1){
+      const novas=pfGerarParcelas(dForm,n,cartao);
+      setDespesas(prev=>[...prev,...novas]);
+      showSavedGlobal(`${n} parcelas criadas!`);
+    } else if(!dForm.id&&!ehCartao&&dForm.tipo==="Fixa"&&dForm.recorrente){
+      const qtd=Number(dForm.qtdMeses)||12;
+      const novas=pfGerarRecorrentes(dForm,qtd);
+      setDespesas(prev=>[...prev,...novas]);
+      showSavedGlobal(`${qtd} lançamentos criados!`);
+    } else if(dForm.id){
+      let salvo={...dForm,valor:Number(dForm.valor)};
+      if(ehCartao&&cartao){const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);salvo={...salvo,competencia:comp,vencimento:pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp)};}
+      setDespesas(prev=>prev.map(d=>d.id===dForm.id?salvo:d));
+      showSavedGlobal("Despesa pessoal salva!");
+    } else {
+      let nova={...dForm,id:uid(),valor:Number(dForm.valor),pago:false};
+      if(ehCartao&&cartao){const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);nova={...nova,competencia:comp,vencimento:pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp),faturaId:""};}
+      setDespesas(prev=>[...prev,nova]);
+      showSavedGlobal("Despesa pessoal salva!");
+    }
+    setDespModal(false);
+  };
+  const marcarPagoDesp=(d,dataPagamento)=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:true,dataPagamento:dataPagamento||today}:x));showSavedGlobal("Marcada como paga!");};
+  const cancelarPagoDesp=d=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:false,dataPagamento:""}:x));};
+  const excluirDesp=id=>{if(window.confirm("Excluir esta despesa pessoal?"))setDespesas(prev=>prev.filter(d=>d.id!==id));};
+
+  // Fecha a fatura de um cartão/competência num único movimento (junta tudo pra pagar de uma vez)
+  const fecharFatura=(cartao,competencia)=>{
+    const itens=pfItensCompetencia(despesas,cartao.nome,competencia);
+    if(itens.length===0)return;
+    const valorTotal=itens.reduce((a,d)=>a+Number(d.valor||0),0);
+    const faturaId=uid();
+    const vencimento=pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,competencia);
+    setFaturas(prev=>[...prev,{id:faturaId,cartaoNome:cartao.nome,competencia,vencimento,valorTotal,itensIds:itens.map(i=>i.id),status:"Fechada",dataPagamento:""}]);
+    setDespesas(prev=>prev.map(d=>itens.some(i=>i.id===d.id)?{...d,faturaId}:d));
+    showSavedGlobal("Fatura fechada!");
+  };
+  const pagarFatura=f=>{
+    setFaturas(prev=>prev.map(x=>x.id===f.id?{...x,status:"Paga",dataPagamento:today}:x));
+    setDespesas(prev=>prev.map(d=>f.itensIds.includes(d.id)?{...d,pago:true,dataPagamento:today}:d));
+    showSavedGlobal("Fatura paga! Limite liberado.");
+  };
+  const reabrirFatura=f=>{
+    setFaturas(prev=>prev.filter(x=>x.id!==f.id));
+    setDespesas(prev=>prev.map(d=>f.itensIds.includes(d.id)?{...d,faturaId:""}:d));
+  };
+
+  const abrirNovaRec=()=>{setRForm(rDefault());setRecModal(true);};
+  const abrirEditarRec=r=>{setRForm({...r});setRecModal(true);};
+  const saveRec=()=>{
+    if(rForm.id)setReceitas(prev=>prev.map(r=>r.id===rForm.id?{...rForm,valor:Number(rForm.valor)}:r));
+    else setReceitas(prev=>[...prev,{...rForm,id:uid(),valor:Number(rForm.valor)}]);
+    setRecModal(false);showSavedGlobal("Receita pessoal salva!");
+  };
+  const excluirRec=id=>{if(window.confirm("Excluir esta receita pessoal?"))setReceitas(prev=>prev.filter(r=>r.id!==id));};
+
+  const abrirNovaCat=tipo=>{setCatForm({tipo,id:"",nome:""});setCatModal(tipo);};
+  const abrirEditarCat=(tipo,c)=>{setCatForm({tipo,id:c.id,nome:c.nome});setCatModal(tipo);};
+  const saveCat=()=>{
+    const nome=(catForm.nome||"").trim();
+    if(!nome)return;
+    setCategorias(prev=>{
+      const lista=prev[catForm.tipo]||[];
+      const nova=catForm.id?lista.map(c=>c.id===catForm.id?{...c,nome}:c):[...lista,{id:uid(),nome,ativa:true}];
+      return {...prev,[catForm.tipo]:nova};
+    });
+    setCatModal(null);showSavedGlobal("Categoria salva!");
+  };
+  const toggleCatAtiva=(tipo,id)=>{setCategorias(prev=>({...prev,[tipo]:(prev[tipo]||[]).map(c=>c.id===id?{...c,ativa:!c.ativa}:c)}));};
+
+  const saveContaPF=()=>{
+    const nome=(cpForm.nome||"").trim();
+    if(!nome)return;
+    const dados={...cpForm,nome,limite:Number(cpForm.limite)||0,diaFechamento:Number(cpForm.diaFechamento)||1,diaVencimento:Number(cpForm.diaVencimento)||10};
+    if(cpForm.id)setContasPF(prev=>prev.map(c=>c.id===cpForm.id?dados:c));
+    else setContasPF(prev=>[...prev,{...dados,id:uid()}]);
+    setContaModal(false);showSavedGlobal("Conta/cartão salvo!");
+  };
+  const excluirContaPF=id=>{if(window.confirm("Excluir esta conta/cartão?"))setContasPF(prev=>prev.filter(c=>c.id!==id));};
+
+  const StatusChip=({s})=>{
+    const cor=s==="Pago"?{bg:"#D4E8D4",c:"#2E6B2E"}:s==="Atrasado"?{bg:"#FEE",c:C.vermelho}:{bg:"#FEF3E9",c:C.dourado};
+    return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:cor.bg,color:cor.c}}>{s}</span>;
+  };
+
+  return (
+    <div className="fade" style={{padding:24}}>
+      <div style={{background:`linear-gradient(120deg,${C.cafe},${C.oliva})`,borderRadius:8,padding:"16px 20px",marginBottom:16}}>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>Visão pessoal</div>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+          {[{l:"Saldo atual",v:fmtBRL(painel.saldoAtual),c:painel.saldoAtual>=0?"#FDFBF7":"#F5B5B0"},{l:"Entradas do mês",v:fmtBRL(totalRecMes),c:"#FDFBF7"},{l:"Saídas pagas no mês",v:fmtBRL(totalDespPagasMes),c:"#F5D5D0"},{l:"Resultado do mês",v:fmtBRL(saldoMes),c:saldoMes>=0?"#D8EFD8":"#F5B5B0"},{l:"Pendente total",v:fmtBRL(totalDespPendentes),c:"rgba(255,255,255,0.85)"}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        <Tabs tabs={[{k:"painel",l:"📊 Painel"},{k:"despesas",l:"Despesas"},{k:"receitas",l:"Receitas"},{k:"fatura",l:"💳 Fatura do cartão"},{k:"categorias",l:"Categorias"},{k:"contas",l:"Contas/Cartões"}]} active={tab} set={setTab}/>
+      </div>
+
+      {tab==="painel"&&<div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16}}>
+          <Card>
+            <h3 style={{fontSize:14,marginBottom:10}}>Entradas do mês</h3>
+            {[{l:"Pró-labore/retirada do negócio",v:painel.entradaProLabore},{l:"Receitas pessoais avulsas",v:painel.entradaAvulsa},{l:"Outras receitas",v:painel.entradaOutras}].map(k=>(
+              <div key={k.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}><span style={{color:C.oliva}}>{k.l}</span><b>{fmtBRL(k.v)}</b></div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4,fontSize:14,fontWeight:700}}><span>Total de entradas</span><span style={{color:C.oliva}}>{fmtBRL(painel.entradasMes)}</span></div>
+          </Card>
+          <Card>
+            <h3 style={{fontSize:14,marginBottom:10}}>Saídas do mês (pagas)</h3>
+            {[{l:"Despesas fixas",v:painel.saidaFixaMes},{l:"Despesas eventuais",v:painel.saidaEventualMes}].map(k=>(
+              <div key={k.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}><span style={{color:C.oliva}}>{k.l}</span><b>{fmtBRL(k.v)}</b></div>
+            ))}
+            <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4,fontSize:14,fontWeight:700}}><span>Total de despesas</span><span style={{color:C.vermelho}}>{fmtBRL(painel.saidasMes)}</span></div>
+          </Card>
+          <Card style={{background:C.linho}}>
+            <h3 style={{fontSize:14,marginBottom:10}}>Resultado do mês</h3>
+            <div style={{fontSize:28,fontFamily:"'Playfair Display',serif",fontWeight:700,color:painel.resultadoMes>=0?C.oliva:C.vermelho}}>{fmtBRL(painel.resultadoMes)}</div>
+            <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Saldo atual (tudo que já entrou − tudo que já foi pago): <b>{fmtBRL(painel.saldoAtual)}</b></div>
+            <div style={{fontSize:11,color:C.vermelho,marginTop:4}}>Pendente a pagar (todas as datas): <b>{fmtBRL(painel.pendenteTotal)}</b></div>
+          </Card>
+        </div>
+      </div>}
+
+      {tab==="despesas"&&<>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <div style={{flex:1,minWidth:160}}><Inp value={busca} onChange={setBusca} placeholder="Buscar despesa..."/></div>
+          {["todos",...PF_STATUS].map(s=><button key={s} onClick={()=>setFiltStatus(s)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${filtStatus===s?C.cafe:C.areia}`,background:filtStatus===s?C.cafe:"transparent",color:filtStatus===s?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s==="todos"?"Todas":s}</button>)}
+          <Btn sm onClick={abrirNovaDesp}>+ Despesa pessoal</Btn>
+        </div>
+        {despFiltradas.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma despesa pessoal aqui ✦</div>:
+        despFiltradas.sort((a,b)=>(a.vencimento||"").localeCompare(b.vencimento||"")).map(d=>{
+          const s=pfStatus(d);
+          return <Card key={d.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:s==="Atrasado"?`3px solid ${C.vermelho}`:`3px solid ${C.areia}`}}>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{flex:1,minWidth:160}}>
+                <div style={{fontSize:13,fontWeight:700}}>{d.descricao}{d.tipo==="Fixa"&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>
+                <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{d.categoria} · Venc: <b>{fmtDate(d.vencimento)}</b>{d.formaPagamento?` · ${d.formaPagamento}`:""}{d.contaCartao?` · ${d.contaCartao}`:""}</div>
+              </div>
+              <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(d.valor)}</div>
+              <StatusChip s={s}/>
+              {s!=="Pago"?<Btn sm onClick={()=>marcarPagoDesp(d)}>💰 Pagar</Btn>:<button onClick={()=>cancelarPagoDesp(d)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
+              <Btn sm v="ghost" onClick={()=>abrirEditarDesp(d)}>✎</Btn>
+              <Btn sm v="danger" onClick={()=>excluirDesp(d.id)}>✕</Btn>
+            </div>
+          </Card>;
+        })}
+      </>}
+
+      {tab==="receitas"&&<>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <div style={{flex:1,minWidth:160}}><Inp value={busca} onChange={setBusca} placeholder="Buscar receita..."/></div>
+          <Btn sm onClick={abrirNovaRec}>+ Receita pessoal</Btn>
+        </div>
+        {receitas.filter(filtraBusca).length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma receita pessoal aqui ✦</div>:
+        receitas.filter(filtraBusca).sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(r=>(
+          <Card key={r.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:`3px solid ${C.oliva}`}}>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{flex:1,minWidth:160}}>
+                <div style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>AUTOMÁTICA</span>}</div>
+                <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}</div>
+              </div>
+              <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.oliva,fontWeight:700}}>{fmtBRL(r.valor)}</div>
+              <Btn sm v="ghost" onClick={()=>abrirEditarRec(r)}>✎</Btn>
+              <Btn sm v="danger" onClick={()=>excluirRec(r.id)}>✕</Btn>
+            </div>
+          </Card>
+        ))}
+      </>}
+
+      {tab==="fatura"&&<div>
+        {contasPF.filter(c=>c.tipo==="Cartão").length===0?
+          <div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Cadastre um cartão na aba "Contas/Cartões" para ver a fatura aqui ✦</div>:
+          contasPF.filter(c=>c.tipo==="Cartão").map(c=>{
+            const soltos=despesas.filter(d=>d.formaPagamento==="Cartão de crédito"&&d.contaCartao===c.nome&&!d.faturaId);
+            const competencias=[...new Set(soltos.map(d=>d.competencia).filter(Boolean))].sort();
+            const faturasCartao=faturas.filter(f=>f.cartaoNome===c.nome).sort((a,b)=>b.competencia.localeCompare(a.competencia));
+            const usado=pfLimiteUsado(despesas,c.nome);
+            const disp=Number(c.limite||0)-usado;
+            return (
+              <Card key={c.id} style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14,paddingBottom:10,borderBottom:`1px solid ${C.linho}`}}>
+                  <div style={{fontSize:14,fontWeight:700}}>💳 {c.nome} <span style={{fontSize:11,color:C.oliva,fontWeight:400}}>· fecha dia {c.diaFechamento||1}, vence dia {c.diaVencimento||10}</span></div>
+                  <div style={{display:"flex",gap:16}}>
+                    <div><div style={{fontSize:9,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,fontWeight:700}}>Limite usado</div><div style={{fontSize:15,fontWeight:700,color:C.vermelho}}>{fmtBRL(usado)}</div></div>
+                    <div><div style={{fontSize:9,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,fontWeight:700}}>Disponível</div><div style={{fontSize:15,fontWeight:700,color:disp>=0?C.oliva:C.vermelho}}>{fmtBRL(disp)}</div></div>
+                  </div>
+                </div>
+
+                {competencias.map(comp=>{
+                  const itens=soltos.filter(d=>d.competencia===comp);
+                  const total=itens.reduce((a,d)=>a+Number(d.valor||0),0);
+                  return (
+                    <div key={comp} style={{background:C.linho,borderRadius:6,padding:"12px 14px",marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
+                        <div style={{fontSize:13,fontWeight:700}}>🔓 Fatura em aberto — {pfCompetenciaLabel(comp)}</div>
+                        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                          <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{fmtBRL(total)}</div>
+                          <Btn sm onClick={()=>fecharFatura(c,comp)}>🔒 Fechar fatura</Btn>
+                        </div>
+                      </div>
+                      {itens.map(d=>(
+                        <div key={d.id} style={{display:"flex",gap:10,alignItems:"center",padding:"4px 0",fontSize:12,color:C.cafe}}>
+                          <div style={{flex:1}}>{d.descricao}{d.parcelado&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>PARCELA {d.numParcela}/{d.totalParcelas}</span>}</div>
+                          <div style={{fontWeight:700}}>{fmtBRL(d.valor)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+
+                {faturasCartao.length===0&&competencias.length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhum lançamento neste cartão ainda</div>:null}
+
+                {faturasCartao.map(f=>(
+                  <div key={f.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,padding:"10px 14px",marginBottom:8,borderRadius:6,border:`1px solid ${f.status==="Paga"?C.areia:C.dourado}`,background:f.status==="Paga"?"#F4F4F4":"#FEF3E9"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700}}>{f.status==="Paga"?"✓":"🔒"} Fatura {pfCompetenciaLabel(f.competencia)} <span style={{fontSize:11,color:C.oliva,fontWeight:400}}>· vence {fmtDate(f.vencimento)}</span></div>
+                      {f.status==="Paga"&&<div style={{fontSize:11,color:C.oliva}}>Paga em {fmtDate(f.dataPagamento)} · limite liberado</div>}
+                    </div>
+                    <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                      <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{fmtBRL(f.valorTotal)}</div>
+                      {f.status==="Fechada"&&<><Btn sm onClick={()=>pagarFatura(f)}>💰 Pagar fatura</Btn><button onClick={()=>reabrirFatura(f)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Reabrir</button></>}
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            );
+          })}
+      </div>}
+
+      {tab==="categorias"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
+        {[{k:"despesa",l:"Categorias de despesa"},{k:"receita",l:"Categorias de receita"}].map(grupo=>(
+          <Card key={grupo.k}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <h3 style={{fontSize:14}}>{grupo.l}</h3>
+              <Btn sm v="ghost" onClick={()=>abrirNovaCat(grupo.k)}>+ Nova</Btn>
+            </div>
+            {(categorias[grupo.k]||[]).length===0?<div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>Nenhuma categoria ainda</div>:
+            (categorias[grupo.k]||[]).map(c=>(
+              <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.linho}`,opacity:c.ativa?1:0.45}}>
+                <span style={{flex:1,fontSize:13,fontWeight:600}}>{c.nome}</span>
+                <button onClick={()=>abrirEditarCat(grupo.k,c)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:C.oliva}}>✎</button>
+                <button onClick={()=>toggleCatAtiva(grupo.k,c.id)} style={{fontSize:10,padding:"2px 9px",borderRadius:10,fontWeight:700,border:"none",cursor:"pointer",background:c.ativa?"#D4E8D4":"#F3E3DD",color:c.ativa?"#2E6B2E":C.vermelho}}>{c.ativa?"Ativa":"Inativa"}</button>
+              </div>
+            ))}
+          </Card>
+        ))}
+      </div>}
+
+      {tab==="contas"&&<div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}><Btn sm onClick={()=>{setCpForm({id:"",nome:"",tipo:"Conta",limite:0,diaFechamento:1,diaVencimento:10});setContaModal(true);}}>+ Conta/Cartão</Btn></div>
+        {contasPF.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma conta ou cartão cadastrado ainda ✦</div>:
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {contasPF.map(c=>{
+            const usado=c.tipo==="Cartão"?pfLimiteUsado(despesas,c.nome):0;
+            const disp=c.tipo==="Cartão"?Number(c.limite||0)-usado:0;
+            return <Card key={c.id} hover onClick={()=>{setCpForm({diaFechamento:1,diaVencimento:10,limite:0,...c});setContaModal(true);}} style={{flex:"1 1 180px"}}>
+              <div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:c.tipo==="Cartão"?6:0}}>{c.nome}</div>
+              {c.tipo==="Cartão"&&<>
+                <div style={{fontSize:11,color:C.oliva}}>Fecha dia {c.diaFechamento||1} · Vence dia {c.diaVencimento||10}</div>
+                <div style={{fontSize:11,color:C.oliva,marginTop:4}}>Limite usado: <b style={{color:C.vermelho}}>{fmtBRL(usado)}</b></div>
+                <div style={{fontSize:13,color:disp>=0?C.oliva:C.vermelho,fontWeight:700}}>Disponível: {fmtBRL(disp)}</div>
+              </>}
+            </Card>;
+          })}
+        </div>}
+      </div>}
+
+      {despModal&&<Modal title={dForm.id?"Editar despesa pessoal":"Nova despesa pessoal"} onClose={()=>setDespModal(false)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Descrição" value={dForm.descricao} onChange={v=>setDForm(f=>({...f,descricao:v}))}/>
+          <Sel label="Categoria" value={dForm.categoria} onChange={v=>setDForm(f=>({...f,categoria:v}))} options={catsDespAtivas.map(c=>c.nome)}/>
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Tipo</label>
+            <div style={{display:"flex",gap:8}}>{PF_TIPOS_DESPESA.map(t=><button key={t} onClick={()=>setDForm(f=>({...f,tipo:t}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${dForm.tipo===t?C.cafe:C.areia}`,background:dForm.tipo===t?C.cafe:"transparent",fontSize:13,fontWeight:700,color:dForm.tipo===t?"#fff":C.cafe,cursor:"pointer"}}>{t}</button>)}</div>
+          </div>
+          {dForm.tipo==="Fixa"&&dForm.formaPagamento!=="Cartão de crédito"&&!dForm.id&&<>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
+              <input type="checkbox" checked={dForm.recorrente||false} onChange={e=>setDForm(f=>({...f,recorrente:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>
+              <span style={{fontWeight:600,color:C.dourado}}>🔁 Gerar lançamentos futuros automaticamente (recorrente)</span>
+            </label>
+            {dForm.recorrente&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Nº de meses</label>
+                <input type="number" min="1" max="60" value={dForm.qtdMeses||12} onChange={e=>setDForm(f=>({...f,qtdMeses:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+              </div>
+              <div style={{background:"#fff",borderRadius:4,padding:"10px 12px",fontSize:12,color:C.cafe,borderLeft:`3px solid ${C.dourado}`}}>
+                🔁 Serão criados <b>{dForm.qtdMeses||12} lançamentos</b> de <b style={{color:C.dourado}}>{fmtBRL(Number(dForm.valor)||0)}</b>, todo dia <b>{new Date((dForm.vencimento||today)+"T00:00").getDate()}</b>, todos como <b>Pendente</b>.
+              </div>
+            </div>}
+          </>}
+          <Inp label={dForm.formaPagamento==="Cartão de crédito"&&dForm.parcelado&&!dForm.id?"Valor total da compra (R$)":"Valor (R$)"} type="number" value={dForm.valor} onChange={v=>setDForm(f=>({...f,valor:v}))}/>
+          <Sel label="Forma de pagamento" value={dForm.formaPagamento} onChange={v=>setDForm(f=>({...f,formaPagamento:v}))} options={PF_FORMAS_PAG}/>
+          {dForm.formaPagamento==="Cartão de crédito"?<>
+            <Sel label="Cartão" value={dForm.contaCartao} onChange={v=>setDForm(f=>({...f,contaCartao:v}))} options={["",...contasPF.filter(c=>c.tipo==="Cartão").map(c=>c.nome)]}/>
+            <Inp label="Data da compra" type="date" value={dForm.dataCompra} onChange={v=>setDForm(f=>({...f,dataCompra:v}))}/>
+            {cartaoDoForm&&<div style={{background:C.linho,borderRadius:4,padding:"8px 12px",fontSize:11,color:C.oliva}}>
+              Fecha dia <b>{cartaoDoForm.diaFechamento||1}</b> · Vence dia <b>{cartaoDoForm.diaVencimento||10}</b> → cai na fatura de <b>{pfCompetenciaLabel(pfCompetencia(cartaoDoForm.diaFechamento||1,dForm.dataCompra||today))}</b>
+            </div>}
+            {!dForm.id&&<>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
+                <input type="checkbox" checked={dForm.parcelado||false} onChange={e=>setDForm(f=>({...f,parcelado:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>
+                <span style={{fontWeight:600,color:C.dourado}}>🧾 Compra parcelada no cartão</span>
+              </label>
+              {dForm.parcelado&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Número de parcelas</label>
+                  <input type="number" min="2" max="24" value={dForm.numParcelas||2} onChange={e=>setDForm(f=>({...f,numParcelas:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+                </div>
+                <div style={{background:"#fff",borderRadius:4,padding:"10px 12px",fontSize:12,color:C.cafe,borderLeft:`3px solid ${C.dourado}`}}>
+                  🧾 Serão criadas <b>{dForm.numParcelas||2} parcelas</b> de aproximadamente <b style={{color:C.dourado}}>{fmtBRL((Number(dForm.valor)||0)/(Number(dForm.numParcelas)||2))}</b>, uma por mês a partir de <b>{fmtDate(dForm.dataCompra||today)}</b>. Cada parcela entra sozinha na fatura do mês em que cai.
+                </div>
+              </div>}
+            </>}
+          </>:<Inp label="Data de vencimento" type="date" value={dForm.vencimento} onChange={v=>setDForm(f=>({...f,vencimento:v}))}/>}
+          {dForm.formaPagamento!=="Cartão de crédito"&&<Sel label="Conta" value={dForm.contaCartao} onChange={v=>setDForm(f=>({...f,contaCartao:v}))} options={["",...contasPF.map(c=>c.nome)]}/>}
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+            <input type="checkbox" checked={dForm.pago||false} onChange={e=>setDForm(f=>({...f,pago:e.target.checked,dataPagamento:e.target.checked?(f.dataPagamento||today):""}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+            <span style={{fontWeight:600}}>✓ Já paga</span>
+          </label>
+          {dForm.pago&&<Inp label="Data do pagamento" type="date" value={dForm.dataPagamento} onChange={v=>setDForm(f=>({...f,dataPagamento:v}))}/>}
+          <Inp label="Observações" rows={2} value={dForm.observacoes} onChange={v=>setDForm(f=>({...f,observacoes:v}))}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setDespModal(false)}>Cancelar</Btn><Btn onClick={saveDesp}>Salvar</Btn></div>
+      </Modal>}
+
+      {recModal&&<Modal title={rForm.id?"Editar receita pessoal":"Nova receita pessoal"} onClose={()=>setRecModal(false)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Descrição" value={rForm.descricao} onChange={v=>setRForm(f=>({...f,descricao:v}))}/>
+          <Sel label="Categoria" value={rForm.categoria} onChange={v=>setRForm(f=>({...f,categoria:v}))} options={catsRecAtivas.map(c=>c.nome)}/>
+          <Inp label="Valor (R$)" type="number" value={rForm.valor} onChange={v=>setRForm(f=>({...f,valor:v}))}/>
+          <Inp label="Data" type="date" value={rForm.data} onChange={v=>setRForm(f=>({...f,data:v}))}/>
+          <Sel label="Forma de recebimento" value={rForm.formaRecebimento} onChange={v=>setRForm(f=>({...f,formaRecebimento:v}))} options={PF_FORMAS_RECEB}/>
+          <Inp label="Origem (detalhe)" value={rForm.origem} onChange={v=>setRForm(f=>({...f,origem:v}))} placeholder="Ex: reembolso da Maria, venda do sofá..."/>
+          <Inp label="Observações" rows={2} value={rForm.observacoes} onChange={v=>setRForm(f=>({...f,observacoes:v}))}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setRecModal(false)}>Cancelar</Btn><Btn onClick={saveRec}>Salvar</Btn></div>
+      </Modal>}
+
+      {catModal&&<Modal title={catForm.id?"Editar categoria":"Nova categoria"} onClose={()=>setCatModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Nome da categoria" value={catForm.nome} onChange={v=>setCatForm(f=>({...f,nome:v}))} placeholder="Ex: Pets, Beleza..."/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setCatModal(null)}>Cancelar</Btn><Btn onClick={saveCat}>Salvar</Btn></div>
+      </Modal>}
+
+      {contaModal&&<Modal title={cpForm.id?"Editar conta/cartão":"Nova conta/cartão"} onClose={()=>setContaModal(false)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Nome" value={cpForm.nome} onChange={v=>setCpForm(f=>({...f,nome:v}))} placeholder="Ex: Nubank, Cartão Inter..."/>
+          <Sel label="Tipo" value={cpForm.tipo} onChange={v=>setCpForm(f=>({...f,tipo:v}))} options={["Conta","Cartão"]}/>
+          {cpForm.tipo==="Cartão"&&<>
+            <Inp label="Limite total (R$)" type="number" value={cpForm.limite} onChange={v=>setCpForm(f=>({...f,limite:v}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Dia de fechamento</label>
+                <input type="number" min="1" max="31" value={cpForm.diaFechamento||1} onChange={e=>setCpForm(f=>({...f,diaFechamento:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Dia de vencimento</label>
+                <input type="number" min="1" max="31" value={cpForm.diaVencimento||10} onChange={e=>setCpForm(f=>({...f,diaVencimento:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+              </div>
+            </div>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Ex: fecha dia 1, vence dia 12 — compras do dia 2 em diante já entram na fatura seguinte.</div>
+          </>}
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
+          {cpForm.id&&<Btn v="danger" onClick={()=>{excluirContaPF(cpForm.id);setContaModal(false);}}>Excluir</Btn>}
+          <Btn v="ghost" onClick={()=>setContaModal(false)}>Cancelar</Btn><Btn onClick={saveContaPF}>Salvar</Btn>
+        </div>
       </Modal>}
     </div>
   );
@@ -7667,7 +8185,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v35</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v39</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -9137,6 +9655,15 @@ function App() {
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
   const [implantacoes, setImplantacoes]=useStorage("implantacoes", []);
+  const [personalDespesas, setPersonalDespesas]=useStorage("personalDespesas", INIT.personalDespesas);
+  const [personalReceitas, setPersonalReceitas]=useStorage("personalReceitas", INIT.personalReceitas);
+  const [personalCategorias, setPersonalCategorias]=useStorage("personalCategorias", INIT.personalCategorias);
+  const [personalContas, setPersonalContas]=useStorage("personalContas", INIT.personalContas);
+  const [personalFaturas, setPersonalFaturas]=useStorage("personalFaturas", INIT.personalFaturas);
+  const onRetiradaPessoal=({valor,data,desc})=>{
+    const catPl=(personalCategorias.receita||[]).find(c=>c.nome==="Pró-labore/Retirada do negócio");
+    setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true}]);
+  };
   // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
@@ -9154,6 +9681,7 @@ function App() {
     production:["Produção","Fila e capacidade"],
     stock:["Estoque","Materiais e peças prontas"],
     finance:["Financeiro","Receitas, despesas e fluxo de caixa"],
+    personal:["Contas Pessoais","Sua vida financeira, separada do negócio"],
     metas:["Gestão de Metas","Acompanhe seu progresso"],
     clients:["Clientes","Relacionamento e histórico"],
     projects:["Projetos & Sonhos","Planos e inspirações"],
@@ -9207,7 +9735,8 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients}/>}
+          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal}/>}
+          {view==="personal"    &&<PersonalFinance despesas={personalDespesas} setDespesas={setPersonalDespesas} receitas={personalReceitas} setReceitas={setPersonalReceitas} categorias={personalCategorias} setCategorias={setPersonalCategorias} contasPF={personalContas} setContasPF={setPersonalContas} faturas={personalFaturas} setFaturas={setPersonalFaturas}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
