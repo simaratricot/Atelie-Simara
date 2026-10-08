@@ -8980,6 +8980,7 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
   const [novaCat,setNovaCat]=useState("");
   const artesaRef=useRef();
   const logoRef=useRef();
+  const obrasLogoRef=useRef();
   const bannerRef=useRef();
   const depoRef=useRef();
   const CATS_F=["Fé","Motivação","Reflexão","Entusiasmo","Gratidão"];
@@ -9033,6 +9034,30 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
               <Inp label="E-mail consultoria" value={config.consultoria?.email||""} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),email:v}}))} placeholder="simara@email.com"/>
               <Inp label="Nome para PIX" value={config.consultoria?.pixNome||"Simara Ap. de Souza Lobui"} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),pixNome:v}}))}/>
               <Inp label="Chave PIX (CPF)" value={config.consultoria?.pixChave||"357.252.138.62"} onChange={v=>setConfig(c=>({...c,consultoria:{...(c.consultoria||{}),pixChave:v}}))}/>
+            </div>
+          </Card>
+          <Divider label="🏗️ Dados das Obras (Marcelo Lobui — recibos e orçamentos)"/>
+          <Card style={{marginBottom:14}}>
+            <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:14}}>
+              <div style={{width:70,height:70,borderRadius:8,overflow:"hidden",border:`2px solid ${C.areia}`,background:C.linho,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:22}} onClick={()=>obrasLogoRef.current?.click()}>
+                {config.obras?.logo?<img src={config.obras.logo} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}}/>:"🏗️"}
+              </div>
+              <div>
+                <Btn sm v="ghost" onClick={()=>obrasLogoRef.current?.click()}>📷 Carregar logo</Btn>
+                <div style={{fontSize:10,color:C.oliva,marginTop:4,fontStyle:"italic"}}>Aparece no cabeçalho dos orçamentos e recibos de obra.</div>
+                {config.obras?.logo&&<Btn sm v="danger" onClick={()=>setConfig(c=>({...c,obras:{...(c.obras||{}),logo:""}}))}>✕ Remover</Btn>}
+              </div>
+              <input ref={obrasLogoRef} type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{if(e.target.files[0]){const u=await readFile(e.target.files[0]);setConfig(c=>({...c,obras:{...(c.obras||{}),logo:u}}));}}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Nome do prestador (cabeçalho)" value={config.obras?.nome||"Marcelo Lobui & Equipe"} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),nome:v}}))}/>
+              <Inp label="Nome na assinatura" value={config.obras?.nomeAssinatura||"Marcelo Lobui"} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),nomeAssinatura:v}}))}/>
+              <Inp label="CPF/CNPJ" value={config.obras?.cpfCnpj||""} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),cpfCnpj:v}}))} placeholder="000.000.000-00"/>
+              <Inp label="Telefone/WhatsApp" value={config.obras?.telefone||""} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),telefone:v}}))} placeholder="(19) 99999-9999"/>
+              <Inp label="Banco" value={config.obras?.banco||""} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),banco:v}}))} placeholder="Nubank"/>
+              <Inp label="Nome para PIX (favorecido)" value={config.obras?.pixNome||""} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),pixNome:v}}))} placeholder="MARCELO LOBUI"/>
+              <Inp label="Chave PIX" value={config.obras?.pixChave||""} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),pixChave:v}}))} placeholder="e-mail, CPF ou telefone"/>
+              <Inp label="Frase de rodapé" value={config.obras?.frase||"Construindo com as mãos, realizando sonhos."} onChange={v=>setConfig(c=>({...c,obras:{...(c.obras||{}),frase:v}}))}/>
             </div>
           </Card>
           </div>
@@ -9798,23 +9823,79 @@ const CORES_OBRAS={primaria:"#6B4530",secundaria:"#C1A268",texto:"#2C3E50",fundo
 const OBRAS_TIPOS=["Construção","Reforma","Manutenção","Outro"];
 const OBRAS_STATUS=["Orçamento","Aprovado","Em andamento","Concluída","Cancelada"];
 const OBRAS_STATUS_COR={"Orçamento":{bg:"#FEF3E9",c:"#B08D57"},"Aprovado":{bg:"#EAE3DD",c:"#6B4530"},"Em andamento":{bg:"#E4EEE6",c:"#2E6B5E"},"Concluída":{bg:"#D4E8D4",c:"#2E6B2E"},"Cancelada":{bg:"#FEE",c:"#B5455B"}};
-const obDocStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:#2C3E50;padding:30px;line-height:1.75;}
-  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #6B4530;padding-bottom:16px;margin-bottom:24px;}
-  .hdr-nome{font-size:22px;font-weight:bold;color:#6B4530;letter-spacing:1px;}
-  .hdr-sub{font-size:11px;color:#C1A268;letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
-  .hdr-doc{text-align:right;font-size:12px;color:#666;}
-  h2{color:#6B4530;font-size:14px;text-transform:uppercase;letter-spacing:2px;border-left:4px solid #C1A268;padding-left:10px;margin:22px 0 10px;}
-  .campo{margin-bottom:7px;font-size:13px;}.campo b{color:#6B4530;}
-  .pix{background:#F7F8F6;border:1px solid #ddd;border-radius:4px;padding:10px 14px;font-size:12px;margin-top:6px;}
-  .valor{font-size:20px;font-weight:bold;color:#6B4530;}
-  .badge{display:inline-block;background:#6B4530;color:#fff;font-size:10px;padding:2px 10px;border-radius:12px;margin-bottom:12px;}
-  .ass{display:flex;justify-content:space-between;gap:30px;margin-top:60px;}
+const obDocStyles=`body{font-family:'Inter',Arial,sans-serif;max-width:800px;margin:0 auto;color:#2C3E50;padding:36px;line-height:1.6;}
+  .doc-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #6B4530;padding-bottom:16px;margin-bottom:22px;}
+  .doc-hdr-left{display:flex;gap:14px;align-items:flex-start;}
+  .doc-logo{width:64px;height:64px;border-radius:6px;object-fit:contain;border:1px solid #ddd;flex-shrink:0;}
+  .doc-logo-ph{width:64px;height:64px;border-radius:6px;border:1px solid #ddd;flex-shrink:0;background:#F3EFE9;display:flex;align-items:center;justify-content:center;font-size:26px;}
+  .doc-titulo{font-size:19px;font-weight:800;line-height:1.18;color:#2C3E50;text-transform:uppercase;letter-spacing:0.5px;}
+  .doc-num{font-size:13px;color:#6B4530;font-weight:700;margin-top:4px;}
+  .doc-hdr-right{text-align:right;font-size:12px;color:#2C3E50;min-width:170px;}
+  .doc-hdr-right b{color:#6B4530;}
+  .box{border:1px solid #E2DCD3;border-radius:6px;padding:10px 14px;margin-bottom:12px;background:#FAF8F5;font-size:13px;}
+  .box b{color:#6B4530;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:16px;}
+  th{background:#EAE3DD;color:#6B4530;padding:9px 10px;text-align:left;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;border-bottom:2px solid #D9CFC3;}
+  td{padding:9px 10px;border-bottom:1px solid #EEE;}
+  tr:nth-child(even) td{background:#FBFAF8;}
+  .total-box{border:2px solid #6B4530;border-radius:6px;padding:12px 16px;text-align:center;font-weight:800;font-size:14.5px;color:#2C3E50;margin-bottom:18px;background:#FDFBF9;}
+  .pix{background:#F7F8F6;border:1px solid #E2DCD3;border-radius:6px;padding:12px 16px;font-size:12.5px;margin-bottom:18px;}
+  .pix b.tit{display:block;color:#6B4530;text-transform:uppercase;font-size:11px;letter-spacing:1px;margin-bottom:6px;}
+  .ass{display:flex;justify-content:space-between;gap:40px;margin-top:70px;}
   .ass-box{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;}
-  .ftr{margin-top:30px;text-align:center;color:#999;font-size:10px;border-top:1px solid #ddd;padding-top:12px;}
-  @media print{body{padding:20px;}}`;
-const obNumObra=(obras,id)=>{const idx=obras.findIndex(o=>o.id===id);return String((idx>=0?idx:obras.length)+1).padStart(3,"0");};
-const obRodape=(config)=>{const co=(config&&config.obras)||{};return `<div class="ftr">Marcelo Lobui · Construção e Reforma${co.telefone?` · Tel: ${co.telefone}`:(config&&config.whatsapp?` · WhatsApp: ${config.whatsapp}`:"")}</div>`;};
-const obHdr=(o,obras,titulo)=>`<div class="hdr"><div><div class="hdr-nome">MARCELO LOBUI</div><div class="hdr-sub">Construção e Reforma</div></div><div class="hdr-doc"><b>${titulo}</b><br>Nº ${obNumObra(obras,o.id)}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div><div class="badge">${o.tipo||"Obra"}</div>`;
+  .ass-box b{display:block;font-size:17px;font-weight:600;margin-bottom:6px;color:#2C3E50;}
+  .tagline{text-align:center;color:#6B4530;font-style:italic;font-size:13px;margin-top:30px;}
+  .ftr{margin-top:24px;text-align:center;color:#999;font-size:10px;border-top:1px solid #ddd;padding-top:12px;}
+  @media print{body{padding:18px;}}`;
+const obNumObra=(obras,id)=>{const idx=obras.findIndex(o=>o.id===id);return String((idx>=0?idx:obras.length)+1).padStart(2,"0");};
+const obItens=o=>{const its=String(o.descricao||"").split("\n").map(s=>s.trim()).filter(Boolean);return its.length?its:[o.tipo||"Serviço"];};
+// Converte valor em reais para texto por extenso (pt-BR), ex: 200 -> "Duzentos reais"
+const _obUN=["zero","um","dois","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze","treze","quatorze","quinze","dezesseis","dezessete","dezoito","dezenove"];
+const _obDZ=["","","vinte","trinta","quarenta","cinquenta","sessenta","setenta","oitenta","noventa"];
+const _obCT=["","cento","duzentos","trezentos","quatrocentos","quinhentos","seiscentos","setecentos","oitocentos","novecentos"];
+const _obGrupo=n=>{
+  if(n===0)return "";
+  if(n===100)return "cem";
+  const c=Math.floor(n/100),r=n%100;
+  const parts=[];
+  if(c>0)parts.push(_obCT[c]);
+  if(r>0){
+    if(r<20)parts.push(_obUN[r]);
+    else{const d=Math.floor(r/10),u=r%10;parts.push(u>0?`${_obDZ[d]} e ${_obUN[u]}`:_obDZ[d]);}
+  }
+  return parts.join(" e ");
+};
+const _obInteiroExtenso=n=>{
+  if(n===0)return "zero";
+  const milhao=Math.floor(n/1000000);n%=1000000;
+  const milhar=Math.floor(n/1000);n%=1000;
+  const resto=n;
+  const parts=[];
+  if(milhao>0)parts.push(milhao===1?"um milhão":`${_obGrupo(milhao)} milhões`);
+  if(milhar>0)parts.push(milhar===1?"mil":`${_obGrupo(milhar)} mil`);
+  if(resto>0)parts.push(_obGrupo(resto));
+  return parts.join(" e ");
+};
+const obValorExtenso=valor=>{
+  const v=Math.round((Number(valor)||0)*100)/100;
+  const inteiro=Math.floor(v);
+  const centavos=Math.round((v-inteiro)*100);
+  let txt=`${_obInteiroExtenso(inteiro)} ${inteiro===1?"real":"reais"}`;
+  if(centavos>0)txt+=` e ${_obInteiroExtenso(centavos)} ${centavos===1?"centavo":"centavos"}`;
+  return txt.charAt(0).toUpperCase()+txt.slice(1);
+};
+const obRodape=(config)=>{const co=(config&&config.obras)||{};return `<div class="ftr">${co.nome||"Marcelo Lobui & Equipe"} · Construção e Reforma${co.telefone?` · Tel: ${co.telefone}`:(config&&config.whatsapp?` · WhatsApp: ${config.whatsapp}`:"")}</div>`;};
+const obHdr=(o,obras,titulo,config)=>{
+  const co=(config&&config.obras)||{};
+  const tituloLinhas=String(titulo).split(" ").reduce((acc,w)=>{const last=acc[acc.length-1];if(last&&(last+" "+w).length<=16){acc[acc.length-1]=last+" "+w;}else acc.push(w);return acc;},[]);
+  return `<div class="doc-hdr">
+    <div class="doc-hdr-left">
+      ${co.logo?`<img class="doc-logo" src="${co.logo}">`:`<div class="doc-logo-ph">🏗️</div>`}
+      <div><div class="doc-titulo">${tituloLinhas.join("<br>")}</div><div class="doc-num">Nº ${obNumObra(obras,o.id)}</div></div>
+    </div>
+    <div class="doc-hdr-right"><b>Prestador:</b> ${co.nome||"Marcelo Lobui & Equipe"}${co.cpfCnpj?`<br><b>CPF/CNPJ:</b> ${co.cpfCnpj}`:""}<br><b>Data:</b> ${new Date().toLocaleDateString("pt-BR")}</div>
+  </div>`;
+};
 const obAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
 
 const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config})=>{
@@ -9828,7 +9909,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const [compForm,setCompForm]=useState(null);
 
   const sel=obras.find(o=>o.id===selId);
-  const configObras=config?.obras||{telefone:"",pixChave:"",pixNome:"Marcelo Lobui"};
+  const configObras=config?.obras||{nome:"Marcelo Lobui & Equipe",nomeAssinatura:"Marcelo Lobui",cpfCnpj:"",telefone:"",banco:"",pixChave:"",pixNome:"Marcelo Lobui",logo:"",frase:"Construindo com as mãos, realizando sonhos."};
 
   const filtered=obras.filter(o=>{
     const matchBusca=!busca||(o.clienteNome+" "+(o.descricao||"")).toLowerCase().includes(busca.toLowerCase());
@@ -9875,19 +9956,55 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
   const cancelarObra=o=>{if(window.confirm("Cancelar este orçamento/obra?"))setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Cancelada"}:x));};
 
+  const obTabelaItens=o=>{
+    const itens=obItens(o);
+    return `<table><thead><tr><th style="width:40px">Item</th><th>Discriminação dos Serviços</th><th style="width:110px">Valor Unitário (R$)</th><th style="width:110px">Valor Total (R$)</th></tr></thead><tbody>
+      ${itens.map((it,i)=>`<tr><td>${i+1}</td><td>${it}</td><td>–</td><td>–</td></tr>`).join("")}
+    </tbody></table>`;
+  };
+  const obPixBox=o=>{
+    const co=configObras;
+    if(o.formaPag&&o.formaPag!=="PIX")return "";
+    if(!co.pixChave&&!co.pixNome)return "";
+    return `<div class="pix"><b class="tit">Pagamento via PIX (dados para transferência)</b>
+      <b>Favorecido:</b> ${co.pixNome||co.nome||"Marcelo Lobui"}<br>
+      ${co.banco?`<b>Banco:</b> ${co.banco}<br>`:""}
+      ${co.cpfCnpj?`<b>CPF:</b> ${co.cpfCnpj}${co.pixChave?` &nbsp;|&nbsp; `:""}`:""}${co.pixChave?`<b>Chave PIX:</b> ${co.pixChave}`:""}
+    </div>`;
+  };
+
   const gerarRecibo=o=>{
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
-    ${obHdr(o,obras,"RECIBO DE PRESTAÇÃO DE SERVIÇO")}
-    <h2>Cliente</h2><div class="campo"><b>Nome:</b> ${o.clienteNome}</div>${o.clienteCpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${o.clienteCpfCnpj}</div>`:""}${o.endereco?`<div class="campo"><b>Endereço da obra:</b> ${o.endereco}</div>`:""}
-    <h2>Serviço</h2><div class="campo"><b>Tipo:</b> ${o.tipo}</div><div class="campo"><b>Descrição:</b> ${o.descricao||"-"}</div>
-    <h2>Valor</h2><div class="campo valor">${fmtBRL(o.valor)}</div><div class="campo"><b>Forma de pagamento:</b> ${o.formaPag||"PIX"}</div>
-    ${(!o.formaPag||o.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${configObras.pixNome||"Marcelo Lobui"}${configObras.pixChave?` · Chave: ${configObras.pixChave}`:""}</div>`:""}
-    <div class="campo" style="margin-top:14px">Recebi de <b>${o.clienteNome}</b> o valor acima referente ao serviço descrito, em ${fmtDate(today)}.</div>
-    <div class="ass"><div class="ass-box">Marcelo Lobui<br>Construção e Reforma</div><div class="ass-box">${o.clienteNome}<br>Contratante</div></div>
+    ${obHdr(o,obras,"Recibo de Prestação de Serviços",config)}
+    <div class="box"><b>Tomador / Cliente:</b> ${o.clienteNome}</div>
+    ${o.endereco?`<div class="box"><b>Endereço:</b> ${o.endereco}</div>`:""}
+    ${obTabelaItens(o)}
+    <div class="total-box">VALOR TOTAL DO RECIBO: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
+    ${obPixBox(o)}
+    <div style="font-size:12.5px;margin-bottom:10px">Recebi de <b>${o.clienteNome}</b> o valor acima referente ao(s) serviço(s) descrito(s), em ${fmtDate(today)}.</div>
+    <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Assinatura do Prestador de Serviço</div></div>
+    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
     ${obRodape(config)}</body></html>`;
     obAbrirImprimir(html);
     setObras(prev=>prev.map(x=>x.id===o.id?{...x,reciboGerado:true,dataRecibo:today}:x));
     showSavedGlobal("Recibo gerado! Agora confirme no financeiro.");
+  };
+
+  const gerarOrcamentoDoc=o=>{
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
+    ${obHdr(o,obras,"Orçamento de Serviços",config)}
+    <div class="box"><b>Tomador / Cliente:</b> ${o.clienteNome}</div>
+    ${o.endereco?`<div class="box"><b>Endereço:</b> ${o.endereco}</div>`:""}
+    ${obTabelaItens(o)}
+    <div class="total-box">VALOR TOTAL DO ORÇAMENTO: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
+    <div class="box"><b>Forma de pagamento proposta:</b> ${o.formaPag||"PIX"}${o.dataPrevista?`<br><b>Previsão de início/conclusão:</b> ${fmtDate(o.dataPrevista)}`:""}</div>
+    ${obPixBox(o)}
+    <div style="font-size:12.5px;margin-bottom:10px">Orçamento válido por 15 dias a partir da data de emissão.</div>
+    <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Prestador de Serviço</div><div class="ass-box"><b>${o.clienteNome}</b>De acordo (cliente)</div></div>
+    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+    showSavedGlobal("Orçamento gerado!");
   };
 
   const confirmarFinanceiro=o=>{
@@ -9944,6 +10061,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:CO.primaria,fontWeight:700}}>{fmtBRL(o.valor)}</div>
             <StatusChipObra s={o.status}/>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(o)}>📄 Gerar orçamento</Btn>}
               {o.status==="Orçamento"&&<Btn sm onClick={()=>aprovarOrcamento(o)}>✓ Aprovar</Btn>}
               {o.status==="Aprovado"&&<Btn sm onClick={()=>gerarRecibo(o)}>🧾 Gerar recibo</Btn>}
               {o.status==="Aprovado"&&o.reciboGerado&&!o.lancado&&<Btn sm v="oliva" onClick={()=>confirmarFinanceiro(o)}>💰 Confirmar no financeiro</Btn>}
