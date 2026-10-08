@@ -9898,33 +9898,78 @@ const obHdr=(o,obras,titulo,config)=>{
 };
 const obAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
 
+const OBRAS_UNIDADES=[{v:"un",l:"Unidade"},{v:"m",l:"Metro"},{v:"global",l:"Global"}];
+const obUnidLabel=u=>u==="m"?"m":u==="global"?"-":"un";
+
 const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config})=>{
   const CO=CORES_OBRAS;
   const [busca,setBusca]=useState("");
   const [filtStatus,setFiltStatus]=useState("Todos");
-  const [modal,setModal]=useState(null); // "orcamento" | "comp"
+  const [modal,setModal]=useState(null); // "orcamento" | "comp" | "detalhe"
   const [selId,setSelId]=useState(null);
-  const EFO={id:null,clientId:"",clienteNome:"",clienteCpfCnpj:"",tipo:"Reforma",descricao:"",endereco:"",valor:0,formaPag:"PIX",dataOrcamento:today,dataPrevista:"",status:"Orçamento",obs:""};
-  const [form,setForm]=useState(EFO);
+  const [detTab,setDetTab]=useState("servicos");
+  const EFO=()=>({id:null,clientId:"",clienteNome:"",clienteCpfCnpj:"",tipo:"Reforma",endereco:"",itensOrcamento:[{id:uid(),descricao:"",qtd:1,unidade:"un",valorUnit:0}],formaCobranca:"PIX",taxaCartaoPct:0,valor:0,dataOrcamento:today,dataPrevista:"",status:"Orçamento",obs:"",servicos:[],medicoes:[],recebimentos:[]});
+  const [form,setForm]=useState(EFO());
   const [compForm,setCompForm]=useState(null);
 
   const sel=obras.find(o=>o.id===selId);
   const configObras=config?.obras||{nome:"Marcelo Lobui & Equipe",nomeAssinatura:"Marcelo Lobui",cpfCnpj:"",telefone:"",banco:"",pixChave:"",pixNome:"Marcelo Lobui",logo:"",frase:"Construindo com as mãos, realizando sonhos."};
 
+  // ── lançamento de serviços / medições / recebimentos (dentro da obra selecionada) ──
+  const servDefault={id:null,data:today,descricao:"",qtd:1,unidade:"un",valorUnit:0,valor:0};
+  const [servForm,setServForm]=useState(servDefault);
+  const [servFormOpen,setServFormOpen]=useState(false);
+  const medDefault={id:null,data:today,dataVencimento:"",obs:"",valor:0};
+  const [medForm,setMedForm]=useState(medDefault);
+  const [medSelecionados,setMedSelecionados]=useState([]);
+  const [medFormOpen,setMedFormOpen]=useState(false);
+  const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:""};
+  const [recForm,setRecForm]=useState(recDefault);
+  const [recFormOpen,setRecFormOpen]=useState(false);
+  useEffect(()=>{setServFormOpen(false);setMedFormOpen(false);setRecFormOpen(false);setMedSelecionados([]);},[selId,modal]);
+
   const filtered=obras.filter(o=>{
-    const matchBusca=!busca||(o.clienteNome+" "+(o.descricao||"")).toLowerCase().includes(busca.toLowerCase());
+    const txt=(o.itensOrcamento||[]).map(it=>it.descricao).join(" ");
+    const matchBusca=!busca||(o.clienteNome+" "+txt).toLowerCase().includes(busca.toLowerCase());
     const matchStatus=filtStatus==="Todos"||o.status===filtStatus;
     return matchBusca&&matchStatus;
   });
 
+  const servicosSoltos=o=>(o.servicos||[]).filter(s=>!s.medicaoId);
+  const totalServicos=o=>(o.servicos||[]).reduce((s,x)=>s+Number(x.valor||0),0);
+  const totalMedido=o=>(o.medicoes||[]).filter(m=>m.status!=="Cancelada").reduce((s,m)=>s+Number(m.valorTotal||0),0);
+  const recebDaMedicao=(o,medId)=>(o.recebimentos||[]).filter(r=>r.medicaoId===medId).reduce((s,r)=>s+Number(r.valor||0),0);
+  const saldoMedicao=(o,m)=>Number(m.valorTotal||0)-recebDaMedicao(o,m.id);
+  const totalRecebido=o=>(o.recebimentos||[]).reduce((s,r)=>s+Number(r.valor||0),0);
+  const saldoObra=o=>totalMedido(o)-totalRecebido(o);
+  const formaCobrancaTexto=o=>{
+    if(o.formaCobranca==="Cartão de crédito"){
+      const pct=Number(o.taxaCartaoPct)||0;
+      const comTaxa=Number(o.valor||0)*(1+pct/100);
+      return `Cartão de crédito${pct>0?` (acréscimo de ${pct}% da maquininha — valor no cartão: ${fmtBRL(comTaxa)})`:""}`;
+    }
+    if(o.formaCobranca==="A combinar")return "A combinar com o cliente";
+    return "PIX";
+  };
+
   const totalOrcamentos=obras.filter(o=>o.status==="Orçamento").length;
-  const totalAndamento=obras.filter(o=>o.status==="Em andamento").reduce((s,o)=>s+Number(o.valor||0),0);
-  const aReceberObras=finance.filter(f=>f.category==="Obras"&&!f.pago&&f.dataVencimento>=today).reduce((s,f)=>s+f.value,0);
-  const vencidoObras=finance.filter(f=>f.category==="Obras"&&!f.pago&&f.dataVencimento<today).reduce((s,f)=>s+f.value,0);
+  const emExecucaoValor=obras.filter(o=>o.status==="Em andamento").reduce((s,o)=>s+Number(o.valor||0),0);
+  const obrasAtivas=obras.filter(o=>["Em andamento","Concluída"].includes(o.status));
+  const totalMedidoGeral=obrasAtivas.reduce((s,o)=>s+totalMedido(o),0);
+  const totalRecebidoGeral=obrasAtivas.reduce((s,o)=>s+totalRecebido(o),0);
+  const aReceberGeral=Math.max(0,totalMedidoGeral-totalRecebidoGeral);
+  const mesAtualObras=today.slice(0,7);
+  const recebidoMes=obras.reduce((s,o)=>s+(o.recebimentos||[]).filter(r=>(r.data||"").startsWith(mesAtualObras)).reduce((ss,r)=>ss+Number(r.valor||0),0),0);
   const proxComp=compromissos.filter(c=>c.tipo==="Obra"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
 
-  const abrirNovo=()=>{setForm(EFO);setSelId(null);setModal("orcamento");};
-  const abrirEditar=(o)=>{setForm({...EFO,...o});setSelId(o.id);setModal("orcamento");};
+  const abrirNovo=()=>{setForm(EFO());setSelId(null);setModal("orcamento");};
+  const abrirEditar=(o)=>{setForm({...EFO(),...o});setSelId(o.id);setModal("orcamento");};
+  const abrirDetalhe=(o)=>{setSelId(o.id);setDetTab(o.status==="Orçamento"?"orcamento":"servicos");setModal("detalhe");};
+
+  const addItemOrc=()=>setForm(f=>({...f,itensOrcamento:[...(f.itensOrcamento||[]),{id:uid(),descricao:"",qtd:1,unidade:"un",valorUnit:0}]}));
+  const updateItemOrc=(id,patch)=>setForm(f=>({...f,itensOrcamento:(f.itensOrcamento||[]).map(it=>it.id===id?{...it,...patch}:it)}));
+  const removeItemOrc=id=>setForm(f=>({...f,itensOrcamento:(f.itensOrcamento||[]).filter(it=>it.id!==id)}));
+  const somaItensOrc=(itens)=>(itens||[]).reduce((s,it)=>s+((Number(it.qtd)||0)*(Number(it.valorUnit)||0)),0);
 
   const salvarOrcamento=()=>{
     if(!form.clienteNome){alert("Escolha ou informe o nome do cliente.");return;}
@@ -9942,11 +9987,14 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
   const aprovarOrcamento=o=>{
     setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Aprovado",dataAprovacao:today}:x));
-    showSavedGlobal("Orçamento aprovado! Agora gere o recibo e confirme no financeiro.");
+    showSavedGlobal("Orçamento aprovado!");
   };
 
-  const voltarOrcamento=o=>{
-    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Orçamento"}:x));
+  const voltarOrcamento=o=>setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Orçamento"}:x));
+
+  const iniciarExecucao=o=>{
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Em andamento",dataInicio:today}:x));
+    showSavedGlobal("Execução iniciada! Vá lançando os serviços conforme for fazendo.");
   };
 
   const concluirObra=o=>{
@@ -9956,15 +10004,17 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
   const cancelarObra=o=>{if(window.confirm("Cancelar este orçamento/obra?"))setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Cancelada"}:x));};
 
-  const obTabelaItens=o=>{
-    const itens=obItens(o);
-    return `<table><thead><tr><th style="width:40px">Item</th><th>Discriminação dos Serviços</th><th style="width:110px">Valor Unitário (R$)</th><th style="width:110px">Valor Total (R$)</th></tr></thead><tbody>
-      ${itens.map((it,i)=>`<tr><td>${i+1}</td><td>${it}</td><td>–</td><td>–</td></tr>`).join("")}
+  // ── documentos ──
+  const obTabelaItensOrcDoc=o=>{
+    const itens=(o.itensOrcamento||[]).filter(it=>it.descricao);
+    const rows=itens.length?itens:[{descricao:o.tipo||"Serviço",qtd:"",unidade:"",valorUnit:0}];
+    return `<table><thead><tr><th style="width:36px">Item</th><th>Discriminação dos Serviços</th><th style="width:60px">Qtd</th><th style="width:60px">Unid.</th><th style="width:100px">Valor Unit. (R$)</th><th style="width:100px">Valor Total (R$)</th></tr></thead><tbody>
+      ${rows.map((it,i)=>{const q=Number(it.qtd)||0,vu=Number(it.valorUnit)||0;const tot=(q&&vu)?fmtBRL(q*vu):"–";return `<tr><td>${i+1}</td><td>${it.descricao||"-"}</td><td>${q||"–"}</td><td>${obUnidLabel(it.unidade)}</td><td>${vu?fmtBRL(vu):"–"}</td><td>${tot}</td></tr>`;}).join("")}
     </tbody></table>`;
   };
-  const obPixBox=o=>{
+  const obTabelaRecebimento=r=>`<table><thead><tr><th style="width:40px">Item</th><th>Discriminação</th><th style="width:120px">Valor (R$)</th></tr></thead><tbody><tr><td>1</td><td>Pagamento recebido referente à obra${r.obs?` — ${r.obs}`:""}</td><td>${fmtBRL(r.valor)}</td></tr></tbody></table>`;
+  const obPixBox=()=>{
     const co=configObras;
-    if(o.formaPag&&o.formaPag!=="PIX")return "";
     if(!co.pixChave&&!co.pixNome)return "";
     return `<div class="pix"><b class="tit">Pagamento via PIX (dados para transferência)</b>
       <b>Favorecido:</b> ${co.pixNome||co.nome||"Marcelo Lobui"}<br>
@@ -9973,32 +10023,14 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     </div>`;
   };
 
-  const gerarRecibo=o=>{
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
-    ${obHdr(o,obras,"Recibo de Prestação de Serviços",config)}
-    <div class="box"><b>Tomador / Cliente:</b> ${o.clienteNome}</div>
-    ${o.endereco?`<div class="box"><b>Endereço:</b> ${o.endereco}</div>`:""}
-    ${obTabelaItens(o)}
-    <div class="total-box">VALOR TOTAL DO RECIBO: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
-    ${obPixBox(o)}
-    <div style="font-size:12.5px;margin-bottom:10px">Recebi de <b>${o.clienteNome}</b> o valor acima referente ao(s) serviço(s) descrito(s), em ${fmtDate(today)}.</div>
-    <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Assinatura do Prestador de Serviço</div></div>
-    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
-    ${obRodape(config)}</body></html>`;
-    obAbrirImprimir(html);
-    setObras(prev=>prev.map(x=>x.id===o.id?{...x,reciboGerado:true,dataRecibo:today}:x));
-    showSavedGlobal("Recibo gerado! Agora confirme no financeiro.");
-  };
-
   const gerarOrcamentoDoc=o=>{
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
     ${obHdr(o,obras,"Orçamento de Serviços",config)}
     <div class="box"><b>Tomador / Cliente:</b> ${o.clienteNome}</div>
     ${o.endereco?`<div class="box"><b>Endereço:</b> ${o.endereco}</div>`:""}
-    ${obTabelaItens(o)}
+    ${obTabelaItensOrcDoc(o)}
     <div class="total-box">VALOR TOTAL DO ORÇAMENTO: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
-    <div class="box"><b>Forma de pagamento proposta:</b> ${o.formaPag||"PIX"}${o.dataPrevista?`<br><b>Previsão de início/conclusão:</b> ${fmtDate(o.dataPrevista)}`:""}</div>
-    ${obPixBox(o)}
+    <div class="box"><b>Forma de cobrança proposta:</b> ${formaCobrancaTexto(o)}${o.dataPrevista?`<br><b>Previsão de início/conclusão:</b> ${fmtDate(o.dataPrevista)}`:""}</div>
     <div style="font-size:12.5px;margin-bottom:10px">Orçamento válido por 15 dias a partir da data de emissão.</div>
     <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Prestador de Serviço</div><div class="ass-box"><b>${o.clienteNome}</b>De acordo (cliente)</div></div>
     <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
@@ -10007,12 +10039,81 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     showSavedGlobal("Orçamento gerado!");
   };
 
-  const confirmarFinanceiro=o=>{
-    if(o.lancado)return;
+  const gerarReciboRecebimento=r=>{
+    if(!sel)return;
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo — ${sel.clienteNome}</title><style>${obDocStyles}</style></head><body>
+    ${obHdr(sel,obras,"Recibo de Pagamento",config)}
+    <div class="box"><b>Tomador / Cliente:</b> ${sel.clienteNome}</div>
+    ${sel.endereco?`<div class="box"><b>Endereço:</b> ${sel.endereco}</div>`:""}
+    ${obTabelaRecebimento(r)}
+    <div class="total-box">VALOR RECEBIDO: ${fmtBRL(r.valor)} (${obValorExtenso(r.valor)})</div>
+    ${r.formaPag==="PIX"?obPixBox():""}
+    <div style="font-size:12.5px;margin-bottom:10px">Recebi de <b>${sel.clienteNome}</b> o valor acima, via ${r.formaPag||"PIX"}, em ${fmtDate(r.data||today)}.</div>
+    <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Assinatura do Prestador de Serviço</div></div>
+    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+  };
+
+  // ── serviços ──
+  const abrirNovoServico=()=>{setServForm(servDefault);setServFormOpen(true);};
+  const abrirEditarServico=s=>{setServForm({...s});setServFormOpen(true);};
+  const salvarServico=()=>{
+    if(!sel)return;
+    const qtd=Number(servForm.qtd)||0,vu=Number(servForm.valorUnit)||0;
+    const auto=qtd*vu;
+    const valor=Number(servForm.valor)>0?Number(servForm.valor):auto;
+    const novo={...servForm,id:servForm.id||uid(),qtd,valorUnit:vu,valor};
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,servicos:servForm.id?(o.servicos||[]).map(s=>s.id===novo.id?novo:s):[...(o.servicos||[]),novo]}:o));
+    setServFormOpen(false);showSavedGlobal("Serviço lançado!");
+  };
+  const excluirServico=s=>{if(!sel)return;if(window.confirm("Excluir este serviço lançado?"))setObras(prev=>prev.map(o=>o.id===sel.id?{...o,servicos:(o.servicos||[]).filter(x=>x.id!==s.id)}:o));};
+
+  // ── medições ──
+  const recalcMedValor=ids=>sel?(sel.servicos||[]).filter(s=>ids.includes(s.id)).reduce((s,x)=>s+Number(x.valor||0),0):0;
+  const abrirFecharMedicao=()=>{
+    if(!sel)return;
+    const soltos=servicosSoltos(sel);
+    if(soltos.length===0){alert("Não há serviços soltos (sem medição) pra fechar.");return;}
+    const ids=soltos.map(s=>s.id);
+    setMedSelecionados(ids);
+    setMedForm({...medDefault,valor:recalcMedValor(ids)});
+    setMedFormOpen(true);
+  };
+  const salvarMedicao=()=>{
+    if(!sel)return;
+    if(medSelecionados.length===0){alert("Selecione ao menos um serviço.");return;}
+    const medId=medForm.id||uid();
+    const valorTotal=Number(medForm.valor)||recalcMedValor(medSelecionados);
+    const nova={id:medId,data:medForm.data||today,dataVencimento:medForm.dataVencimento||"",obs:medForm.obs||"",valorTotal,status:"Aberta",servicosIds:medSelecionados};
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,medicoes:[...(o.medicoes||[]),nova],servicos:(o.servicos||[]).map(s=>medSelecionados.includes(s.id)?{...s,medicaoId:medId}:s)}:o));
+    setMedFormOpen(false);showSavedGlobal("Medição fechada — agora é valor a cobrar!");
+  };
+  const cancelarMedicao=m=>{
+    if(!sel||!window.confirm("Cancelar esta medição? Os serviços voltam a ficar soltos."))return;
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,medicoes:(o.medicoes||[]).map(x=>x.id===m.id?{...x,status:"Cancelada"}:x),servicos:(o.servicos||[]).map(s=>s.medicaoId===m.id?{...s,medicaoId:null}:s)}:o));
+  };
+
+  // ── recebimentos (único ponto que lança no Financeiro) ──
+  const abrirNovoRecebimento=medicaoId=>{
+    const m=medicaoId&&sel?(sel.medicoes||[]).find(x=>x.id===medicaoId):null;
+    setRecForm({...recDefault,medicaoId:medicaoId||"",valor:m?saldoMedicao(sel,m):0});
+    setRecFormOpen(true);
+  };
+  const salvarRecebimento=()=>{
+    if(!sel)return;
+    const valor=Number(recForm.valor)||0;
+    if(valor<=0){alert("Informe o valor recebido.");return;}
     const finId=uid();
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${o.clienteNome} — ${o.tipo}`,value:Number(o.valor)||0,date:today,dataVencimento:o.dataPrevista||today,formaPag:o.formaPag||"PIX",pago:false,category:"Obras",clientName:o.clienteNome}]);
-    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:x.status==="Aprovado"?"Em andamento":x.status,lancado:true,financeiroId:finId}:x));
-    showSavedGlobal("Confirmado no financeiro!");
+    const novo={...recForm,id:recForm.id||uid(),valor,financeiroId:finId};
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:[...(o.recebimentos||[]),novo]}:o));
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:true,dataPagamento:recForm.data||today,category:"Obras",clientName:sel.clienteNome}]);
+    setRecFormOpen(false);showSavedGlobal("Recebimento lançado no financeiro!");
+  };
+  const excluirRecebimento=r=>{
+    if(!sel||!window.confirm("Excluir este recebimento? O lançamento no financeiro também será removido."))return;
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:(o.recebimentos||[]).filter(x=>x.id!==r.id)}:o));
+    if(r.financeiroId)setFinance(prev=>prev.filter(f=>f.id!==r.financeiroId));
   };
 
   const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
@@ -10026,13 +10127,14 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     const cor=OBRAS_STATUS_COR[s]||{bg:"#F3E3DD",c:CO.primaria};
     return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:cor.bg,color:cor.c}}>{s}</span>;
   };
+  const vazio=txt=><div style={{textAlign:"center",padding:16,color:C.oliva,fontSize:12,fontStyle:"italic"}}>{txt}</div>;
 
   return(
     <div className="fade" style={{padding:24}}>
       <div style={{background:`linear-gradient(120deg,${CO.primaria},${CO.secundaria})`,borderRadius:8,padding:"16px 20px",marginBottom:16}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>🏗️ Obras — Marcelo Lobui</div>
         <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-          {[{l:"Orçamentos em aberto",v:totalOrcamentos},{l:"Em andamento (R$)",v:fmtBRL(totalAndamento)},{l:"A receber",v:fmtBRL(aReceberObras)},{l:"Vencido",v:fmtBRL(vencidoObras)}].map(k=>(
+          {[{l:"Orçamentos em aberto",v:totalOrcamentos},{l:"Em execução (orçado)",v:fmtBRL(emExecucaoValor)},{l:"A receber (medido − recebido)",v:fmtBRL(aReceberGeral)},{l:"Recebido no mês",v:fmtBRL(recebidoMes)}].map(k=>(
             <div key={k.l}><div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:"#FDFBF7",fontWeight:700}}>{k.v}</div></div>
           ))}
         </div>
@@ -10049,35 +10151,35 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
         <Btn sm onClick={abrirNovo} style={{background:CO.primaria}}>+ Novo orçamento</Btn>
       </div>
 
-      {filtered.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma obra ou orçamento aqui ✦</div>:
+      {filtered.length===0?vazio("Nenhuma obra ou orçamento aqui ✦"):
       filtered.sort((a,b)=>(b.dataOrcamento||"").localeCompare(a.dataOrcamento||"")).map(o=>(
         <Card key={o.id} style={{marginBottom:10,padding:"14px 16px",borderLeft:`3px solid ${CO.primaria}`}}>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
             <div style={{flex:1,minWidth:180}}>
               <div style={{fontSize:14,fontWeight:700}}>{o.clienteNome} <span style={{fontSize:9,background:"#EAE3DD",color:CO.primaria,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{o.tipo}</span></div>
-              <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{o.descricao}{o.endereco?` · ${o.endereco}`:""}</div>
+              <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{(o.itensOrcamento||[]).map(it=>it.descricao).filter(Boolean).join(" · ")}{o.endereco?` · ${o.endereco}`:""}</div>
               <div style={{fontSize:11,color:C.oliva,marginTop:1}}>Orçamento: <b>{fmtDate(o.dataOrcamento)}</b>{o.dataPrevista?` · Previsão: ${fmtDate(o.dataPrevista)}`:""}</div>
+              {["Em andamento","Concluída"].includes(o.status)&&<div style={{fontSize:11,color:C.oliva,marginTop:3}}>Medido: <b>{fmtBRL(totalMedido(o))}</b> · Recebido: <b>{fmtBRL(totalRecebido(o))}</b> · Saldo: <b style={{color:saldoObra(o)>0?C.vermelho:"#2E6B2E"}}>{fmtBRL(saldoObra(o))}</b></div>}
             </div>
             <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:CO.primaria,fontWeight:700}}>{fmtBRL(o.valor)}</div>
             <StatusChipObra s={o.status}/>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(o)}>📄 Gerar orçamento</Btn>}
+              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(o)}>📄 Orçamento</Btn>}
               {o.status==="Orçamento"&&<Btn sm onClick={()=>aprovarOrcamento(o)}>✓ Aprovar</Btn>}
-              {o.status==="Aprovado"&&<Btn sm onClick={()=>gerarRecibo(o)}>🧾 Gerar recibo</Btn>}
-              {o.status==="Aprovado"&&o.reciboGerado&&!o.lancado&&<Btn sm v="oliva" onClick={()=>confirmarFinanceiro(o)}>💰 Confirmar no financeiro</Btn>}
-              {o.status==="Aprovado"&&!o.reciboGerado&&<button onClick={()=>voltarOrcamento(o)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar p/ orçamento</button>}
-              {o.status==="Em andamento"&&<Btn sm onClick={()=>concluirObra(o)}>✓ Concluir obra</Btn>}
+              {o.status==="Aprovado"&&<Btn sm onClick={()=>iniciarExecucao(o)}>🚀 Iniciar execução</Btn>}
+              {o.status==="Aprovado"&&<button onClick={()=>voltarOrcamento(o)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar p/ orçamento</button>}
+              {["Em andamento","Concluída"].includes(o.status)&&<Btn sm v="oliva" onClick={()=>abrirDetalhe(o)}>📂 Abrir obra</Btn>}
+              {o.status==="Em andamento"&&<Btn sm onClick={()=>concluirObra(o)}>✓ Concluir</Btn>}
               {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>abrirAgendar(o)}>📅 Agendar visita</Btn>}
-              <Btn sm v="ghost" onClick={()=>abrirEditar(o)}>✎</Btn>
+              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>abrirEditar(o)}>✎</Btn>}
               {!["Cancelada"].includes(o.status)&&<Btn sm v="danger" onClick={()=>cancelarObra(o)}>✕ Cancelar</Btn>}
               {o.status==="Cancelada"&&<Btn sm v="danger" onClick={()=>excluirObra(o.id)}>🗑</Btn>}
             </div>
           </div>
-          {o.reciboGerado&&<div style={{fontSize:10,color:C.oliva,marginTop:6}}>🧾 Recibo gerado em {fmtDate(o.dataRecibo)}{o.lancado?" · 💰 Confirmado no financeiro":""}</div>}
         </Card>
       ))}
 
-      {modal==="orcamento"&&<Modal title={form.id?"Editar orçamento/obra":"Novo orçamento de obra"} onClose={()=>setModal(null)}>
+      {modal==="orcamento"&&<Modal title={form.id?"Editar orçamento/obra":"Novo orçamento de obra"} onClose={()=>setModal(null)} wide>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Sel label="Cliente" value={form.clientId} onChange={v=>{const c=clients.find(x=>x.id===v);setForm(f=>({...f,clientId:v,clienteNome:c?c.name:f.clienteNome,clienteCpfCnpj:(c&&c.cpfCnpj)||f.clienteCpfCnpj}));}} options={[{v:"",l:"Selecione ou digite abaixo"},...clients.map(c=>({v:c.id,l:c.name}))]}/>
           <Inp label="Nome do cliente" value={form.clienteNome} onChange={v=>setForm(f=>({...f,clienteNome:v}))} placeholder="Caso não esteja na lista acima"/>
@@ -10085,10 +10187,33 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
           <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Tipo de serviço</label>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{OBRAS_TIPOS.map(t=><button key={t} onClick={()=>setForm(f=>({...f,tipo:t}))} style={{flex:"1 1 70px",padding:"8px",borderRadius:4,border:`2px solid ${form.tipo===t?CO.primaria:C.areia}`,background:form.tipo===t?CO.primaria:"transparent",fontSize:12,fontWeight:700,color:form.tipo===t?"#fff":C.cafe,cursor:"pointer"}}>{t}</button>)}</div>
           </div>
-          <Inp label="Descrição do serviço" rows={3} value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="Ex: reforma do banheiro, pintura externa, construção do muro..."/>
           <Inp label="Endereço da obra" value={form.endereco} onChange={v=>setForm(f=>({...f,endereco:v}))}/>
-          <Inp label="Valor do orçamento (R$)" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
-          <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>setForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Transferência","Boleto","Cartão","Outro"]}/>
+
+          <div>
+            <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Serviços do orçamento (um por linha)</label>
+            {(form.itensOrcamento||[]).map(it=>(
+              <div key={it.id} style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 110px 24px",gap:6,marginBottom:6,alignItems:"center"}}>
+                <input value={it.descricao} onChange={e=>updateItemOrc(it.id,{descricao:e.target.value})} placeholder="Ex: pintura do muro externo" style={{padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+                <input type="number" value={it.qtd} onChange={e=>updateItemOrc(it.id,{qtd:e.target.value})} placeholder="Qtd" style={{padding:"8px 6px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+                <select value={it.unidade} onChange={e=>updateItemOrc(it.id,{unidade:e.target.value})} style={{padding:"8px 6px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}>{OBRAS_UNIDADES.map(u=><option key={u.v} value={u.v}>{u.l}</option>)}</select>
+                <input type="number" value={it.valorUnit} onChange={e=>updateItemOrc(it.id,{valorUnit:e.target.value})} placeholder="Valor unit. (opcional)" style={{padding:"8px 6px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+                <button onClick={()=>removeItemOrc(it.id)} style={{background:"none",border:"none",color:C.vermelho,cursor:"pointer",fontSize:14}}>✕</button>
+              </div>
+            ))}
+            <Btn sm v="ghost" onClick={addItemOrc}>+ Adicionar linha de serviço</Btn>
+            <div style={{fontSize:11,color:C.oliva,marginTop:8,fontStyle:"italic"}}>Pode deixar o valor unitário em branco pros serviços que você ainda não quer detalhar — eles entram como item (com quantidade, se quiser) e o valor fica só no total global abaixo. Soma dos itens com valor preenchido: <b>{fmtBRL(somaItensOrc(form.itensOrcamento))}</b></div>
+          </div>
+
+          <Inp label="Valor total do orçamento (R$) — o que você vai cobrar, global" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
+
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Forma de cobrança proposta (sem dados de pagamento ainda)</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{["PIX","Cartão de crédito","A combinar"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,formaCobranca:t}))} style={{flex:"1 1 100px",padding:"8px",borderRadius:4,border:`2px solid ${form.formaCobranca===t?CO.primaria:C.areia}`,background:form.formaCobranca===t?CO.primaria:"transparent",fontSize:12,fontWeight:700,color:form.formaCobranca===t?"#fff":C.cafe,cursor:"pointer"}}>{t}</button>)}</div>
+          </div>
+          {form.formaCobranca==="Cartão de crédito"&&<>
+            <Inp label="Taxa da maquininha (%)" type="number" value={form.taxaCartaoPct} onChange={v=>setForm(f=>({...f,taxaCartaoPct:v}))}/>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Valor com acréscimo no cartão: <b>{fmtBRL(Number(form.valor||0)*(1+(Number(form.taxaCartaoPct)||0)/100))}</b></div>
+          </>}
+
           <Inp label="Data do orçamento" type="date" value={form.dataOrcamento} onChange={v=>setForm(f=>({...f,dataOrcamento:v}))}/>
           <Inp label="Previsão de início/conclusão" type="date" value={form.dataPrevista} onChange={v=>setForm(f=>({...f,dataPrevista:v}))}/>
           <Inp label="Observações" rows={2} value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))}/>
@@ -10103,6 +10228,122 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
           <Inp label="Hora" type="time" value={compForm.hora} onChange={v=>setCompForm(f=>({...f,hora:v}))}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={salvarComp} style={{background:CO.primaria}}>Adicionar à Agenda</Btn></div>
+      </Modal>}
+
+      {modal==="detalhe"&&sel&&<Modal title={`🏗️ ${sel.clienteNome} — ${sel.tipo}`} onClose={()=>setModal(null)} wide>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16,background:C.linho,borderRadius:6,padding:"12px 14px"}}>
+          {[{l:"Orçado",v:fmtBRL(sel.valor)},{l:"Lançado",v:fmtBRL(totalServicos(sel))},{l:"Medido",v:fmtBRL(totalMedido(sel))},{l:"Recebido",v:fmtBRL(totalRecebido(sel))},{l:"Saldo a receber",v:fmtBRL(saldoObra(sel)),c:saldoObra(sel)>0?C.vermelho:"#2E6B2E"}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase"}}>{k.l}</div><div style={{fontSize:15,fontWeight:700,color:k.c||CO.primaria}}>{k.v}</div></div>
+          ))}
+        </div>
+        <Tabs tabs={[{k:"servicos",l:"🔨 Serviços"},{k:"medicoes",l:"📐 Medições"},{k:"recebimentos",l:"💰 Recebimentos"},{k:"orcamento",l:"📄 Orçamento"}]} active={detTab} set={setDetTab}/>
+
+        {detTab==="servicos"&&<div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={abrirNovoServico}>+ Lançar serviço</Btn></div>
+          {servFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+            <Inp label="Descrição do serviço" value={servForm.descricao} onChange={v=>setServForm(f=>({...f,descricao:v}))}/>
+            <Inp label="Data" type="date" value={servForm.data} onChange={v=>setServForm(f=>({...f,data:v}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+              <Inp label="Quantidade" type="number" value={servForm.qtd} onChange={v=>setServForm(f=>({...f,qtd:v}))}/>
+              <Sel label="Unidade" value={servForm.unidade} onChange={v=>setServForm(f=>({...f,unidade:v}))} options={OBRAS_UNIDADES.map(u=>({v:u.v,l:u.l}))}/>
+              <Inp label="Valor unitário (R$)" type="number" value={servForm.valorUnit} onChange={v=>setServForm(f=>({...f,valorUnit:v}))}/>
+            </div>
+            <Inp label="Ou valor direto (R$) — deixe 0 pra usar qtd × valor unit., ou pra lançar sem valor ainda" type="number" value={servForm.valor} onChange={v=>setServForm(f=>({...f,valor:v}))}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setServFormOpen(false)}>Cancelar</Btn><Btn sm onClick={salvarServico}>Salvar serviço</Btn></div>
+          </div>}
+          {(sel.servicos||[]).length===0?vazio("Nenhum serviço lançado ainda"):
+          (sel.servicos||[]).slice().sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(s=>(
+            <Card key={s.id} style={{marginBottom:8,padding:"10px 14px"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{s.descricao}{s.medicaoId&&<span style={{fontSize:9,background:"#E4EEE6",color:"#2E6B5E",padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>MEDIDO</span>}</div>
+                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(s.data)}{Number(s.qtd)>0?` · ${s.qtd} ${obUnidLabel(s.unidade)}`:""}{Number(s.valorUnit)>0?` · ${fmtBRL(s.valorUnit)}/${obUnidLabel(s.unidade)}`:""}</div>
+                </div>
+                <div style={{fontWeight:700,color:CO.primaria}}>{Number(s.valor)>0?fmtBRL(s.valor):"sem valor"}</div>
+                {!s.medicaoId&&<Btn sm v="ghost" onClick={()=>abrirEditarServico(s)}>✎</Btn>}
+                {!s.medicaoId&&<Btn sm v="danger" onClick={()=>excluirServico(s)}>✕</Btn>}
+              </div>
+            </Card>
+          ))}
+        </div>}
+
+        {detTab==="medicoes"&&<div>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Serviços soltos (sem medição): <b>{fmtBRL(servicosSoltos(sel).reduce((s,x)=>s+Number(x.valor||0),0))}</b></div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={abrirFecharMedicao} disabled={servicosSoltos(sel).length===0}>🔒 Fechar medição</Btn></div>
+          {medFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:CO.primaria}}>Selecione os serviços desta medição:</div>
+            {servicosSoltos(sel).map(s=>(
+              <label key={s.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,cursor:"pointer"}}>
+                <input type="checkbox" checked={medSelecionados.includes(s.id)} onChange={()=>{
+                  const novos=medSelecionados.includes(s.id)?medSelecionados.filter(x=>x!==s.id):[...medSelecionados,s.id];
+                  setMedSelecionados(novos);
+                  setMedForm(f=>({...f,valor:recalcMedValor(novos)}));
+                }}/>
+                <span style={{flex:1}}>{s.descricao}{Number(s.qtd)>0?` (${s.qtd} ${obUnidLabel(s.unidade)})`:""}</span><b>{Number(s.valor)>0?fmtBRL(s.valor):"sem valor"}</b>
+              </label>
+            ))}
+            <Inp label="Data da medição" type="date" value={medForm.data} onChange={v=>setMedForm(f=>({...f,data:v}))}/>
+            <Inp label="Vencimento (opcional)" type="date" value={medForm.dataVencimento} onChange={v=>setMedForm(f=>({...f,dataVencimento:v}))}/>
+            <Inp label="Valor total da medição (R$)" type="number" value={medForm.valor} onChange={v=>setMedForm(f=>({...f,valor:v}))}/>
+            <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setMedFormOpen(false)}>Cancelar</Btn><Btn sm onClick={salvarMedicao}>Fechar medição</Btn></div>
+          </div>}
+          {(sel.medicoes||[]).length===0?vazio("Nenhuma medição fechada ainda"):
+          (sel.medicoes||[]).slice().reverse().map((m,i)=>{
+            const recebido=recebDaMedicao(sel,m.id);
+            const saldo=saldoMedicao(sel,m);
+            const vencida=m.status!=="Cancelada"&&saldo>0&&m.dataVencimento&&m.dataVencimento<today;
+            return <Card key={m.id} style={{marginBottom:8,padding:"10px 14px",opacity:m.status==="Cancelada"?0.5:1}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{fontSize:13,fontWeight:700}}>Medição {(sel.medicoes||[]).length-i}{m.status==="Cancelada"?" — CANCELADA":""}</div>
+                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(m.data)} · {(m.servicosIds||[]).length} serviço(s){m.dataVencimento?` · Venc: ${fmtDate(m.dataVencimento)}`:""}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontWeight:700,color:CO.primaria}}>{fmtBRL(m.valorTotal)}</div>
+                  <div style={{fontSize:10,color:C.oliva}}>Recebido {fmtBRL(recebido)} · Saldo <b style={{color:saldo>0?(vencida?C.vermelho:C.dourado):"#2E6B2E"}}>{fmtBRL(saldo)}</b></div>
+                </div>
+                {m.status!=="Cancelada"&&saldo>0&&<Btn sm v="oliva" onClick={()=>{abrirNovoRecebimento(m.id);setDetTab("recebimentos");}}>💰 Receber</Btn>}
+                {m.status!=="Cancelada"&&<button onClick={()=>cancelarMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Cancelar</button>}
+              </div>
+            </Card>;
+          })}
+        </div>}
+
+        {detTab==="recebimentos"&&<div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={()=>abrirNovoRecebimento()}>+ Lançar recebimento</Btn></div>
+          {recFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+            <Sel label="Vincular à medição" value={recForm.medicaoId} onChange={v=>{const m=(sel.medicoes||[]).find(x=>x.id===v);setRecForm(f=>({...f,medicaoId:v,valor:m?saldoMedicao(sel,m):f.valor}));}} options={[{v:"",l:"Avulso (sem medição)"},...((sel.medicoes||[]).filter(m=>m.status!=="Cancelada"&&saldoMedicao(sel,m)>0).map(m=>({v:m.id,l:`Medição ${fmtDate(m.data)} — saldo ${fmtBRL(saldoMedicao(sel,m))}`})))]}/>
+            <Inp label="Valor recebido (R$)" type="number" value={recForm.valor} onChange={v=>setRecForm(f=>({...f,valor:v}))}/>
+            <Inp label="Data" type="date" value={recForm.data} onChange={v=>setRecForm(f=>({...f,data:v}))}/>
+            <Sel label="Forma de pagamento" value={recForm.formaPag} onChange={v=>setRecForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Cartão de crédito","Cartão de débito","Transferência","Boleto","Outro"]}/>
+            <Inp label="Observações" value={recForm.obs} onChange={v=>setRecForm(f=>({...f,obs:v}))} rows={2}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setRecFormOpen(false)}>Cancelar</Btn><Btn sm v="oliva" onClick={salvarRecebimento}>✓ Lançar no financeiro</Btn></div>
+          </div>}
+          {(sel.recebimentos||[]).length===0?vazio("Nenhum recebimento ainda"):
+          (sel.recebimentos||[]).slice().reverse().map(r=>(
+            <Card key={r.id} style={{marginBottom:8,padding:"10px 14px"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:140}}>
+                  <div style={{fontSize:13,fontWeight:700}}>{fmtBRL(r.valor)} <span style={{fontSize:10,color:C.oliva,fontWeight:400}}>· {r.formaPag}</span></div>
+                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{r.obs?` · ${r.obs}`:""}</div>
+                </div>
+                <Btn sm v="ghost" onClick={()=>gerarReciboRecebimento(r)}>🧾 Recibo</Btn>
+                <Btn sm v="danger" onClick={()=>excluirRecebimento(r)}>✕</Btn>
+              </div>
+            </Card>
+          ))}
+        </div>}
+
+        {detTab==="orcamento"&&<div>
+          <table style={{width:"100%",fontSize:12,marginBottom:14,borderCollapse:"collapse"}}>
+            <thead><tr style={{background:C.linho}}><th style={{textAlign:"left",padding:6}}>Descrição</th><th style={{padding:6}}>Qtd</th><th style={{padding:6}}>Unid.</th><th style={{padding:6}}>V. Unit.</th><th style={{padding:6}}>Total</th></tr></thead>
+            <tbody>{(sel.itensOrcamento||[]).map(it=>{const q=Number(it.qtd)||0,vu=Number(it.valorUnit)||0;return <tr key={it.id} style={{borderBottom:`1px solid ${C.areia}`}}><td style={{padding:6}}>{it.descricao||"-"}</td><td style={{padding:6,textAlign:"center"}}>{q||"–"}</td><td style={{padding:6,textAlign:"center"}}>{obUnidLabel(it.unidade)}</td><td style={{padding:6,textAlign:"right"}}>{vu?fmtBRL(vu):"–"}</td><td style={{padding:6,textAlign:"right"}}>{q&&vu?fmtBRL(q*vu):"–"}</td></tr>;})}</tbody>
+          </table>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Valor total do orçamento: {fmtBRL(sel.valor)}</div>
+          <div style={{fontSize:12,color:C.oliva,marginBottom:14}}>Forma de cobrança proposta: {formaCobrancaTexto(sel)}</div>
+          <Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(sel)}>📄 Gerar orçamento</Btn>
+        </div>}
       </Modal>}
     </div>
   );
