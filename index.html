@@ -156,6 +156,8 @@ const STATUS = {
   "Cancelado":{bg:"#F5D5D0",color:"#c0392b"},
 };
 const ORIGENS = ["Instagram","WhatsApp","Feira","Indicação","Outro"];
+const CLIENTE_SEGMENTOS = ["Artesanato","Consultoria","Obras","Outros"];
+const CLIENTE_SEGMENTOS_COR = {"Artesanato":{bg:"#F3E3DD",color:"#A6553C"},"Consultoria":{bg:"#EFE7DA",color:"#8A6D1F"},"Obras":{bg:"#EAE3DD",color:"#6B4530"},"Outros":{bg:"#E4EEE6",color:"#2E6B5E"}};
 const CENTROS = ["Vendas","Despesas","Suprimentos","Marketing","Investimentos","Rendimentos"];
 const CATS_FIN = ["Moda","Casa","Amigurumi","Suprimentos","Marketing","Despesas","Investimentos","Rendimentos","Outros"];
 const UNIDADES = ["g","kg","m","cm","un","novelo","rolo","par","meada"];
@@ -223,6 +225,37 @@ const pfGerarRecorrentes = (form,n) => {
   return Array.from({length:n},(_,i)=>{
     const dt=new Date(base.getFullYear(),base.getMonth()+i,base.getDate());
     return {...form,id:uid(),recorrenteId,vencimento:dt.toISOString().split("T")[0],pago:false,dataPagamento:""};
+  });
+};
+// Gera N lançamentos mensais futuros de uma despesa fixa recorrente NO CARTÃO,
+// cada um com sua própria competência/vencimento calculados pelo ciclo do cartão
+const pfGerarRecorrentesCartao = (form,n,cartao) => {
+  const compraBase=new Date((form.dataCompra||today)+"T00:00");
+  const recorrenteId=uid();
+  const diaFechamento=(cartao&&cartao.diaFechamento)||1;
+  const diaVencimento=(cartao&&cartao.diaVencimento)||10;
+  return Array.from({length:n},(_,i)=>{
+    const dt=new Date(compraBase.getFullYear(),compraBase.getMonth()+i,compraBase.getDate());
+    const dataCompra=dt.toISOString().split("T")[0];
+    const competencia=pfCompetencia(diaFechamento,dataCompra);
+    const vencimento=pfVencimentoFatura(diaVencimento,diaFechamento,competencia);
+    return {...form,id:uid(),recorrenteId,dataCompra,competencia,vencimento,pago:false,dataPagamento:"",faturaId:""};
+  });
+};
+// Divide uma receita em N parcelas mensais, sem perder centavos no arredondamento
+const pfGerarParcelasReceita = (form,n) => {
+  const totalCent=Math.round(Number(form.valor)*100);
+  const baseCent=Math.floor(totalCent/n);
+  const resto=totalCent-baseCent*n;
+  const compraId=uid();
+  const base=new Date((form.data||today)+"T00:00");
+  return Array.from({length:n},(_,i)=>{
+    const dt=new Date(base.getFullYear(),base.getMonth()+i,base.getDate());
+    const data=dt.toISOString().split("T")[0];
+    const centavos=baseCent+(i<resto?1:0);
+    return {...form,id:uid(),compraId,numParcela:i+1,totalParcelas:n,parcelado:true,
+      valor:centavos/100,valorTotalCompra:Number(form.valor),
+      data,descricao:`${form.descricao} (${i+1}/${n})`};
   });
 };
 // Lançamentos soltos (sem fatura fechada ainda) de um cartão numa competência
@@ -401,50 +434,68 @@ const comprimirParaFirebase = (dataUrl) => {
 };
 
 // ─── FIREBASE — FONTE PRINCIPAL DE DADOS ─────────────────────────────────────
-const fbSave = async (key, value) => {
-  try {
-    let forCloud = value;
+// Fila por chave: garante que os salvamentos de uma mesma chave cheguem ao Firebase
+// SEMPRE na ordem em que foram disparados — sem isso, dois salvamentos rápidos em
+// sequência podiam terminar fora de ordem e o mais antigo (com menos dados) "vencia"
+// e sobrescrevia o mais novo, apagando lançamentos recém-feitos.
+const _fbQueues = {};
+// Contador de salvamentos ainda em andamento com o Firebase — usado para avisar
+// a pessoa antes de ela sair/fechar a aba enquanto algo ainda não terminou de subir.
+let _fbPendentes = 0;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (e) => {
+    if (_fbPendentes > 0) { e.preventDefault(); e.returnValue = ""; }
+  });
+}
+const fbSave = (key, value) => {
+  const anterior = _fbQueues[key] || Promise.resolve();
+  _fbPendentes++;
+  const atual = anterior.catch(() => {}).then(async () => {
+    try {
+      let forCloud = value;
 
-    if (Array.isArray(value)) {
-      // Comprime fotos de cada item antes de salvar
-      forCloud = await Promise.all(value.map(async item => {
-        if (typeof item !== "object" || !item) return item;
-        const c = {...item};
-        // Comprime todas as fotos do array photos
-        if (c.photos?.length) {
-          c.photos = await Promise.all(c.photos.map(p => comprimirParaFirebase(p)));
-        }
-        // Comprime foto de cor
-        if (c.cores?.length) {
-          c.cores = await Promise.all(c.cores.map(async cor => ({
-            ...cor,
-            foto: cor.foto ? await comprimirParaFirebase(cor.foto) : cor.foto
-          })));
-        }
-        // Comprime foto individual
-        if (c.foto) c.foto = await comprimirParaFirebase(c.foto);
-        return c;
-      }));
-    } else if (typeof value === "object" && value !== null) {
-      forCloud = {...value};
-      if (forCloud.fotoArtesa) forCloud.fotoArtesa = await comprimirParaFirebase(forCloud.fotoArtesa);
-      if (forCloud.logoMarca) forCloud.logoMarca = await comprimirParaFirebase(forCloud.logoMarca);
-    }
+      if (Array.isArray(value)) {
+        // Comprime fotos de cada item antes de salvar
+        forCloud = await Promise.all(value.map(async item => {
+          if (typeof item !== "object" || !item) return item;
+          const c = {...item};
+          // Comprime todas as fotos do array photos
+          if (c.photos?.length) {
+            c.photos = await Promise.all(c.photos.map(p => comprimirParaFirebase(p)));
+          }
+          // Comprime foto de cor
+          if (c.cores?.length) {
+            c.cores = await Promise.all(c.cores.map(async cor => ({
+              ...cor,
+              foto: cor.foto ? await comprimirParaFirebase(cor.foto) : cor.foto
+            })));
+          }
+          // Comprime foto individual
+          if (c.foto) c.foto = await comprimirParaFirebase(c.foto);
+          return c;
+        }));
+      } else if (typeof value === "object" && value !== null) {
+        forCloud = {...value};
+        if (forCloud.fotoArtesa) forCloud.fotoArtesa = await comprimirParaFirebase(forCloud.fotoArtesa);
+        if (forCloud.logoMarca) forCloud.logoMarca = await comprimirParaFirebase(forCloud.logoMarca);
+      }
 
-    // Verifica tamanho final
-    const json = JSON.stringify(forCloud);
-    if (json.length > 900000) {
-      console.warn("Firebase: documento ainda grande após compressão:", json.length);
-    }
+      // Verifica tamanho final
+      const json = JSON.stringify(forCloud);
+      if (json.length > 900000) {
+        console.warn("Firebase: documento ainda grande após compressão:", json.length);
+      }
 
-    // Salva no Firebase
-    await db.collection("atelie").doc(key).set({
-      value: json,
-      updated: Date.now()
-    });
-    // Salva local como backup
-    try { localStorage.setItem("atelie_"+key, JSON.stringify(value)); } catch {}
-  } catch(e) { console.warn("Firebase save error:", e.message); }
+      // Salva no Firebase
+      await db.collection("atelie").doc(key).set({
+        value: json,
+        updated: Date.now()
+      });
+    } catch(e) { console.warn("Firebase save error:", e.message); }
+    finally { _fbPendentes--; }
+  });
+  _fbQueues[key] = atual;
+  return atual;
 };
 
 // Indicador global de salvamento
@@ -453,31 +504,55 @@ const showSavedGlobal = (msg="✓ Salvo com sucesso!") => {
   if (_setSavedGlobal) _setSavedGlobal(msg);
 };
 
+// Local: guarda o valor junto com o instante do salvamento (ts), pra saber depois
+// quem é mais novo — o que está neste aparelho ou o que está na nuvem.
+const _lerLocal = (K) => {
+  try {
+    const s = localStorage.getItem(K);
+    if (!s) return null;
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === "object" && "ts" in parsed && "value" in parsed) return parsed;
+    return {value: parsed, ts: 0}; // formato antigo (de antes desta correção)
+  } catch { return null; }
+};
+const _gravarLocal = (K, value) => {
+  try { localStorage.setItem(K, JSON.stringify({value, ts: Date.now()})); } catch {}
+};
+
 const useStorage = (key, initial) => {
   const K = "atelie_" + key;
   const loaded = useRef(false);
 
   const [val, setVal] = useState(() => {
-    // Começa com localStorage enquanto Firebase carrega
-    try {
-      const s = localStorage.getItem(K);
-      if (s) return JSON.parse(s);
-    } catch {}
-    return initial;
+    // Começa com localStorage (já salvo neste aparelho) enquanto o Firebase carrega
+    const local = _lerLocal(K);
+    return local ? local.value : initial;
   });
 
-  // Carrega Firebase como fonte principal — sobrescreve local
+  // Carrega o Firebase e decide quem é mais recente: nuvem ou este aparelho.
+  // Isso evita que uma nuvem desatualizada (por exemplo, por um salvamento que não
+  // terminou a tempo) sobrescreva e "apague" o que já está salvo aqui.
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
     db.collection("atelie").doc(key).get().then(doc => {
+      const local = _lerLocal(K);
       if (doc.exists) {
         try {
           const cloudVal = JSON.parse(doc.data().value);
-          // Firebase tem prioridade — é a fonte de verdade
-          setVal(cloudVal);
-          try { localStorage.setItem(K, JSON.stringify(cloudVal)); } catch {}
+          const cloudTs = doc.data().updated || 0;
+          if (local && local.ts > cloudTs) {
+            // Este aparelho tem algo mais novo que a nuvem — mantém e reenvia pra nuvem
+            setVal(local.value);
+            fbSave(key, local.value);
+          } else {
+            setVal(cloudVal);
+            _gravarLocal(K, cloudVal);
+          }
         } catch {}
+      } else if (local) {
+        // Nunca salvou na nuvem, mas já existe algo aqui — envia pra nuvem agora
+        fbSave(key, local.value);
       }
     }).catch(() => {});
   }, []);
@@ -485,6 +560,9 @@ const useStorage = (key, initial) => {
   const set = useCallback(u => {
     setVal(prev => {
       const next = typeof u === "function" ? u(prev) : u;
+      // Grava local IMEDIATAMENTE (síncrono) — garante que nada se perde mesmo se
+      // a aba for fechada antes do Firebase terminar de salvar na nuvem.
+      _gravarLocal(K, next);
       fbSave(key, next);
       showSavedGlobal();
       return next;
@@ -665,6 +743,7 @@ const NAV = [
   {k:"agenda",i:"📅",l:"Agenda"},
   {k:"diario",i:"✍🏻",l:"Diário da Simara"},
   {k:"consultoria",i:"💼",l:"Consultoria"},
+  {k:"obras",i:"🏗️",l:"Obras"},
   {k:"projects",i:"✧",l:"Projetos & Sonhos"},
   {k:"reports",i:"▦",l:"Relatórios"},
   {k:"config",i:"⊙",l:"Configurações"},
@@ -678,6 +757,7 @@ const NAV_GROUPS=[
   {label:"Cadastros",items:[NAV_BY_KEY.clients]},
   {label:"Minha Rotina",items:[NAV_BY_KEY.agenda,NAV_BY_KEY.metas,NAV_BY_KEY.diario,NAV_BY_KEY.projects]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
+  {label:"Obras",items:[NAV_BY_KEY.obras]},
   {label:"Sistema",items:[NAV_BY_KEY.config]},
 ];
 const isGrupoDe=(k)=>NAV_GROUPS.findIndex(g=>g.items.some(it=>it&&it.k===k));
@@ -2732,8 +2812,12 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
   const [contaModal,setContaModal]=useState(false);
   const [filtStatus,setFiltStatus]=useState("todos");
   const [busca,setBusca]=useState("");
-  const dDefault=()=>({descricao:"",categoria:(categorias.despesa||[]).find(c=>c.ativa)?.nome||"",tipo:"Eventual",valor:0,vencimento:today,dataCompra:today,pago:false,dataPagamento:"",formaPagamento:"Dinheiro",contaCartao:"",parcelado:false,numParcelas:2,recorrente:false,qtdMeses:12,observacoes:""});
-  const rDefault=()=>({descricao:"",categoria:(categorias.receita||[]).find(c=>c.ativa)?.nome||"",valor:0,data:today,formaRecebimento:"Dinheiro",origem:"",observacoes:""});
+  const [filtCategoria,setFiltCategoria]=useState("");
+  const [filtTipo,setFiltTipo]=useState("todos");
+  const [filtMes,setFiltMes]=useState("");
+  useEffect(()=>{setFiltCategoria("");setFiltTipo("todos");setFiltMes("");},[tab]);
+  const dDefault=()=>({descricao:"",categoria:(categorias.despesa||[]).find(c=>c.ativa)?.nome||"",tipo:"Eventual",valor:0,vencimento:today,dataCompra:today,pago:false,dataPagamento:"",formaPagamento:"Dinheiro",contaCartao:"",parcelado:false,numParcelas:2,recorrente:false,qtdMeses:12,vencimentoManual:false,observacoes:""});
+  const rDefault=()=>({descricao:"",categoria:(categorias.receita||[]).find(c=>c.ativa)?.nome||"",valor:0,data:today,formaRecebimento:"Dinheiro",origem:"",parcelado:false,numParcelas:2,observacoes:""});
   const [dForm,setDForm]=useState(dDefault());
   const [rForm,setRForm]=useState(rDefault());
   const [catForm,setCatForm]=useState({tipo:"despesa",id:"",nome:""});
@@ -2742,9 +2826,21 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
   const catsDespAtivas=(categorias.despesa||[]).filter(c=>c.ativa);
   const catsRecAtivas=(categorias.receita||[]).filter(c=>c.ativa);
   const cartaoDoForm=contasPF.find(c=>c.nome===dForm.contaCartao);
+  const ehCartaoForm=dForm.formaPagamento==="Cartão de crédito";
 
   const filtraBusca=x=>!busca||x.descricao?.toLowerCase().includes(busca.toLowerCase())||x.categoria?.toLowerCase().includes(busca.toLowerCase());
-  const despFiltradas=despesas.filter(filtraBusca).filter(d=>filtStatus==="todos"||pfStatus(d)===filtStatus);
+  const despFiltradas=despesas.filter(filtraBusca)
+    .filter(d=>filtStatus==="todos"||pfStatus(d)===filtStatus)
+    .filter(d=>!filtCategoria||d.categoria===filtCategoria)
+    .filter(d=>filtTipo==="todos"||d.tipo===filtTipo)
+    .filter(d=>!filtMes||(d.vencimento||"").startsWith(filtMes));
+  const recFiltradas=receitas.filter(filtraBusca)
+    .filter(r=>!filtCategoria||r.categoria===filtCategoria)
+    .filter(r=>!filtMes||(r.data||"").startsWith(filtMes));
+  const categoriasNaLista=(tipoLista)=>{
+    const arr=tipoLista==="despesa"?despesas:receitas;
+    return [...new Set(arr.map(x=>x.categoria).filter(Boolean))].sort();
+  };
 
   const mesAtual=today.slice(0,7);
   const painel=pfPainel(despesas,receitas,mesAtual);
@@ -2763,6 +2859,11 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       const novas=pfGerarParcelas(dForm,n,cartao);
       setDespesas(prev=>[...prev,...novas]);
       showSavedGlobal(`${n} parcelas criadas!`);
+    } else if(!dForm.id&&ehCartao&&dForm.tipo==="Fixa"&&dForm.recorrente&&!dForm.parcelado){
+      const qtd=Number(dForm.qtdMeses)||12;
+      const novas=pfGerarRecorrentesCartao(dForm,qtd,cartao);
+      setDespesas(prev=>[...prev,...novas]);
+      showSavedGlobal(`${qtd} lançamentos criados!`);
     } else if(!dForm.id&&!ehCartao&&dForm.tipo==="Fixa"&&dForm.recorrente){
       const qtd=Number(dForm.qtdMeses)||12;
       const novas=pfGerarRecorrentes(dForm,qtd);
@@ -2770,12 +2871,20 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       showSavedGlobal(`${qtd} lançamentos criados!`);
     } else if(dForm.id){
       let salvo={...dForm,valor:Number(dForm.valor)};
-      if(ehCartao&&cartao){const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);salvo={...salvo,competencia:comp,vencimento:pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp)};}
+      if(ehCartao&&cartao){
+        const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);
+        salvo={...salvo,competencia:comp};
+        if(!dForm.vencimentoManual)salvo.vencimento=pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp);
+      }
       setDespesas(prev=>prev.map(d=>d.id===dForm.id?salvo:d));
       showSavedGlobal("Despesa pessoal salva!");
     } else {
       let nova={...dForm,id:uid(),valor:Number(dForm.valor),pago:false};
-      if(ehCartao&&cartao){const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);nova={...nova,competencia:comp,vencimento:pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp),faturaId:""};}
+      if(ehCartao&&cartao){
+        const comp=pfCompetencia(cartao.diaFechamento||1,dForm.dataCompra||today);
+        nova={...nova,competencia:comp,faturaId:""};
+        if(!dForm.vencimentoManual)nova.vencimento=pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,comp);
+      }
       setDespesas(prev=>[...prev,nova]);
       showSavedGlobal("Despesa pessoal salva!");
     }
@@ -2809,6 +2918,13 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
   const abrirNovaRec=()=>{setRForm(rDefault());setRecModal(true);};
   const abrirEditarRec=r=>{setRForm({...r});setRecModal(true);};
   const saveRec=()=>{
+    const n=Number(rForm.numParcelas)||1;
+    if(!rForm.id&&rForm.parcelado&&n>1){
+      const novas=pfGerarParcelasReceita(rForm,n);
+      setReceitas(prev=>[...prev,...novas]);
+      setRecModal(false);showSavedGlobal(`${n} parcelas de receita criadas!`);
+      return;
+    }
     if(rForm.id)setReceitas(prev=>prev.map(r=>r.id===rForm.id?{...rForm,valor:Number(rForm.valor)}:r));
     else setReceitas(prev=>[...prev,{...rForm,id:uid(),valor:Number(rForm.valor)}]);
     setRecModal(false);showSavedGlobal("Receita pessoal salva!");
@@ -2885,10 +3001,19 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       </div>}
 
       {tab==="despesas"&&<>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8,alignItems:"center"}}>
           <div style={{flex:1,minWidth:160}}><Inp value={busca} onChange={setBusca} placeholder="Buscar despesa..."/></div>
           {["todos",...PF_STATUS].map(s=><button key={s} onClick={()=>setFiltStatus(s)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${filtStatus===s?C.cafe:C.areia}`,background:filtStatus===s?C.cafe:"transparent",color:filtStatus===s?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s==="todos"?"Todas":s}</button>)}
           <Btn sm onClick={abrirNovaDesp}>+ Despesa pessoal</Btn>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <select value={filtCategoria} onChange={e=>setFiltCategoria(e.target.value)} style={{padding:"6px 10px",borderRadius:4,border:`1.5px solid ${C.areia}`,fontSize:12,color:C.cafe,background:"#fff"}}>
+            <option value="">Todas as categorias</option>
+            {categoriasNaLista("despesa").map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          {["todos",...PF_TIPOS_DESPESA].map(t=><button key={t} onClick={()=>setFiltTipo(t)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${filtTipo===t?C.oliva:C.areia}`,background:filtTipo===t?C.oliva:"transparent",color:filtTipo===t?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t==="todos"?"Todos os tipos":t}</button>)}
+          <input type="month" value={filtMes} onChange={e=>setFiltMes(e.target.value)} style={{padding:"6px 10px",borderRadius:4,border:`1.5px solid ${C.areia}`,fontSize:12,color:C.cafe,background:"#fff"}}/>
+          {(filtCategoria||filtTipo!=="todos"||filtMes)&&<button onClick={()=>{setFiltCategoria("");setFiltTipo("todos");setFiltMes("");}} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Limpar filtros</button>}
         </div>
         {despFiltradas.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma despesa pessoal aqui ✦</div>:
         despFiltradas.sort((a,b)=>(a.vencimento||"").localeCompare(b.vencimento||"")).map(d=>{
@@ -2910,16 +3035,24 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       </>}
 
       {tab==="receitas"&&<>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8,alignItems:"center"}}>
           <div style={{flex:1,minWidth:160}}><Inp value={busca} onChange={setBusca} placeholder="Buscar receita..."/></div>
           <Btn sm onClick={abrirNovaRec}>+ Receita pessoal</Btn>
         </div>
-        {receitas.filter(filtraBusca).length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma receita pessoal aqui ✦</div>:
-        receitas.filter(filtraBusca).sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(r=>(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <select value={filtCategoria} onChange={e=>setFiltCategoria(e.target.value)} style={{padding:"6px 10px",borderRadius:4,border:`1.5px solid ${C.areia}`,fontSize:12,color:C.cafe,background:"#fff"}}>
+            <option value="">Todas as categorias</option>
+            {categoriasNaLista("receita").map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <input type="month" value={filtMes} onChange={e=>setFiltMes(e.target.value)} style={{padding:"6px 10px",borderRadius:4,border:`1.5px solid ${C.areia}`,fontSize:12,color:C.cafe,background:"#fff"}}/>
+          {(filtCategoria||filtMes)&&<button onClick={()=>{setFiltCategoria("");setFiltMes("");}} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Limpar filtros</button>}
+        </div>
+        {recFiltradas.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma receita pessoal aqui ✦</div>:
+        recFiltradas.sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(r=>(
           <Card key={r.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:`3px solid ${C.oliva}`}}>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1,minWidth:160}}>
-                <div style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>AUTOMÁTICA</span>}</div>
+                <div style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>AUTOMÁTICA</span>}{r.parcelado&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>PARCELA {r.numParcela}/{r.totalParcelas}</span>}</div>
                 <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}</div>
               </div>
               <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.oliva,fontWeight:700}}>{fmtBRL(r.valor)}</div>
@@ -3036,7 +3169,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
           <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Tipo</label>
             <div style={{display:"flex",gap:8}}>{PF_TIPOS_DESPESA.map(t=><button key={t} onClick={()=>setDForm(f=>({...f,tipo:t}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${dForm.tipo===t?C.cafe:C.areia}`,background:dForm.tipo===t?C.cafe:"transparent",fontSize:13,fontWeight:700,color:dForm.tipo===t?"#fff":C.cafe,cursor:"pointer"}}>{t}</button>)}</div>
           </div>
-          {dForm.tipo==="Fixa"&&dForm.formaPagamento!=="Cartão de crédito"&&!dForm.id&&<>
+          {dForm.tipo==="Fixa"&&!ehCartaoForm&&!dForm.id&&<>
             <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
               <input type="checkbox" checked={dForm.recorrente||false} onChange={e=>setDForm(f=>({...f,recorrente:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>
               <span style={{fontWeight:600,color:C.dourado}}>🔁 Gerar lançamentos futuros automaticamente (recorrente)</span>
@@ -3059,7 +3192,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
             {cartaoDoForm&&<div style={{background:C.linho,borderRadius:4,padding:"8px 12px",fontSize:11,color:C.oliva}}>
               Fecha dia <b>{cartaoDoForm.diaFechamento||1}</b> · Vence dia <b>{cartaoDoForm.diaVencimento||10}</b> → cai na fatura de <b>{pfCompetenciaLabel(pfCompetencia(cartaoDoForm.diaFechamento||1,dForm.dataCompra||today))}</b>
             </div>}
-            {!dForm.id&&<>
+            {!dForm.id&&!dForm.recorrente&&<>
               <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
                 <input type="checkbox" checked={dForm.parcelado||false} onChange={e=>setDForm(f=>({...f,parcelado:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>
                 <span style={{fontWeight:600,color:C.dourado}}>🧾 Compra parcelada no cartão</span>
@@ -3073,6 +3206,28 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
                   🧾 Serão criadas <b>{dForm.numParcelas||2} parcelas</b> de aproximadamente <b style={{color:C.dourado}}>{fmtBRL((Number(dForm.valor)||0)/(Number(dForm.numParcelas)||2))}</b>, uma por mês a partir de <b>{fmtDate(dForm.dataCompra||today)}</b>. Cada parcela entra sozinha na fatura do mês em que cai.
                 </div>
               </div>}
+            </>}
+            {!dForm.id&&dForm.tipo==="Fixa"&&!dForm.parcelado&&<>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
+                <input type="checkbox" checked={dForm.recorrente||false} onChange={e=>setDForm(f=>({...f,recorrente:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>
+                <span style={{fontWeight:600,color:C.dourado}}>🔁 Despesa fixa recorrente no cartão (todo mês)</span>
+              </label>
+              {dForm.recorrente&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+                <div>
+                  <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Nº de meses</label>
+                  <input type="number" min="1" max="60" value={dForm.qtdMeses||12} onChange={e=>setDForm(f=>({...f,qtdMeses:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+                </div>
+                <div style={{background:"#fff",borderRadius:4,padding:"10px 12px",fontSize:12,color:C.cafe,borderLeft:`3px solid ${C.dourado}`}}>
+                  🔁 Serão lançados <b>{dForm.qtdMeses||12} meses</b> de <b style={{color:C.dourado}}>{fmtBRL(Number(dForm.valor)||0)}</b> nesse cartão, repetindo a compra todo mês a partir de <b>{fmtDate(dForm.dataCompra||today)}</b>. Cada mês cai sozinho na fatura certa, pelo ciclo do cartão.
+                </div>
+              </div>}
+            </>}
+            {!dForm.parcelado&&!dForm.recorrente&&<>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+                <input type="checkbox" checked={dForm.vencimentoManual||false} onChange={e=>setDForm(f=>({...f,vencimentoManual:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+                <span style={{fontWeight:600}}>✎ Definir vencimento manualmente</span>
+              </label>
+              {dForm.vencimentoManual&&<Inp label="Data de vencimento" type="date" value={dForm.vencimento} onChange={v=>setDForm(f=>({...f,vencimento:v}))}/>}
             </>}
           </>:<Inp label="Data de vencimento" type="date" value={dForm.vencimento} onChange={v=>setDForm(f=>({...f,vencimento:v}))}/>}
           {dForm.formaPagamento!=="Cartão de crédito"&&<Sel label="Conta" value={dForm.contaCartao} onChange={v=>setDForm(f=>({...f,contaCartao:v}))} options={["",...contasPF.map(c=>c.nome)]}/>}
@@ -3090,10 +3245,25 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Inp label="Descrição" value={rForm.descricao} onChange={v=>setRForm(f=>({...f,descricao:v}))}/>
           <Sel label="Categoria" value={rForm.categoria} onChange={v=>setRForm(f=>({...f,categoria:v}))} options={catsRecAtivas.map(c=>c.nome)}/>
-          <Inp label="Valor (R$)" type="number" value={rForm.valor} onChange={v=>setRForm(f=>({...f,valor:v}))}/>
-          <Inp label="Data" type="date" value={rForm.data} onChange={v=>setRForm(f=>({...f,data:v}))}/>
+          <Inp label={rForm.parcelado&&!rForm.id?"Valor total a receber (R$)":"Valor (R$)"} type="number" value={rForm.valor} onChange={v=>setRForm(f=>({...f,valor:v}))}/>
+          <Inp label={rForm.parcelado&&!rForm.id?"Data da 1ª parcela":"Data"} type="date" value={rForm.data} onChange={v=>setRForm(f=>({...f,data:v}))}/>
           <Sel label="Forma de recebimento" value={rForm.formaRecebimento} onChange={v=>setRForm(f=>({...f,formaRecebimento:v}))} options={PF_FORMAS_RECEB}/>
           <Inp label="Origem (detalhe)" value={rForm.origem} onChange={v=>setRForm(f=>({...f,origem:v}))} placeholder="Ex: reembolso da Maria, venda do sofá..."/>
+          {!rForm.id&&<>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#EAF2EA",padding:"10px 12px",borderRadius:6}}>
+              <input type="checkbox" checked={rForm.parcelado||false} onChange={e=>setRForm(f=>({...f,parcelado:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+              <span style={{fontWeight:600,color:C.oliva}}>🧾 Receita parcelada (recebimento em várias vezes)</span>
+            </label>
+            {rForm.parcelado&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Número de parcelas</label>
+                <input type="number" min="2" max="24" value={rForm.numParcelas||2} onChange={e=>setRForm(f=>({...f,numParcelas:Number(e.target.value)}))} style={{width:"100%",padding:"9px 13px",border:`2px solid ${C.cafe}`,borderRadius:3,fontSize:16,fontWeight:700,color:C.cafe,background:"#fff"}}/>
+              </div>
+              <div style={{background:"#fff",borderRadius:4,padding:"10px 12px",fontSize:12,color:C.cafe,borderLeft:`3px solid ${C.oliva}`}}>
+                🧾 Serão criadas <b>{rForm.numParcelas||2} parcelas</b> de aproximadamente <b style={{color:C.oliva}}>{fmtBRL((Number(rForm.valor)||0)/(Number(rForm.numParcelas)||2))}</b>, uma por mês a partir de <b>{fmtDate(rForm.data||today)}</b>.
+              </div>
+            </div>}
+          </>}
           <Inp label="Observações" rows={2} value={rForm.observacoes} onChange={v=>setRForm(f=>({...f,observacoes:v}))}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setRecModal(false)}>Cancelar</Btn><Btn onClick={saveRec}>Salvar</Btn></div>
@@ -3222,7 +3392,7 @@ const Clients = ({clients,setClients,orders,config}) => {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"});
   const [filtroTipo,setFiltroTipo]=useState("todos");
-  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:""};
+  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:"",segmento:""};
 
   const save=()=>{
     if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x).sort((a,b)=>a.name.localeCompare(b.name,"pt")));
@@ -3263,6 +3433,7 @@ const Clients = ({clients,setClients,orders,config}) => {
               <div style={{fontSize:13,fontWeight:600,color:C.oliva}}>{c.name}</div>
               <div style={{fontSize:11,color:C.cafe,display:"flex",gap:8,flexWrap:"wrap"}}>
                 <span style={{background:isForn?"#E8EDF5":"#F3EAF5",padding:"1px 7px",borderRadius:8,fontSize:9,fontWeight:700}}>{isForn?"🏪 Fornecedor":"👤 Cliente"}</span>
+                {c.segmento&&<span style={{background:(CLIENTE_SEGMENTOS_COR[c.segmento]||{}).bg||C.linho,color:(CLIENTE_SEGMENTOS_COR[c.segmento]||{}).color||C.cafe,padding:"1px 7px",borderRadius:8,fontSize:9,fontWeight:700}}>{c.segmento}</span>}
                 {c.vip&&<span style={{background:"#F3EAF5",color:C.cafe,padding:"1px 7px",borderRadius:8,fontSize:9,fontWeight:700}}>✦ VIP</span>}
                 {c.nascimento&&!isForn&&<span>🎂 {c.nascimento}</span>}
                 {c.phone&&<span>{c.phone}</span>}
@@ -3292,6 +3463,7 @@ const Clients = ({clients,setClients,orders,config}) => {
           <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
+          <Sel label="Segmento" value={form.segmento||""} onChange={v=>setForm(f=>({...f,segmento:v}))} options={["",...CLIENTE_SEGMENTOS]}/>
           {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento (DD/MM/AAAA)" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))} placeholder="Ex: 15/03/1990"/>}
           <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
           {(form.tipo||"cliente")==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>}
@@ -8185,7 +8357,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       <div style={{background:`linear-gradient(135deg,${CC.primaria},#3D5247)`,borderRadius:8,padding:"14px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:8,color:CC.secundaria,letterSpacing:"3px",textTransform:"uppercase",fontWeight:700}}>Simara Lobui</div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v39</span></div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,color:"#FDFAFF",fontStyle:"italic"}}>Consultoria Comercial e Administrativa <span style={{fontSize:9,opacity:.6,fontStyle:"normal"}}>v40</span></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           <Btn sm v="ghost" onClick={()=>{setForm({...EFP,orcamento:true});setModal("pedido");}} style={{color:"#fff",borderColor:"rgba(255,255,255,0.4)"}}>📋 Orçamento</Btn>
@@ -9004,7 +9176,8 @@ const RastrearModal = ({onClose}) => {
   const [result,setResult]=useState(null);
   const buscar=()=>{
     try{
-      const all=JSON.parse(localStorage.getItem("atelie_orders")||"[]");
+      const raw=JSON.parse(localStorage.getItem("atelie_orders")||"[]");
+      const all=(raw&&typeof raw==="object"&&"value" in raw)?raw.value:raw; // compatível com o formato antigo e o novo ({value,ts})
       const found=all.find(o=>o.id?.toLowerCase()===q.toLowerCase()||o.client?.toLowerCase().includes(q.toLowerCase()));
       setResult(found||"none");
     }catch{setResult("none");}
@@ -9620,6 +9793,203 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
   );
 };
 
+// ─── OBRAS (Construção e Reforma — Marcelo Lobui) ────────────────────────────
+const CORES_OBRAS={primaria:"#6B4530",secundaria:"#C1A268",texto:"#2C3E50",fundo:"#FFFFFF"};
+const OBRAS_TIPOS=["Construção","Reforma","Manutenção","Outro"];
+const OBRAS_STATUS=["Orçamento","Aprovado","Em andamento","Concluída","Cancelada"];
+const OBRAS_STATUS_COR={"Orçamento":{bg:"#FEF3E9",c:"#B08D57"},"Aprovado":{bg:"#EAE3DD",c:"#6B4530"},"Em andamento":{bg:"#E4EEE6",c:"#2E6B5E"},"Concluída":{bg:"#D4E8D4",c:"#2E6B2E"},"Cancelada":{bg:"#FEE",c:"#B5455B"}};
+const obDocStyles=`body{font-family:'Georgia',serif;max-width:740px;margin:0 auto;color:#2C3E50;padding:30px;line-height:1.75;}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #6B4530;padding-bottom:16px;margin-bottom:24px;}
+  .hdr-nome{font-size:22px;font-weight:bold;color:#6B4530;letter-spacing:1px;}
+  .hdr-sub{font-size:11px;color:#C1A268;letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+  .hdr-doc{text-align:right;font-size:12px;color:#666;}
+  h2{color:#6B4530;font-size:14px;text-transform:uppercase;letter-spacing:2px;border-left:4px solid #C1A268;padding-left:10px;margin:22px 0 10px;}
+  .campo{margin-bottom:7px;font-size:13px;}.campo b{color:#6B4530;}
+  .pix{background:#F7F8F6;border:1px solid #ddd;border-radius:4px;padding:10px 14px;font-size:12px;margin-top:6px;}
+  .valor{font-size:20px;font-weight:bold;color:#6B4530;}
+  .badge{display:inline-block;background:#6B4530;color:#fff;font-size:10px;padding:2px 10px;border-radius:12px;margin-bottom:12px;}
+  .ass{display:flex;justify-content:space-between;gap:30px;margin-top:60px;}
+  .ass-box{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;}
+  .ftr{margin-top:30px;text-align:center;color:#999;font-size:10px;border-top:1px solid #ddd;padding-top:12px;}
+  @media print{body{padding:20px;}}`;
+const obNumObra=(obras,id)=>{const idx=obras.findIndex(o=>o.id===id);return String((idx>=0?idx:obras.length)+1).padStart(3,"0");};
+const obRodape=(config)=>{const co=(config&&config.obras)||{};return `<div class="ftr">Marcelo Lobui · Construção e Reforma${co.telefone?` · Tel: ${co.telefone}`:(config&&config.whatsapp?` · WhatsApp: ${config.whatsapp}`:"")}</div>`;};
+const obHdr=(o,obras,titulo)=>`<div class="hdr"><div><div class="hdr-nome">MARCELO LOBUI</div><div class="hdr-sub">Construção e Reforma</div></div><div class="hdr-doc"><b>${titulo}</b><br>Nº ${obNumObra(obras,o.id)}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div><div class="badge">${o.tipo||"Obra"}</div>`;
+const obAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
+
+const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config})=>{
+  const CO=CORES_OBRAS;
+  const [busca,setBusca]=useState("");
+  const [filtStatus,setFiltStatus]=useState("Todos");
+  const [modal,setModal]=useState(null); // "orcamento" | "comp"
+  const [selId,setSelId]=useState(null);
+  const EFO={id:null,clientId:"",clienteNome:"",clienteCpfCnpj:"",tipo:"Reforma",descricao:"",endereco:"",valor:0,formaPag:"PIX",dataOrcamento:today,dataPrevista:"",status:"Orçamento",obs:""};
+  const [form,setForm]=useState(EFO);
+  const [compForm,setCompForm]=useState(null);
+
+  const sel=obras.find(o=>o.id===selId);
+  const configObras=config?.obras||{telefone:"",pixChave:"",pixNome:"Marcelo Lobui"};
+
+  const filtered=obras.filter(o=>{
+    const matchBusca=!busca||(o.clienteNome+" "+(o.descricao||"")).toLowerCase().includes(busca.toLowerCase());
+    const matchStatus=filtStatus==="Todos"||o.status===filtStatus;
+    return matchBusca&&matchStatus;
+  });
+
+  const totalOrcamentos=obras.filter(o=>o.status==="Orçamento").length;
+  const totalAndamento=obras.filter(o=>o.status==="Em andamento").reduce((s,o)=>s+Number(o.valor||0),0);
+  const aReceberObras=finance.filter(f=>f.category==="Obras"&&!f.pago&&f.dataVencimento>=today).reduce((s,f)=>s+f.value,0);
+  const vencidoObras=finance.filter(f=>f.category==="Obras"&&!f.pago&&f.dataVencimento<today).reduce((s,f)=>s+f.value,0);
+  const proxComp=compromissos.filter(c=>c.tipo==="Obra"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
+
+  const abrirNovo=()=>{setForm(EFO);setSelId(null);setModal("orcamento");};
+  const abrirEditar=(o)=>{setForm({...EFO,...o});setSelId(o.id);setModal("orcamento");};
+
+  const salvarOrcamento=()=>{
+    if(!form.clienteNome){alert("Escolha ou informe o nome do cliente.");return;}
+    if(form.id){
+      setObras(prev=>prev.map(x=>x.id===form.id?{...x,...form,valor:Number(form.valor)||0}:x));
+      showSavedGlobal("Obra atualizada!");
+    } else {
+      setObras(prev=>[...prev,{...form,id:uid(),valor:Number(form.valor)||0,status:"Orçamento"}]);
+      showSavedGlobal("Orçamento salvo!");
+    }
+    setModal(null);
+  };
+
+  const excluirObra=id=>{if(window.confirm("Excluir este orçamento/obra?"))setObras(prev=>prev.filter(o=>o.id!==id));};
+
+  const aprovarOrcamento=o=>{
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Aprovado",dataAprovacao:today}:x));
+    showSavedGlobal("Orçamento aprovado! Agora gere o recibo e confirme no financeiro.");
+  };
+
+  const voltarOrcamento=o=>{
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Orçamento"}:x));
+  };
+
+  const concluirObra=o=>{
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Concluída",dataConclusao:today}:x));
+    showSavedGlobal("Obra concluída! 🏗️");
+  };
+
+  const cancelarObra=o=>{if(window.confirm("Cancelar este orçamento/obra?"))setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Cancelada"}:x));};
+
+  const gerarRecibo=o=>{
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Recibo — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
+    ${obHdr(o,obras,"RECIBO DE PRESTAÇÃO DE SERVIÇO")}
+    <h2>Cliente</h2><div class="campo"><b>Nome:</b> ${o.clienteNome}</div>${o.clienteCpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${o.clienteCpfCnpj}</div>`:""}${o.endereco?`<div class="campo"><b>Endereço da obra:</b> ${o.endereco}</div>`:""}
+    <h2>Serviço</h2><div class="campo"><b>Tipo:</b> ${o.tipo}</div><div class="campo"><b>Descrição:</b> ${o.descricao||"-"}</div>
+    <h2>Valor</h2><div class="campo valor">${fmtBRL(o.valor)}</div><div class="campo"><b>Forma de pagamento:</b> ${o.formaPag||"PIX"}</div>
+    ${(!o.formaPag||o.formaPag==="PIX")?`<div class="pix">💠 <b>Dados PIX:</b> ${configObras.pixNome||"Marcelo Lobui"}${configObras.pixChave?` · Chave: ${configObras.pixChave}`:""}</div>`:""}
+    <div class="campo" style="margin-top:14px">Recebi de <b>${o.clienteNome}</b> o valor acima referente ao serviço descrito, em ${fmtDate(today)}.</div>
+    <div class="ass"><div class="ass-box">Marcelo Lobui<br>Construção e Reforma</div><div class="ass-box">${o.clienteNome}<br>Contratante</div></div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,reciboGerado:true,dataRecibo:today}:x));
+    showSavedGlobal("Recibo gerado! Agora confirme no financeiro.");
+  };
+
+  const confirmarFinanceiro=o=>{
+    if(o.lancado)return;
+    const finId=uid();
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${o.clienteNome} — ${o.tipo}`,value:Number(o.valor)||0,date:today,dataVencimento:o.dataPrevista||today,formaPag:o.formaPag||"PIX",pago:false,category:"Obras",clientName:o.clienteNome}]);
+    setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:x.status==="Aprovado"?"Em andamento":x.status,lancado:true,financeiroId:finId}:x));
+    showSavedGlobal("Confirmado no financeiro!");
+  };
+
+  const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
+  const salvarComp=()=>{
+    if(!compForm.desc||!compForm.data){alert("Preencha a descrição e a data.");return;}
+    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Obra",pedidoId:sel?sel.id:null}]);
+    setModal(null);showSavedGlobal("Adicionado à Agenda!");
+  };
+
+  const StatusChipObra=({s})=>{
+    const cor=OBRAS_STATUS_COR[s]||{bg:"#F3E3DD",c:CO.primaria};
+    return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:cor.bg,color:cor.c}}>{s}</span>;
+  };
+
+  return(
+    <div className="fade" style={{padding:24}}>
+      <div style={{background:`linear-gradient(120deg,${CO.primaria},${CO.secundaria})`,borderRadius:8,padding:"16px 20px",marginBottom:16}}>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>🏗️ Obras — Marcelo Lobui</div>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+          {[{l:"Orçamentos em aberto",v:totalOrcamentos},{l:"Em andamento (R$)",v:fmtBRL(totalAndamento)},{l:"A receber",v:fmtBRL(aReceberObras)},{l:"Vencido",v:fmtBRL(vencidoObras)}].map(k=>(
+            <div key={k.l}><div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:"#FDFBF7",fontWeight:700}}>{k.v}</div></div>
+          ))}
+        </div>
+      </div>
+
+      {proxComp.length>0&&<Card style={{marginBottom:16}}>
+        <div style={{fontSize:12,fontWeight:700,color:CO.primaria,marginBottom:8}}>📅 Próximos compromissos de obra</div>
+        {proxComp.map(c=><div key={c.id} style={{fontSize:12,color:C.oliva,padding:"3px 0"}}>{fmtDate(c.data)} · {c.hora} — {c.desc}</div>)}
+      </Card>}
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
+        <div style={{flex:1,minWidth:160}}><Inp value={busca} onChange={setBusca} placeholder="Buscar por cliente ou descrição..."/></div>
+        {["Todos",...OBRAS_STATUS].map(s=><button key={s} onClick={()=>setFiltStatus(s)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${filtStatus===s?CO.primaria:C.areia}`,background:filtStatus===s?CO.primaria:"transparent",color:filtStatus===s?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s}</button>)}
+        <Btn sm onClick={abrirNovo} style={{background:CO.primaria}}>+ Novo orçamento</Btn>
+      </div>
+
+      {filtered.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma obra ou orçamento aqui ✦</div>:
+      filtered.sort((a,b)=>(b.dataOrcamento||"").localeCompare(a.dataOrcamento||"")).map(o=>(
+        <Card key={o.id} style={{marginBottom:10,padding:"14px 16px",borderLeft:`3px solid ${CO.primaria}`}}>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{fontSize:14,fontWeight:700}}>{o.clienteNome} <span style={{fontSize:9,background:"#EAE3DD",color:CO.primaria,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{o.tipo}</span></div>
+              <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{o.descricao}{o.endereco?` · ${o.endereco}`:""}</div>
+              <div style={{fontSize:11,color:C.oliva,marginTop:1}}>Orçamento: <b>{fmtDate(o.dataOrcamento)}</b>{o.dataPrevista?` · Previsão: ${fmtDate(o.dataPrevista)}`:""}</div>
+            </div>
+            <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:CO.primaria,fontWeight:700}}>{fmtBRL(o.valor)}</div>
+            <StatusChipObra s={o.status}/>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {o.status==="Orçamento"&&<Btn sm onClick={()=>aprovarOrcamento(o)}>✓ Aprovar</Btn>}
+              {o.status==="Aprovado"&&<Btn sm onClick={()=>gerarRecibo(o)}>🧾 Gerar recibo</Btn>}
+              {o.status==="Aprovado"&&o.reciboGerado&&!o.lancado&&<Btn sm v="oliva" onClick={()=>confirmarFinanceiro(o)}>💰 Confirmar no financeiro</Btn>}
+              {o.status==="Aprovado"&&!o.reciboGerado&&<button onClick={()=>voltarOrcamento(o)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar p/ orçamento</button>}
+              {o.status==="Em andamento"&&<Btn sm onClick={()=>concluirObra(o)}>✓ Concluir obra</Btn>}
+              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>abrirAgendar(o)}>📅 Agendar visita</Btn>}
+              <Btn sm v="ghost" onClick={()=>abrirEditar(o)}>✎</Btn>
+              {!["Cancelada"].includes(o.status)&&<Btn sm v="danger" onClick={()=>cancelarObra(o)}>✕ Cancelar</Btn>}
+              {o.status==="Cancelada"&&<Btn sm v="danger" onClick={()=>excluirObra(o.id)}>🗑</Btn>}
+            </div>
+          </div>
+          {o.reciboGerado&&<div style={{fontSize:10,color:C.oliva,marginTop:6}}>🧾 Recibo gerado em {fmtDate(o.dataRecibo)}{o.lancado?" · 💰 Confirmado no financeiro":""}</div>}
+        </Card>
+      ))}
+
+      {modal==="orcamento"&&<Modal title={form.id?"Editar orçamento/obra":"Novo orçamento de obra"} onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Sel label="Cliente" value={form.clientId} onChange={v=>{const c=clients.find(x=>x.id===v);setForm(f=>({...f,clientId:v,clienteNome:c?c.name:f.clienteNome,clienteCpfCnpj:(c&&c.cpfCnpj)||f.clienteCpfCnpj}));}} options={[{v:"",l:"Selecione ou digite abaixo"},...clients.map(c=>({v:c.id,l:c.name}))]}/>
+          <Inp label="Nome do cliente" value={form.clienteNome} onChange={v=>setForm(f=>({...f,clienteNome:v}))} placeholder="Caso não esteja na lista acima"/>
+          <Inp label="CPF/CNPJ do cliente" value={form.clienteCpfCnpj} onChange={v=>setForm(f=>({...f,clienteCpfCnpj:v}))}/>
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Tipo de serviço</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{OBRAS_TIPOS.map(t=><button key={t} onClick={()=>setForm(f=>({...f,tipo:t}))} style={{flex:"1 1 70px",padding:"8px",borderRadius:4,border:`2px solid ${form.tipo===t?CO.primaria:C.areia}`,background:form.tipo===t?CO.primaria:"transparent",fontSize:12,fontWeight:700,color:form.tipo===t?"#fff":C.cafe,cursor:"pointer"}}>{t}</button>)}</div>
+          </div>
+          <Inp label="Descrição do serviço" rows={3} value={form.descricao} onChange={v=>setForm(f=>({...f,descricao:v}))} placeholder="Ex: reforma do banheiro, pintura externa, construção do muro..."/>
+          <Inp label="Endereço da obra" value={form.endereco} onChange={v=>setForm(f=>({...f,endereco:v}))}/>
+          <Inp label="Valor do orçamento (R$)" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
+          <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>setForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Transferência","Boleto","Cartão","Outro"]}/>
+          <Inp label="Data do orçamento" type="date" value={form.dataOrcamento} onChange={v=>setForm(f=>({...f,dataOrcamento:v}))}/>
+          <Inp label="Previsão de início/conclusão" type="date" value={form.dataPrevista} onChange={v=>setForm(f=>({...f,dataPrevista:v}))}/>
+          <Inp label="Observações" rows={2} value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={salvarOrcamento} style={{background:CO.primaria}}>Salvar</Btn></div>
+      </Modal>}
+
+      {modal==="comp"&&compForm&&<Modal title="Agendar visita/orçamento" onClose={()=>setModal(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Descrição" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <Inp label="Data" type="date" value={compForm.data} onChange={v=>setCompForm(f=>({...f,data:v}))}/>
+          <Inp label="Hora" type="time" value={compForm.hora} onChange={v=>setCompForm(f=>({...f,hora:v}))}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={salvarComp} style={{background:CO.primaria}}>Adicionar à Agenda</Btn></div>
+      </Modal>}
+    </div>
+  );
+};
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 function App() {
   const isLoja = typeof window!=="undefined" && new URLSearchParams(window.location.search).get("loja")==="1";
@@ -9652,6 +10022,7 @@ function App() {
   const [cartas,      setCartas     ]=useStorage("cartas",      []);
   const [volumes,     setVolumes    ]=useStorage("volumes",     []);
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
+  const [obras, setObras]=useStorage("obras", []);
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
   const [implantacoes, setImplantacoes]=useStorage("implantacoes", []);
@@ -9684,6 +10055,7 @@ function App() {
     personal:["Contas Pessoais","Sua vida financeira, separada do negócio"],
     metas:["Gestão de Metas","Acompanhe seu progresso"],
     clients:["Clientes","Relacionamento e histórico"],
+    obras:["Obras","Construção e reforma — Marcelo Lobui"],
     projects:["Projetos & Sonhos","Planos e inspirações"],
     reports:["Relatórios","Análises e insights"],
     config:["Configurações","Personalização do sistema"],
@@ -9740,6 +10112,7 @@ function App() {
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
