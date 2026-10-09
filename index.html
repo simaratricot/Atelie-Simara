@@ -9941,7 +9941,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const recebDaMedicao=(o,medId)=>(o.recebimentos||[]).filter(r=>r.medicaoId===medId).reduce((s,r)=>s+Number(r.valor||0),0);
   const saldoMedicao=(o,m)=>Number(m.valorTotal||0)-recebDaMedicao(o,m.id);
   const totalRecebido=o=>(o.recebimentos||[]).reduce((s,r)=>s+Number(r.valor||0),0);
-  const saldoObra=o=>totalMedido(o)-totalRecebido(o);
+  const saldoObra=o=>totalServicos(o)-totalRecebido(o);
   const formaCobrancaTexto=o=>{
     if(o.formaCobranca==="Cartão de crédito"){
       const pct=Number(o.taxaCartaoPct)||0;
@@ -9955,9 +9955,9 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const totalOrcamentos=obras.filter(o=>o.status==="Orçamento").length;
   const emExecucaoValor=obras.filter(o=>o.status==="Em andamento").reduce((s,o)=>s+Number(o.valor||0),0);
   const obrasAtivas=obras.filter(o=>["Em andamento","Concluída"].includes(o.status));
-  const totalMedidoGeral=obrasAtivas.reduce((s,o)=>s+totalMedido(o),0);
+  const totalServicosGeral=obrasAtivas.reduce((s,o)=>s+totalServicos(o),0);
   const totalRecebidoGeral=obrasAtivas.reduce((s,o)=>s+totalRecebido(o),0);
-  const aReceberGeral=Math.max(0,totalMedidoGeral-totalRecebidoGeral);
+  const aReceberGeral=Math.max(0,totalServicosGeral-totalRecebidoGeral);
   const mesAtualObras=today.slice(0,7);
   const recebidoMes=obras.reduce((s,o)=>s+(o.recebimentos||[]).filter(r=>(r.data||"").startsWith(mesAtualObras)).reduce((ss,r)=>ss+Number(r.valor||0),0),0);
   const proxComp=compromissos.filter(c=>c.tipo==="Obra"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
@@ -10134,7 +10134,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
       <div style={{background:`linear-gradient(120deg,${CO.primaria},${CO.secundaria})`,borderRadius:8,padding:"16px 20px",marginBottom:16}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>🏗️ Obras — Marcelo Lobui</div>
         <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-          {[{l:"Orçamentos em aberto",v:totalOrcamentos},{l:"Em execução (orçado)",v:fmtBRL(emExecucaoValor)},{l:"A receber (medido − recebido)",v:fmtBRL(aReceberGeral)},{l:"Recebido no mês",v:fmtBRL(recebidoMes)}].map(k=>(
+          {[{l:"Orçamentos em aberto",v:totalOrcamentos},{l:"Em execução (orçado)",v:fmtBRL(emExecucaoValor)},{l:"A receber (lançado − recebido)",v:fmtBRL(aReceberGeral)},{l:"Recebido no mês",v:fmtBRL(recebidoMes)}].map(k=>(
             <div key={k.l}><div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:"#FDFBF7",fontWeight:700}}>{k.v}</div></div>
           ))}
         </div>
@@ -10159,7 +10159,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
               <div style={{fontSize:14,fontWeight:700}}>{o.clienteNome} <span style={{fontSize:9,background:"#EAE3DD",color:CO.primaria,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{o.tipo}</span></div>
               <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{(o.itensOrcamento||[]).map(it=>it.descricao).filter(Boolean).join(" · ")}{o.endereco?` · ${o.endereco}`:""}</div>
               <div style={{fontSize:11,color:C.oliva,marginTop:1}}>Orçamento: <b>{fmtDate(o.dataOrcamento)}</b>{o.dataPrevista?` · Previsão: ${fmtDate(o.dataPrevista)}`:""}</div>
-              {["Em andamento","Concluída"].includes(o.status)&&<div style={{fontSize:11,color:C.oliva,marginTop:3}}>Medido: <b>{fmtBRL(totalMedido(o))}</b> · Recebido: <b>{fmtBRL(totalRecebido(o))}</b> · Saldo: <b style={{color:saldoObra(o)>0?C.vermelho:"#2E6B2E"}}>{fmtBRL(saldoObra(o))}</b></div>}
+              {["Em andamento","Concluída"].includes(o.status)&&<div style={{fontSize:11,color:C.oliva,marginTop:3}}>Lançado: <b>{fmtBRL(totalServicos(o))}</b> · Recebido: <b>{fmtBRL(totalRecebido(o))}</b> · Saldo: <b style={{color:saldoObra(o)>0?C.vermelho:"#2E6B2E"}}>{fmtBRL(saldoObra(o))}</b></div>}
             </div>
             <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:CO.primaria,fontWeight:700}}>{fmtBRL(o.valor)}</div>
             <StatusChipObra s={o.status}/>
