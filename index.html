@@ -2450,21 +2450,24 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
   const filtraBusca=f=>!buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase());
   const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f));
   const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
+  // Transferências entre contas próprias são só movimentação — não contam como receita/despesa de verdade nos totais abaixo (mas continuam aparecendo no extrato de cada conta e na lista de lançamentos).
+  const financeReal=finance.filter(f=>!f.isTransferencia);
+  const filtPerReal=filtPer.filter(f=>!f.isTransferencia);
 
-  const rec=filtPer.filter(f=>f.type==="receita"&&!f.pagoParcial).reduce((a,f)=>a+f.value,0);
-  const desp=filtPer.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
+  const rec=filtPerReal.filter(f=>f.type==="receita"&&!f.pagoParcial).reduce((a,f)=>a+f.value,0);
+  const desp=filtPerReal.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
 
   // Resumos
   const mesFmt=today.slice(0,7);
-  const recHojeVal=finance.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const pagHojeVal=finance.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const recMes=finance.filter(f=>f.type==="receita"&&f.pago&&f.dataPagamento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
-  const pendMes=finance.filter(f=>f.type==="receita"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
+  const recHojeVal=financeReal.filter(f=>f.type==="receita"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const pagHojeVal=financeReal.filter(f=>f.type==="despesa"&&f.dataVencimento===today&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const recMes=financeReal.filter(f=>f.type==="receita"&&f.pago&&f.dataPagamento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
+  const pendMes=financeReal.filter(f=>f.type==="receita"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const vencidos=finance.filter(f=>isVencido(f)).length;
-  const aPag=finance.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const aRec=finance.filter(f=>f.type==="receita"&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const balAno=Array.from({length:12},(_,i)=>{const m=`${ano}-${String(i+1).padStart(2,"0")}`;const r=finance.filter(f=>f.type==="receita"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);const d=finance.filter(f=>f.type==="despesa"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);return{mes:m,label:MESES[i],r,d,lucro:r-d};});
-  const recHoje=finance.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
+  const aPag=financeReal.filter(f=>f.type==="despesa"&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const aRec=financeReal.filter(f=>f.type==="receita"&&!f.pago).reduce((a,f)=>a+f.value,0);
+  const balAno=Array.from({length:12},(_,i)=>{const m=`${ano}-${String(i+1).padStart(2,"0")}`;const r=financeReal.filter(f=>f.type==="receita"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);const d=financeReal.filter(f=>f.type==="despesa"&&f.date?.startsWith(m)).reduce((a,f)=>a+f.value,0);return{mes:m,label:MESES[i],r,d,lucro:r-d};});
+  const recHoje=financeReal.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
 
   // BAIXA com pagamento parcial
   const doBaixa=(lanc,valorPago,dataPag,contaId)=>{
@@ -2517,7 +2520,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
     setFormModal(false);
   };
   const saveConta=()=>{if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?{...cForm,saldo:Number(cForm.saldo)}:c));else setContas(prev=>[...prev,{...cForm,id:uid(),saldo:Number(cForm.saldo)}]);setContaModal(false);showSavedGlobal("Conta salva!");};
-  const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Despesas",pago:true,contaId:tForm.de},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Outros",centrocusto:"Investimentos",pago:true,contaId:tForm.para}]);setTransModal(false);};
+  const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.de,isTransferencia:true},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.para,isTransferencia:true}]);setTransModal(false);showSavedGlobal("Transferência feita — é só movimento entre contas, não entra no Lucro/Resultado.");};
 
   const StatusBtn=({f})=>{
     const s=getStatus(f);
@@ -2595,7 +2598,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
               {[...filt].sort((a,b)=>(b.dataVencimento||b.date||"").localeCompare(a.dataVencimento||a.date||"")).map(f=>(
                 <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.03)":f.pagoParcial?"rgba(176,141,87,0.05)":"transparent"}}>
                   <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
-                  <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.type==="receita"?"#D4E8D4":"#FEE",color:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
+                  <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.isTransferencia?"#EAE3DD":f.type==="receita"?"#D4E8D4":"#FEE",color:f.isTransferencia?C.cafe:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.isTransferencia?"⇄ TRANSF.":f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
                   <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}{f.category&&<span style={{fontSize:9,background:"#EAE3DD",color:C.cafe,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.category}</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
                   <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho,whiteSpace:"nowrap"}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
                   <td style={{padding:"8px 10px",fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,whiteSpace:"nowrap",fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}</td>
@@ -2622,7 +2625,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
           <Card key={f.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:isVencido(f)?`3px solid ${C.vermelho}`:`3px solid ${C.dourado}`}}>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700}}>{f.desc}</div>
+                <div style={{fontSize:13,fontWeight:700}}>{f.desc}{f.category&&<span style={{fontSize:9,background:"#EAE3DD",color:C.cafe,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.category}</span>}</div>
                 {f.clientName&&<div style={{fontSize:11,color:C.dourado,fontWeight:600,marginTop:1}}>👤 {f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}
                 <div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,marginTop:1}}>Venc: <b>{fmtDate(f.dataVencimento)}</b>{isVencido(f)&&" ⚠ Vencido"}</div>
               </div>
@@ -9923,7 +9926,8 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const [medForm,setMedForm]=useState(medDefault);
   const [medSelecionados,setMedSelecionados]=useState([]);
   const [medFormOpen,setMedFormOpen]=useState(false);
-  const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:"",contaId:""};
+  const [novoServMed,setNovoServMed]=useState(servDefault);
+  const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:""};
   const [recForm,setRecForm]=useState(recDefault);
   const [recFormOpen,setRecFormOpen]=useState(false);
   useEffect(()=>{setServFormOpen(false);setMedFormOpen(false);setRecFormOpen(false);setMedSelecionados([]);},[selId,modal]);
@@ -10126,7 +10130,21 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     const ids=soltos.map(s=>s.id);
     setMedSelecionados(ids);
     setMedForm({...medDefault,valor:recalcMedValor(ids)});
+    setNovoServMed(servDefault);
     setMedFormOpen(true);
+  };
+  const adicionarServicoNaMedicao=()=>{
+    if(!sel)return;
+    if(!novoServMed.descricao){alert("Descreva o serviço.");return;}
+    const qtd=Number(novoServMed.qtd)||0,vu=Number(novoServMed.valorUnit)||0;
+    const auto=qtd*vu;
+    const valor=Number(novoServMed.valor)>0?Number(novoServMed.valor):auto;
+    const novo={...novoServMed,id:uid(),qtd,valorUnit:vu,valor,medicaoId:null};
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,servicos:[...(o.servicos||[]),novo]}:o));
+    setMedSelecionados(ids=>[...ids,novo.id]);
+    setMedForm(f=>({...f,valor:Number(f.valor||0)+valor}));
+    setNovoServMed(servDefault);
+    showSavedGlobal("Serviço adicionado à medição!");
   };
   const salvarMedicao=()=>{
     if(!sel)return;
@@ -10140,6 +10158,27 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const cancelarMedicao=m=>{
     if(!sel||!window.confirm("Cancelar esta medição? Os serviços voltam a ficar soltos."))return;
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,medicoes:(o.medicoes||[]).map(x=>x.id===m.id?{...x,status:"Cancelada"}:x),servicos:(o.servicos||[]).map(s=>s.medicaoId===m.id?{...s,medicaoId:null}:s)}:o));
+  };
+  const excluirMedicao=m=>{
+    if(!sel)return;
+    const recs=(sel.recebimentos||[]).filter(r=>r.medicaoId===m.id);
+    const msg=recs.length>0
+      ?`Excluir esta medição? Os ${recs.length} recebimento(s) vinculados a ela também serão excluídos (e removidos do financeiro). Os serviços voltam a ficar soltos. Essa ação não pode ser desfeita.`
+      :"Excluir esta medição? Os serviços voltam a ficar soltos. Essa ação não pode ser desfeita.";
+    if(!window.confirm(msg))return;
+    recs.forEach(r=>{
+      const finEntry=finance.find(f=>f.id===r.financeiroId);
+      if(finEntry&&finEntry.pago&&finEntry.contaId)setContas(prev=>prev.map(c=>c.id===finEntry.contaId?{...c,saldo:(c.saldo||0)-Number(finEntry.value||0)}:c));
+    });
+    const finIds=recs.map(r=>r.financeiroId).filter(Boolean);
+    setObras(prev=>prev.map(o=>o.id===sel.id?{
+      ...o,
+      medicoes:(o.medicoes||[]).filter(x=>x.id!==m.id),
+      servicos:(o.servicos||[]).map(s=>s.medicaoId===m.id?{...s,medicaoId:null}:s),
+      recebimentos:(o.recebimentos||[]).filter(r=>r.medicaoId!==m.id)
+    }:o));
+    if(finIds.length)setFinance(prev=>prev.filter(f=>!finIds.includes(f.id)));
+    showSavedGlobal("Medição excluída.");
   };
 
   // ── recebimentos (único ponto que lança no Financeiro) ──
@@ -10156,15 +10195,16 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     const finId=uid();
     const novo={...recForm,id:recForm.id||uid(),valor,financeiroId:finId};
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:[...(o.recebimentos||[]),novo]}:o));
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:true,dataPagamento:recForm.data||today,category:"Obras",clientName:sel.clienteNome,contaId:recForm.contaId||""}]);
-    if(recForm.contaId)setContas(prev=>prev.map(c=>c.id===recForm.contaId?{...c,saldo:(c.saldo||0)+valor}:c));
-    setRecFormOpen(false);showSavedGlobal("Recebimento lançado no financeiro!");
+    // Vai pro Financeiro geral como "a receber" (pendente) — a baixa (marcar pago + escolher a conta) é feita lá no Financeiro, igual Consultoria.
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
+    setRecFormOpen(false);showSavedGlobal("Recebimento registrado! Agora é só ir em Financeiro → A Receber pra dar baixa e escolher a conta.");
   };
   const excluirRecebimento=r=>{
-    if(!sel||!window.confirm("Excluir este recebimento? O lançamento no financeiro também será removido."))return;
+    if(!sel||!window.confirm("Excluir este recebimento? O lançamento no financeiro também será removido (e, se já tiver sido baixado, o saldo da conta será revertido)."))return;
+    const finEntry=finance.find(f=>f.id===r.financeiroId);
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:(o.recebimentos||[]).filter(x=>x.id!==r.id)}:o));
     if(r.financeiroId)setFinance(prev=>prev.filter(f=>f.id!==r.financeiroId));
-    if(r.contaId)setContas(prev=>prev.map(c=>c.id===r.contaId?{...c,saldo:(c.saldo||0)-Number(r.valor||0)}:c));
+    if(finEntry&&finEntry.pago&&finEntry.contaId)setContas(prev=>prev.map(c=>c.id===finEntry.contaId?{...c,saldo:(c.saldo||0)-Number(finEntry.value||0)}:c));
   };
 
   const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
@@ -10334,6 +10374,17 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
                 <span style={{flex:1}}>{s.descricao}{Number(s.qtd)>0?` (${s.qtd} ${obUnidLabel(s.unidade)})`:""}</span><b>{Number(s.valor)>0?fmtBRL(s.valor):"sem valor"}</b>
               </label>
             ))}
+            <div style={{border:`1px dashed ${C.areia}`,borderRadius:6,padding:10,display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:11,fontWeight:700,color:CO.primaria,textTransform:"uppercase",letterSpacing:"0.5px"}}>+ Lançar um novo serviço direto nesta medição</div>
+              <Inp label="Descrição do serviço" value={novoServMed.descricao} onChange={v=>setNovoServMed(f=>({...f,descricao:v}))}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                <Inp label="Quantidade" type="number" value={novoServMed.qtd} onChange={v=>setNovoServMed(f=>({...f,qtd:v}))}/>
+                <Sel label="Unidade" value={novoServMed.unidade} onChange={v=>setNovoServMed(f=>({...f,unidade:v}))} options={OBRAS_UNIDADES.map(u=>({v:u.v,l:u.l}))}/>
+                <Inp label="Valor unitário (R$)" type="number" value={novoServMed.valorUnit} onChange={v=>setNovoServMed(f=>({...f,valorUnit:v}))}/>
+              </div>
+              <Inp label="Ou valor direto (R$) — deixe 0 pra usar qtd × valor unit." type="number" value={novoServMed.valor} onChange={v=>setNovoServMed(f=>({...f,valor:v}))}/>
+              <div style={{display:"flex",justifyContent:"flex-end"}}><Btn sm v="ghost" onClick={adicionarServicoNaMedicao}>+ Adicionar à medição</Btn></div>
+            </div>
             <Inp label="Data da medição" type="date" value={medForm.data} onChange={v=>setMedForm(f=>({...f,data:v}))}/>
             <Inp label="Vencimento (opcional)" type="date" value={medForm.dataVencimento} onChange={v=>setMedForm(f=>({...f,dataVencimento:v}))}/>
             <Inp label="Valor total da medição (R$)" type="number" value={medForm.valor} onChange={v=>setMedForm(f=>({...f,valor:v}))}/>
@@ -10358,6 +10409,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
                 <Btn sm v="ghost" onClick={()=>gerarMedicaoDoc(sel,m,(sel.medicoes||[]).length-i)}>📄 Medição</Btn>
                 {m.status!=="Cancelada"&&saldo>0&&<Btn sm v="oliva" onClick={()=>{abrirNovoRecebimento(m.id);setDetTab("recebimentos");}}>💰 Receber</Btn>}
                 {m.status!=="Cancelada"&&<button onClick={()=>cancelarMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Cancelar</button>}
+                <button onClick={()=>excluirMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.vermelho}`,background:"transparent",color:C.vermelho,cursor:"pointer"}}>🗑 Excluir</button>
               </div>
             </Card>;
           })}
@@ -10370,24 +10422,26 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <Inp label="Valor recebido (R$)" type="number" value={recForm.valor} onChange={v=>setRecForm(f=>({...f,valor:v}))}/>
             <Inp label="Data" type="date" value={recForm.data} onChange={v=>setRecForm(f=>({...f,data:v}))}/>
             <Sel label="Forma de pagamento" value={recForm.formaPag} onChange={v=>setRecForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Cartão de crédito","Cartão de débito","Transferência","Boleto","Outro"]}/>
-            <Sel label="Banco/conta de destino" value={recForm.contaId} onChange={v=>setRecForm(f=>({...f,contaId:v}))} options={[{v:"",l:"Não informar"},...contas.map(c=>({v:c.id,l:c.nome}))]}/>
             {!recForm.medicaoId&&<div style={{fontSize:11,color:CO.primaria,fontWeight:600,fontStyle:"italic"}}>⚠ Recebimento avulso (sem medição) — explique abaixo a que se refere.</div>}
             <Inp label={recForm.medicaoId?"Observações":"Observação (obrigatória) — a que se refere esse pagamento"} value={recForm.obs} onChange={v=>setRecForm(f=>({...f,obs:v}))} rows={2}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setRecFormOpen(false)}>Cancelar</Btn><Btn sm v="oliva" onClick={salvarRecebimento}>✓ Lançar no financeiro</Btn></div>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Isso fica no histórico da obra e já cai no Financeiro, em "A Receber". A baixa (marcar como recebido e escolher a conta/banco) você faz lá no Financeiro.</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setRecFormOpen(false)}>Cancelar</Btn><Btn sm v="oliva" onClick={salvarRecebimento}>✓ Registrar recebimento</Btn></div>
           </div>}
           {(sel.recebimentos||[]).length===0?vazio("Nenhum recebimento ainda"):
-          (sel.recebimentos||[]).slice().reverse().map(r=>(
-            <Card key={r.id} style={{marginBottom:8,padding:"10px 14px"}}>
+          (sel.recebimentos||[]).slice().reverse().map(r=>{
+            const finEntry=finance.find(f=>f.id===r.financeiroId);
+            const statusTxt=finEntry?(finEntry.pago?`✓ Baixado${finEntry.contaId?` (${(contas.find(c=>c.id===finEntry.contaId)||{}).nome||""})`:""}`:"⏳ Pendente de baixa no Financeiro"):"";
+            return <Card key={r.id} style={{marginBottom:8,padding:"10px 14px"}}>
               <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:140}}>
                   <div style={{fontSize:13,fontWeight:700}}>{fmtBRL(r.valor)} <span style={{fontSize:10,color:C.oliva,fontWeight:400}}>· {r.formaPag}</span></div>
-                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{r.contaId?` · ${(contas.find(c=>c.id===r.contaId)||{}).nome||""}`:""}{r.obs?` · ${r.obs}`:""}</div>
+                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{statusTxt?` · ${statusTxt}`:""}{r.obs?` · ${r.obs}`:""}</div>
                 </div>
                 <Btn sm v="ghost" onClick={()=>gerarReciboRecebimento(r)}>🧾 Recibo</Btn>
                 <Btn sm v="danger" onClick={()=>excluirRecebimento(r)}>✕</Btn>
               </div>
-            </Card>
-          ))}
+            </Card>;
+          })}
         </div>}
 
         {detTab==="orcamento"&&<div>
