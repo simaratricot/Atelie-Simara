@@ -155,7 +155,7 @@ const STATUS = {
   "Concluído":{bg:"#D8C3A5",color:"#5C4033"},
   "Cancelado":{bg:"#F5D5D0",color:"#c0392b"},
 };
-const ORIGENS = ["Instagram","WhatsApp","Feira","Indicação","Outro"];
+const ORIGENS = ["Instagram","WhatsApp","Facebook","Google","Site/Loja Online","Feira","Evento","Indicação","Networking","Panfleto/Divulgação local","Cliente antigo","Outro"];
 const CLIENTE_SEGMENTOS = ["Artesanato","Consultoria","Obras","Outros"];
 const CLIENTE_SEGMENTOS_COR = {"Artesanato":{bg:"#F3E3DD",color:"#A6553C"},"Consultoria":{bg:"#EFE7DA",color:"#8A6D1F"},"Obras":{bg:"#EAE3DD",color:"#6B4530"},"Outros":{bg:"#E4EEE6",color:"#2E6B5E"}};
 const CENTROS = ["Vendas","Despesas","Suprimentos","Marketing","Investimentos","Rendimentos"];
@@ -1837,7 +1837,7 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
       // Auto-cadastra cliente
       if(o.client&&!clients.find(c=>c.name===o.client)){
         setClients(prev=>[...prev,{id:uid(),name:o.client,phone:o.phone,
-          email:"",city:"",orders:1,total:pF,vip:false,joined:today,origem:o.origem}]);
+          email:"",city:"",orders:1,total:pF,vip:false,joined:today,origem:o.origem,segmento:"Artesanato"}]);
       }
 
       // Lança no financeiro — todos pendentes
@@ -3466,7 +3466,7 @@ const Clients = ({clients,setClients,orders,config}) => {
           <Inp label="WhatsApp" value={form.phone||""} onChange={v=>setForm(f=>({...f,phone:v}))}/>
           <Inp label="E-mail" type="email" value={form.email||""} onChange={v=>setForm(f=>({...f,email:v}))}/>
           <Inp label="Cidade" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}/>
-          <Sel label="Segmento" value={form.segmento||""} onChange={v=>setForm(f=>({...f,segmento:v}))} options={["",...CLIENTE_SEGMENTOS]}/>
+          <Sel label="Frente de negócio (Artesanato, Consultoria ou Obras)" value={form.segmento||""} onChange={v=>setForm(f=>({...f,segmento:v}))} options={["",...CLIENTE_SEGMENTOS]}/>
           {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento (DD/MM/AAAA)" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))} placeholder="Ex: 15/03/1990"/>}
           <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
           {(form.tipo||"cliente")==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>}
@@ -4685,7 +4685,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     const nome=String((novoCli&&novoCli.name)||"").trim();
     if(!nome){alert("Informe o nome do cliente.");return;}
     if(clients.some(c=>String(c.name||"").trim().toLowerCase()===nome.toLowerCase())&&!window.confirm(`Já existe um cliente chamado "${nome}". Cadastrar outro mesmo assim? (Se for o mesmo, escolha-o na lista.)`))return;
-    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:pcHoje()};
+    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:pcHoje(),segmento:"Consultoria"};
     setClients(prev=>[...prev,c].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt")));
     setForm(f=>({...f,clientId:c.id,clienteNome:c.name,empresa:c.empresa||f.empresa}));
     setNovoCli(null);showSavedGlobal("Cliente cadastrado!");
@@ -6043,7 +6043,7 @@ const ProspeccaoComercial=({prospects=[],setProspects,clients=[],setClients,proj
   const vincularProjeto=(projetoId)=>{upd(pp=>prLigarProjeto(pp,projetoId));showSavedGlobal(projetoId?"Projeto vinculado!":"Vínculo removido.");};
   const cadastrarClienteDoProspect=()=>{
     if(!window.confirm(`Cadastrar "${sel.empresa}" em Clientes, usando os dados deste prospect?`))return null;
-    const c={id:uid(),name:sel.responsavel?`${sel.empresa} (${sel.responsavel})`:sel.empresa,phone:String(sel.whatsapp||sel.telefone||"").trim(),email:sel.email||"",city:sel.cidadeUf||"",vip:false,origem:sel.origem||"Prospecção",nascimento:"",tipo:"cliente",cpfCnpj:sel.cnpj||"",empresa:sel.empresa||"",orders:0,total:0,joined:hoje};
+    const c={id:uid(),name:sel.responsavel?`${sel.empresa} (${sel.responsavel})`:sel.empresa,phone:String(sel.whatsapp||sel.telefone||"").trim(),email:sel.email||"",city:sel.cidadeUf||"",vip:false,origem:sel.origem||"Prospecção",nascimento:"",tipo:"cliente",cpfCnpj:sel.cnpj||"",empresa:sel.empresa||"",orders:0,total:0,joined:hoje,segmento:"Consultoria"};
     setClients(prev=>[...prev,c].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt")));
     return c;
   };
@@ -6890,7 +6890,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const nome=String((novoCli&&novoCli.name)||"").trim();
     if(!nome){alert("Informe o nome do cliente.");return;}
     if(clients.some(c=>String(c.name||"").trim().toLowerCase()===nome.toLowerCase())&&!window.confirm(`Já existe um cliente chamado "${nome}". Cadastrar outro mesmo assim? (Se for o mesmo, escolha-o na lista.)`))return;
-    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"Implantação",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:isHoje()};
+    const c={name:nome,phone:String(novoCli.phone||"").trim(),email:"",city:"",vip:false,origem:"Implantação",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:String(novoCli.empresa||"").trim(),id:uid(),orders:0,total:0,joined:isHoje(),segmento:"Consultoria"};
     setClients(prev=>[...prev,c].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt")));
     setForm(f=>({...f,clientId:c.id,clienteNome:c.name,empresa:c.empresa||f.empresa}));
     setNovoCli(null);showSavedGlobal("Cliente cadastrado!");
@@ -8876,19 +8876,67 @@ const Projects = ({projects,setProjects}) => {
 
 // ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
 const Reports = ({orders,products,finance,clients}) => {
-  const anoAtual=today.slice(0,4);
-  const mesAtual=today.slice(0,7);
-  const ordAtivos=orders.filter(o=>o.status!=="Cancelado");
-  const fatTotal=ordAtivos.reduce((a,o)=>a+(o.precoFinal||o.price||0),0);
-  const recTotal=finance.filter(f=>f.type==="receita"&&f.pago).reduce((a,f)=>a+f.value,0);
-  const recPend=finance.filter(f=>f.type==="receita"&&!f.pago).reduce((a,f)=>a+f.value,0);
-  const avgTicket=ordAtivos.length>0?fatTotal/ordAtivos.length:0;
-  const despTotal=finance.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
-  const invTotal=finance.filter(f=>f.centrocusto==="Investimentos").reduce((a,f)=>a+f.value,0);
+  const [per,setPer]=useState("geral");
+  const [mes,setMes]=useState(today.slice(0,7));
+  const [ano,setAno]=useState(today.slice(0,4));
+
+  // período aplicado a lançamentos do financeiro (usa data do fato OU vencimento, igual ao próprio módulo Financeiro)
+  const inPerFin=f=>{
+    if(per==="dia")return f.date===today||f.dataVencimento===today;
+    if(per==="mes")return (f.date||"").startsWith(mes)||(f.dataVencimento||"").startsWith(mes);
+    if(per==="ano")return (f.date||"").startsWith(ano)||(f.dataVencimento||"").startsWith(ano);
+    return true;
+  };
+  // período aplicado a pedidos de artesanato (usa data da compra)
+  const inPerOrd=o=>{
+    if(per==="dia")return o.dataCompra===today;
+    if(per==="mes")return (o.dataCompra||"").startsWith(mes);
+    if(per==="ano")return (o.dataCompra||"").startsWith(ano);
+    return true;
+  };
+  // período aplicado a clientes cadastrados (usa data de cadastro)
+  const inPerCli=c=>{
+    if(per==="dia")return c.joined===today;
+    if(per==="mes")return (c.joined||"").startsWith(mes);
+    if(per==="ano")return (c.joined||"").startsWith(ano);
+    return true;
+  };
+
+  // transferências entre contas não são receita/despesa de verdade — ficam fora dos relatórios
+  const financePer=finance.filter(f=>!f.isTransferencia&&inPerFin(f));
+  const ordAtivos=orders.filter(o=>o.status!=="Cancelado"&&inPerOrd(o));
+  const fatTotalModa=ordAtivos.reduce((a,o)=>a+(o.precoFinal||o.price||0),0);
+  const avgTicket=ordAtivos.length>0?fatTotalModa/ordAtivos.length:0;
+
+  // ── as três frentes: Artesanato, Consultoria, Obras ──
+  const isConsultoria=f=>f.category==="Consultoria"||f.tipoReceita==="Consultoria";
+  const isObras=f=>f.category==="Obras"||f.tipoReceita==="Obras";
+  const isArtesanato=f=>!isConsultoria(f)&&!isObras(f);
+  const FRENTES_DEF=[
+    {nome:"Artesanato",match:isArtesanato,cor:C.dourado},
+    {nome:"Consultoria",match:isConsultoria,cor:"#8A6D1F"},
+    {nome:"Obras",match:isObras,cor:CORES_OBRAS.primaria},
+  ];
+  const frentes=FRENTES_DEF.map(fr=>{
+    const receitasFr=financePer.filter(f=>f.type==="receita"&&fr.match(f));
+    const recebido=receitasFr.filter(f=>f.pago).reduce((a,f)=>a+f.value,0);
+    const aReceber=receitasFr.filter(f=>!f.pago).reduce((a,f)=>a+f.value,0);
+    return {...fr,recebido,aReceber,total:recebido+aReceber};
+  });
+
+  const recTotal=frentes.reduce((a,f)=>a+f.recebido,0);
+  const recPend=frentes.reduce((a,f)=>a+f.aReceber,0);
+  const fatTotal=recTotal+recPend;
+  const despTotal=financePer.filter(f=>f.type==="despesa").reduce((a,f)=>a+f.value,0);
+  const invTotal=financePer.filter(f=>f.centrocusto==="Investimentos").reduce((a,f)=>a+f.value,0);
   const lucro=recTotal-despTotal;
-  const origens=clients.reduce((acc,c)=>{if(c.origem)acc[c.origem]=(acc[c.origem]||0)+1;return acc;},{});
-  // Produtos mais vendidos
-  const prodVendas=orders.filter(o=>o.status!=="Cancelado").reduce((acc,o)=>{
+
+  const clientesPer=per==="geral"?clients:clients.filter(inPerCli);
+  const origens=clientesPer.reduce((acc,c)=>{if(c.origem)acc[c.origem]=(acc[c.origem]||0)+1;return acc;},{});
+  const porSegmento=clients.reduce((acc,c)=>{const s=c.segmento||"Não informado";acc[s]=(acc[s]||0)+1;return acc;},{});
+
+  // Produtos mais vendidos (artesanato, no período)
+  const prodVendas=ordAtivos.reduce((acc,o)=>{
     const nome=o.product||"Sem nome";
     if(!acc[nome])acc[nome]={nome,qtd:0,total:0};
     acc[nome].qtd+=(o.itens?.length||1);
@@ -8896,17 +8944,41 @@ const Reports = ({orders,products,finance,clients}) => {
     return acc;
   },{});
   const topProd=Object.values(prodVendas).sort((a,b)=>b.total-a.total).slice(0,5);
+
+  const PER_LABELS={dia:"Hoje",mes:"No mês",ano:"No ano",geral:"Geral (tudo)"};
   return(
     <div className="fade" style={{padding:24}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18,alignItems:"center"}}>
+        {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"geral",l:"Geral"}].map(p=><button key={p.k} onClick={()=>setPer(p.k)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${per===p.k?C.cafe:C.areia}`,background:per===p.k?C.cafe:"transparent",color:per===p.k?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{p.l}</button>)}
+        {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
+        {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:90}}/>}
+        <span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Mostrando: {PER_LABELS[per]}</span>
+      </div>
+
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-        {[{l:"Ticket médio",v:fmtBRL(avgTicket),c:C.dourado},{l:"Total pedidos",v:ordAtivos.length,c:C.cafe},{l:"Clientes",v:clients.length,c:C.oliva},{l:"Margem",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
+        {[{l:"Ticket médio (Artesanato)",v:fmtBRL(avgTicket),c:C.dourado},{l:"Pedidos (Artesanato)",v:ordAtivos.length,c:C.cafe},{l:"Clientes cadastrados",v:clients.length,c:C.oliva},{l:"Margem geral",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
           <Card key={k.l} style={{flex:"1 1 110px",textAlign:"center"}}><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginTop:2}}>{k.l}</div></Card>
         ))}
       </div>
+
+      <Card style={{marginBottom:14}}>
+        <h3 style={{fontSize:14,marginBottom:12}}>As três frentes</h3>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {frentes.map(fr=>(
+            <div key={fr.nome} style={{flex:"1 1 180px",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:fr.cor,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>{fr.nome}</div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}}><span style={{color:C.oliva}}>Recebido</span><b>{fmtBRL(fr.recebido)}</b></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}}><span style={{color:C.oliva}}>A receber</span><b style={{color:fr.aReceber>0?C.dourado:C.oliva}}>{fmtBRL(fr.aReceber)}</b></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0 0",borderTop:`1px solid ${C.linho}`,marginTop:4}}><span style={{fontWeight:600}}>Total</span><b style={{color:fr.cor}}>{fmtBRL(fr.total)}</b></div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
         <Card style={{flex:1,minWidth:200}}>
-          <h3 style={{fontSize:14,marginBottom:12}}>Resumo financeiro</h3>
-          {[["Faturamento total",fmtBRL(fatTotal)],["Já recebido",fmtBRL(recTotal)],["A receber",fmtBRL(recPend)],["Total despesas",fmtBRL(despTotal)],["Lucro líquido",fmtBRL(lucro)],["Investimentos",fmtBRL(invTotal)]].map(([l,v])=>(
+          <h3 style={{fontSize:14,marginBottom:12}}>Resumo financeiro {per!=="geral"?`— ${PER_LABELS[per]}`:""}</h3>
+          {[["Faturamento total (3 frentes)",fmtBRL(fatTotal)],["Já recebido",fmtBRL(recTotal)],["A receber",fmtBRL(recPend)],["Total despesas",fmtBRL(despTotal)],["Lucro líquido",fmtBRL(lucro)],["Investimentos",fmtBRL(invTotal)]].map(([l,v])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}><span style={{fontSize:12,color:C.oliva}}>{l}</span><span style={{fontSize:13,fontWeight:700}}>{v}</span></div>
           ))}
         </Card>
@@ -8923,17 +8995,32 @@ const Reports = ({orders,products,finance,clients}) => {
           ))}
         </Card>}
       </div>
-      {Object.keys(origens).length>0&&<Card>
-        <h3 style={{fontSize:14,marginBottom:12}}>Como as clientes chegaram</h3>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          {Object.entries(origens).sort((a,b)=>b[1]-a[1]).map(([o,n])=>(
-            <div key={o} style={{flex:"1 1 130px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:600}}>{o}</span><span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{n} ({Math.round((n/clients.length)*100)}%)</span></div>
-              <PBar pct={(n/clients.length)*100} h={5}/>
-            </div>
-          ))}
-        </div>
-      </Card>}
+
+      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+        {Object.keys(origens).length>0&&<Card style={{flex:1,minWidth:220}}>
+          <h3 style={{fontSize:14,marginBottom:12}}>Como as clientes chegaram {per!=="geral"?`— ${PER_LABELS[per]}`:""}</h3>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {Object.entries(origens).sort((a,b)=>b[1]-a[1]).map(([o,n])=>(
+              <div key={o}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:600}}>{o}</span><span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{n} ({Math.round((n/clientesPer.length)*100)}%)</span></div>
+                <PBar pct={(n/clientesPer.length)*100} h={5}/>
+              </div>
+            ))}
+          </div>
+        </Card>}
+        {Object.keys(porSegmento).length>0&&<Card style={{flex:1,minWidth:220}}>
+          <h3 style={{fontSize:14,marginBottom:12}}>Clientes por frente de negócio</h3>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {Object.entries(porSegmento).sort((a,b)=>b[1]-a[1]).map(([s,n])=>(
+              <div key={s}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:600}}>{s}</span><span style={{fontSize:12,color:C.dourado,fontWeight:700}}>{n} ({Math.round((n/clients.length)*100)}%)</span></div>
+                <PBar pct={(n/clients.length)*100} h={5}/>
+              </div>
+            ))}
+          </div>
+        </Card>}
+      </div>
+
       {orders.length===0&&finance.length===0&&<div style={{textAlign:"center",padding:"40px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Os relatórios serão preenchidos conforme você lançar pedidos e vendas ✦</div>}
     </div>
   );
@@ -9690,7 +9777,7 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
     const novo={id,client:dados.nome,phone:dados.phone,origem:dados.origem||"Instagram",product:produto.name,color:sel.cor||"—",size:sel.tamanho||"—",measures:"",price:total,precoFinal:total,desconto:0,dataCompra:today,delivery:del,status:"Pedido recebido",valorPago:0,note:`Frete: ${fmtBRL(entrega.frete)} · ${entrega.prazo}`,tracking:"",payment:pag.tipo==="PIX"?"PIX":pag.tipo==="Cartao"?`Cartão ${pag.parcelas}x`:"Boleto",condicao:"À vista",entrada:0,parcelas:[],position:pos,read:false,endereco:dados.endereco,cep:dados.cep,nascimento:dados.nascimento,historicoPagamentos:[]};
     if(setOrders)setOrders(prev=>reorderQ([...(prev||[]),novo]));
     if(dados.nome&&setClients&&!(clients||[]).find(c=>c.name===dados.nome)){
-      setClients(prev=>[...(prev||[]),{id:uid(),name:dados.nome,phone:dados.phone,email:"",city:"",orders:1,total,vip:false,joined:today,origem:"Divulgação"}]);
+      setClients(prev=>[...(prev||[]),{id:uid(),name:dados.nome,phone:dados.phone,email:"",city:"",orders:1,total,vip:false,joined:today,origem:"Divulgação",segmento:"Artesanato"}]);
     }
     const msg=`🤎 *Novo pedido pelo catálogo!*\n\nPedido: ${id}\nCliente: ${dados.nome}\nWhatsApp: ${dados.phone}\nProduto: ${produto.name}\nCor: ${sel.cor||"—"} · Tamanho: ${sel.tamanho||"—"}\nEndereço: ${dados.endereco}\nPagamento: ${novo.payment}\nProduto: ${fmtBRL(preco)}\nFrete: ${fmtBRL(entrega.frete)}\nTotal: ${fmtBRL(total)}\nEntrega: ${entrega.prazo}\nFila: ${pos}ª · Previsão: ${fmtDate(del)}\n\n${BRAND}`;
     window.open(`https://wa.me/${config.whatsapp}?text=${waMsg(msg)}`);
