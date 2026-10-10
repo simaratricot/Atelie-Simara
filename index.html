@@ -2596,7 +2596,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
                 <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.03)":f.pagoParcial?"rgba(176,141,87,0.05)":"transparent"}}>
                   <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
                   <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.type==="receita"?"#D4E8D4":"#FEE",color:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
-                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
+                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}{f.category&&<span style={{fontSize:9,background:"#EAE3DD",color:C.cafe,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.category}</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
                   <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho,whiteSpace:"nowrap"}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
                   <td style={{padding:"8px 10px",fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,whiteSpace:"nowrap",fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}</td>
                   <td style={{padding:"8px 10px"}}><StatusBtn f={f}/></td>
@@ -9901,7 +9901,7 @@ const obAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document
 const OBRAS_UNIDADES=[{v:"un",l:"Unidade"},{v:"m",l:"Metro"},{v:"global",l:"Global"}];
 const obUnidLabel=u=>u==="m"?"m":u==="global"?"-":"un";
 
-const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config})=>{
+const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config,contas=[],setContas})=>{
   const CO=CORES_OBRAS;
   const [busca,setBusca]=useState("");
   const [filtStatus,setFiltStatus]=useState("Todos");
@@ -9923,7 +9923,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const [medForm,setMedForm]=useState(medDefault);
   const [medSelecionados,setMedSelecionados]=useState([]);
   const [medFormOpen,setMedFormOpen]=useState(false);
-  const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:""};
+  const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:"",contaId:""};
   const [recForm,setRecForm]=useState(recDefault);
   const [recFormOpen,setRecFormOpen]=useState(false);
   useEffect(()=>{setServFormOpen(false);setMedFormOpen(false);setRecFormOpen(false);setMedSelecionados([]);},[selId,modal]);
@@ -9999,7 +9999,8 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
   const concluirObra=o=>{
     setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Concluída",dataConclusao:today}:x));
-    showSavedGlobal("Obra concluída! 🏗️");
+    showSavedGlobal("Obra concluída! 🏗️ Gerando o histórico completo pra impressão...");
+    setTimeout(()=>gerarHistoricoObraDoc({...o,status:"Concluída",dataConclusao:today}),400);
   };
 
   const cancelarObra=o=>{if(window.confirm("Cancelar este orçamento/obra?"))setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Cancelada"}:x));};
@@ -10055,6 +10056,53 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     obAbrirImprimir(html);
   };
 
+  // ── medição: tabela + documento (pra enviar junto com o recibo) ──
+  const obTabelaMedicao=(o,m)=>{
+    const itens=(o.servicos||[]).filter(s=>(m.servicosIds||[]).includes(s.id));
+    const rows=itens.length?itens:[{descricao:"Serviços da medição",qtd:"",unidade:"",valor:m.valorTotal}];
+    return `<table><thead><tr><th style="width:36px">Item</th><th>Discriminação dos Serviços</th><th style="width:60px">Qtd</th><th style="width:60px">Unid.</th><th style="width:100px">Valor (R$)</th></tr></thead><tbody>
+      ${rows.map((it,i)=>{const q=Number(it.qtd)||0;return `<tr><td>${i+1}</td><td>${it.descricao||"-"}</td><td>${q||"–"}</td><td>${it.unidade?obUnidLabel(it.unidade):"–"}</td><td>${Number(it.valor)>0?fmtBRL(it.valor):"–"}</td></tr>`;}).join("")}
+    </tbody></table>`;
+  };
+  const gerarMedicaoDoc=(o,m,idx)=>{
+    const recebido=recebDaMedicao(o,m.id);
+    const saldo=saldoMedicao(o,m);
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Medição — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
+    ${obHdr(o,obras,"Medição de Serviços",config)}
+    <div class="box"><b>Tomador / Cliente:</b> ${o.clienteNome}</div>
+    ${o.endereco?`<div class="box"><b>Endereço:</b> ${o.endereco}</div>`:""}
+    <div class="box"><b>Medição:</b> ${idx} &nbsp;|&nbsp; <b>Data:</b> ${fmtDate(m.data)}${m.dataVencimento?` &nbsp;|&nbsp; <b>Vencimento:</b> ${fmtDate(m.dataVencimento)}`:""}${m.status==="Cancelada"?" &nbsp;|&nbsp; <b>CANCELADA</b>":""}</div>
+    ${obTabelaMedicao(o,m)}
+    <div class="total-box">VALOR DA MEDIÇÃO: ${fmtBRL(m.valorTotal)} (${obValorExtenso(m.valorTotal)})</div>
+    <div class="box"><b>Já recebido referente a esta medição:</b> ${fmtBRL(recebido)}<br><b>Saldo em aberto:</b> ${fmtBRL(saldo)}</div>
+    ${m.obs?`<div style="font-size:12.5px;margin-bottom:10px"><b>Observações:</b> ${m.obs}</div>`:""}
+    <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Prestador de Serviço</div><div class="ass-box"><b>${o.clienteNome}</b>De acordo (cliente)</div></div>
+    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+  };
+
+  // ── histórico completo da obra (pra imprimir na conclusão) ──
+  const gerarHistoricoObraDoc=o=>{
+    const servRows=(o.servicos||[]).slice().sort((a,b)=>(a.data||"").localeCompare(b.data||"")).map((s,i)=>`<tr><td>${i+1}</td><td>${fmtDate(s.data)}</td><td>${s.descricao||"-"}</td><td>${Number(s.qtd)>0?`${s.qtd} ${obUnidLabel(s.unidade)}`:"–"}</td><td>${Number(s.valor)>0?fmtBRL(s.valor):"sem valor"}</td><td>${s.medicaoId?"Medido":"Solto"}</td></tr>`).join("");
+    const medRows=(o.medicoes||[]).map((m,i)=>`<tr><td>${i+1}</td><td>${fmtDate(m.data)}</td><td>${fmtBRL(m.valorTotal)}</td><td>${fmtBRL(recebDaMedicao(o,m.id))}</td><td>${fmtBRL(saldoMedicao(o,m))}</td><td>${m.status}</td></tr>`).join("");
+    const recRows=(o.recebimentos||[]).slice().sort((a,b)=>(a.data||"").localeCompare(b.data||"")).map((r,i)=>`<tr><td>${i+1}</td><td>${fmtDate(r.data)}</td><td>${fmtBRL(r.valor)}</td><td>${r.formaPag||"-"}</td><td>${r.medicaoId?"Vinc. medição":"Avulso"}</td><td>${r.obs||"-"}</td></tr>`).join("");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Histórico — ${o.clienteNome}</title><style>${obDocStyles}</style></head><body>
+    ${obHdr(o,obras,"Histórico Completo da Obra",config)}
+    <div class="box"><b>Cliente:</b> ${o.clienteNome} &nbsp;|&nbsp; <b>Tipo:</b> ${o.tipo}${o.endereco?`<br><b>Endereço:</b> ${o.endereco}`:""}</div>
+    <div class="box"><b>Início:</b> ${o.dataInicio?fmtDate(o.dataInicio):"-"} &nbsp;|&nbsp; <b>Conclusão:</b> ${o.dataConclusao?fmtDate(o.dataConclusao):"-"}</div>
+    <div class="total-box">Orçado: ${fmtBRL(o.valor)} · Lançado: ${fmtBRL(totalServicos(o))} · Recebido: ${fmtBRL(totalRecebido(o))} · Saldo: ${fmtBRL(saldoObra(o))}</div>
+    <div style="font-size:13px;font-weight:700;color:#6B4530;margin-bottom:6px">🔨 Serviços lançados</div>
+    <table><thead><tr><th>Item</th><th>Data</th><th>Descrição</th><th>Qtd</th><th>Valor</th><th>Status</th></tr></thead><tbody>${servRows||`<tr><td colspan="6" style="text-align:center">Nenhum serviço lançado</td></tr>`}</tbody></table>
+    <div style="font-size:13px;font-weight:700;color:#6B4530;margin-bottom:6px">📐 Medições</div>
+    <table><thead><tr><th>Item</th><th>Data</th><th>Valor</th><th>Recebido</th><th>Saldo</th><th>Status</th></tr></thead><tbody>${medRows||`<tr><td colspan="6" style="text-align:center">Nenhuma medição fechada</td></tr>`}</tbody></table>
+    <div style="font-size:13px;font-weight:700;color:#6B4530;margin-bottom:6px">💰 Recebimentos</div>
+    <table><thead><tr><th>Item</th><th>Data</th><th>Valor</th><th>Forma</th><th>Vínculo</th><th>Obs.</th></tr></thead><tbody>${recRows||`<tr><td colspan="6" style="text-align:center">Nenhum recebimento lançado</td></tr>`}</tbody></table>
+    <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+  };
+
   // ── serviços ──
   const abrirNovoServico=()=>{setServForm(servDefault);setServFormOpen(true);};
   const abrirEditarServico=s=>{setServForm({...s});setServFormOpen(true);};
@@ -10104,16 +10152,19 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     if(!sel)return;
     const valor=Number(recForm.valor)||0;
     if(valor<=0){alert("Informe o valor recebido.");return;}
+    if(!recForm.medicaoId&&!String(recForm.obs||"").trim()){alert("Esse recebimento é avulso (sem medição vinculada). Informe uma observação explicando a que ele se refere.");return;}
     const finId=uid();
     const novo={...recForm,id:recForm.id||uid(),valor,financeiroId:finId};
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:[...(o.recebimentos||[]),novo]}:o));
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:true,dataPagamento:recForm.data||today,category:"Obras",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:true,dataPagamento:recForm.data||today,category:"Obras",clientName:sel.clienteNome,contaId:recForm.contaId||""}]);
+    if(recForm.contaId)setContas(prev=>prev.map(c=>c.id===recForm.contaId?{...c,saldo:(c.saldo||0)+valor}:c));
     setRecFormOpen(false);showSavedGlobal("Recebimento lançado no financeiro!");
   };
   const excluirRecebimento=r=>{
     if(!sel||!window.confirm("Excluir este recebimento? O lançamento no financeiro também será removido."))return;
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:(o.recebimentos||[]).filter(x=>x.id!==r.id)}:o));
     if(r.financeiroId)setFinance(prev=>prev.filter(f=>f.id!==r.financeiroId));
+    if(r.contaId)setContas(prev=>prev.map(c=>c.id===r.contaId?{...c,saldo:(c.saldo||0)-Number(r.valor||0)}:c));
   };
 
   const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
@@ -10169,9 +10220,10 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
               {o.status==="Aprovado"&&<Btn sm onClick={()=>iniciarExecucao(o)}>🚀 Iniciar execução</Btn>}
               {o.status==="Aprovado"&&<button onClick={()=>voltarOrcamento(o)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar p/ orçamento</button>}
               {["Em andamento","Concluída"].includes(o.status)&&<Btn sm v="oliva" onClick={()=>abrirDetalhe(o)}>📂 Abrir obra</Btn>}
+              {["Em andamento","Concluída"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>gerarHistoricoObraDoc(o)}>🗂️ Histórico</Btn>}
               {o.status==="Em andamento"&&<Btn sm onClick={()=>concluirObra(o)}>✓ Concluir</Btn>}
               {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>abrirAgendar(o)}>📅 Agendar visita</Btn>}
-              {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>abrirEditar(o)}>✎</Btn>}
+              {o.status!=="Cancelada"&&<Btn sm v="ghost" onClick={()=>abrirEditar(o)}>✎ Editar</Btn>}
               {!["Cancelada"].includes(o.status)&&<Btn sm v="danger" onClick={()=>cancelarObra(o)}>✕ Cancelar</Btn>}
               {o.status==="Cancelada"&&<Btn sm v="danger" onClick={()=>excluirObra(o.id)}>🗑</Btn>}
             </div>
@@ -10303,6 +10355,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
                   <div style={{fontWeight:700,color:CO.primaria}}>{fmtBRL(m.valorTotal)}</div>
                   <div style={{fontSize:10,color:C.oliva}}>Recebido {fmtBRL(recebido)} · Saldo <b style={{color:saldo>0?(vencida?C.vermelho:C.dourado):"#2E6B2E"}}>{fmtBRL(saldo)}</b></div>
                 </div>
+                <Btn sm v="ghost" onClick={()=>gerarMedicaoDoc(sel,m,(sel.medicoes||[]).length-i)}>📄 Medição</Btn>
                 {m.status!=="Cancelada"&&saldo>0&&<Btn sm v="oliva" onClick={()=>{abrirNovoRecebimento(m.id);setDetTab("recebimentos");}}>💰 Receber</Btn>}
                 {m.status!=="Cancelada"&&<button onClick={()=>cancelarMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Cancelar</button>}
               </div>
@@ -10317,7 +10370,9 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <Inp label="Valor recebido (R$)" type="number" value={recForm.valor} onChange={v=>setRecForm(f=>({...f,valor:v}))}/>
             <Inp label="Data" type="date" value={recForm.data} onChange={v=>setRecForm(f=>({...f,data:v}))}/>
             <Sel label="Forma de pagamento" value={recForm.formaPag} onChange={v=>setRecForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Cartão de crédito","Cartão de débito","Transferência","Boleto","Outro"]}/>
-            <Inp label="Observações" value={recForm.obs} onChange={v=>setRecForm(f=>({...f,obs:v}))} rows={2}/>
+            <Sel label="Banco/conta de destino" value={recForm.contaId} onChange={v=>setRecForm(f=>({...f,contaId:v}))} options={[{v:"",l:"Não informar"},...contas.map(c=>({v:c.id,l:c.nome}))]}/>
+            {!recForm.medicaoId&&<div style={{fontSize:11,color:CO.primaria,fontWeight:600,fontStyle:"italic"}}>⚠ Recebimento avulso (sem medição) — explique abaixo a que se refere.</div>}
+            <Inp label={recForm.medicaoId?"Observações":"Observação (obrigatória) — a que se refere esse pagamento"} value={recForm.obs} onChange={v=>setRecForm(f=>({...f,obs:v}))} rows={2}/>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setRecFormOpen(false)}>Cancelar</Btn><Btn sm v="oliva" onClick={salvarRecebimento}>✓ Lançar no financeiro</Btn></div>
           </div>}
           {(sel.recebimentos||[]).length===0?vazio("Nenhum recebimento ainda"):
@@ -10326,7 +10381,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
               <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                 <div style={{flex:1,minWidth:140}}>
                   <div style={{fontSize:13,fontWeight:700}}>{fmtBRL(r.valor)} <span style={{fontSize:10,color:C.oliva,fontWeight:400}}>· {r.formaPag}</span></div>
-                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{r.obs?` · ${r.obs}`:""}</div>
+                  <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{r.contaId?` · ${(contas.find(c=>c.id===r.contaId)||{}).nome||""}`:""}{r.obs?` · ${r.obs}`:""}</div>
                 </div>
                 <Btn sm v="ghost" onClick={()=>gerarReciboRecebimento(r)}>🧾 Recibo</Btn>
                 <Btn sm v="danger" onClick={()=>excluirRecebimento(r)}>✕</Btn>
@@ -10342,7 +10397,10 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
           </table>
           <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Valor total do orçamento: {fmtBRL(sel.valor)}</div>
           <div style={{fontSize:12,color:C.oliva,marginBottom:14}}>Forma de cobrança proposta: {formaCobrancaTexto(sel)}</div>
-          <Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(sel)}>📄 Gerar orçamento</Btn>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(sel)}>📄 Gerar orçamento</Btn>
+            <Btn sm v="ghost" onClick={()=>abrirEditar(sel)}>✎ Editar dados/itens</Btn>
+          </div>
         </div>}
       </Modal>}
     </div>
@@ -10471,7 +10529,7 @@ function App() {
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
-          {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config} contas={contas} setContas={setContas}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
