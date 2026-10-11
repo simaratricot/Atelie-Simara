@@ -483,7 +483,7 @@ const fbSave = (key, value) => {
       // Verifica tamanho final
       const json = JSON.stringify(forCloud);
       if (json.length > 900000) {
-        console.warn("Firebase: documento ainda grande após compressão:", json.length);
+        showSaveError(`⚠ "${key}" ficou grande demais pra salvar na nuvem (muitas fotos). Apague fotos antigas/duplicadas ou produtos/pedidos não usados em "${key}" — senão o que você adicionar por último pode não ficar salvo.`);
       }
 
       // Salva no Firebase
@@ -491,11 +491,21 @@ const fbSave = (key, value) => {
         value: json,
         updated: Date.now()
       });
-    } catch(e) { console.warn("Firebase save error:", e.message); }
+    } catch(e) {
+      showSaveError(`⚠ Não consegui salvar "${key}" na nuvem (${(e&&e.message)||"erro desconhecido"}). Ficou salvo neste aparelho, mas confira sua internet e tente de novo — ou abra em outro aparelho pra ver se já chegou.`);
+    }
     finally { _fbPendentes--; }
   });
   _fbQueues[key] = atual;
   return atual;
+};
+
+// Aviso global de ERRO de salvamento — ao contrário do toast de sucesso, fica
+// visível até a pessoa fechar, porque um salvamento que falhou merece atenção.
+let _setSaveErrorGlobal = null;
+const showSaveError = (msg) => {
+  if (_setSaveErrorGlobal) _setSaveErrorGlobal(msg);
+  console.warn("Save error:", msg);
 };
 
 // Indicador global de salvamento
@@ -516,7 +526,8 @@ const _lerLocal = (K) => {
   } catch { return null; }
 };
 const _gravarLocal = (K, value) => {
-  try { localStorage.setItem(K, JSON.stringify({value, ts: Date.now()})); } catch {}
+  try { localStorage.setItem(K, JSON.stringify({value, ts: Date.now()})); }
+  catch(e) { showSaveError(`⚠ Não consegui salvar "${K.replace("atelie_","")}" neste aparelho — o espaço de armazenamento deve estar cheio. Confira em Configurações → Monitor de Armazenamento e apague fotos antigas.`); }
 };
 
 const useStorage = (key, initial) => {
@@ -1552,22 +1563,28 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   };
 
   const save = async () => {
-    // Comprime fotos antes de salvar
-    const photosComp = await Promise.all((form.photos||[]).map(comprimirFoto));
-    const coresComp = await Promise.all((form.cores||[]).map(async c => ({
-      ...c, foto: c.foto ? await comprimirFoto(c.foto) : c.foto
-    })));
-    const p={...form,
-      photos: photosComp,
-      cores: coresComp,
-      price:Number(form.price)>0?Number(form.price):precoSug,
-      cost:custoFinal,hours:Number(form.hours||0),
-      stock:Number(form.stock||0),buffer:Number(form.buffer||2),
-      margem:Number(form.margem||40)};
-    if(modal==="new") setProducts(prev=>[...prev,{...p,id:uid(),sales:0}].sort((a,b)=>a.name.localeCompare(b.name)));
-    else setProducts(prev=>prev.map(x=>x.id===p.id?p:x).sort((a,b)=>a.name.localeCompare(b.name)));
-    setModal(null);
-    showSavedGlobal("Produto salvo!");
+    if(!form.name||!form.name.trim()){alert("Informe o nome do produto antes de salvar.");return;}
+    try{
+      // Comprime fotos antes de salvar
+      const photosComp = await Promise.all((form.photos||[]).map(comprimirFoto));
+      const coresComp = await Promise.all((form.cores||[]).map(async c => ({
+        ...c, foto: c.foto ? await comprimirFoto(c.foto) : c.foto
+      })));
+      const p={...form,
+        photos: photosComp,
+        cores: coresComp,
+        price:Number(form.price)>0?Number(form.price):precoSug,
+        cost:custoFinal,hours:Number(form.hours||0),
+        stock:Number(form.stock||0),buffer:Number(form.buffer||2),
+        margem:Number(form.margem||40)};
+      const porNome=(a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt");
+      if(modal==="new") setProducts(prev=>[...prev,{...p,id:uid(),sales:0}].sort(porNome));
+      else setProducts(prev=>prev.map(x=>x.id===p.id?p:x).sort(porNome));
+      setModal(null);
+      showSavedGlobal("Produto salvo!");
+    }catch(e){
+      alert("Não consegui salvar o produto ("+((e&&e.message)||"erro ao processar as fotos")+"). Tente com fotos menores ou em menor quantidade.");
+    }
   };
 
   return (
@@ -2118,7 +2135,10 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px"}}>Previsão de entrega</label>
             <button type="button" onClick={()=>{
-              const prodSel=products.find(x=>x.name===(form.itens?.[0]?.product||form.product));
+              const nomeProd=form.itens?.[0]?.product||form.product;
+              if(!nomeProd){alert("Selecione um produto no pedido primeiro (campo \"Produto\" acima) pra calcular pela fila.");return;}
+              const prodSel=products.find(x=>x.name===nomeProd);
+              if(!prodSel){alert(`Não encontrei o produto "${nomeProd}" cadastrado em Produtos — por isso o cálculo ficaria sem base real. Confira se ele foi salvo lá (Produtos → o nome deve aparecer na lista).`);return;}
               const {novaEntrega,diasProd,buffer,envio}=calcProximaEntrega(orders.filter(o=>o.id!==form.id),prodSel,config);
               setForm(f=>({...f,delivery:novaEntrega}));
               showSavedGlobal(`Fila: ${diasProd}d prod + ${buffer}d respiro + ${envio}d envio = ${fmtDate(novaEntrega)}`);
@@ -2429,6 +2449,9 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
 
 const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetiradaPessoal}) => {
   const [tab,setTab]=useState("lanc");
+  const [mostrarSaldos,setMostrarSaldos]=useState(()=>{try{return localStorage.getItem("atelie_mostrarSaldos")==="1";}catch{return false;}});
+  const toggleMostrarSaldos=()=>setMostrarSaldos(v=>{const nv=!v;try{localStorage.setItem("atelie_mostrarSaldos",nv?"1":"0");}catch{}return nv;});
+  const maskBRL=v=>mostrarSaldos?fmtBRL(v):"R$ ••••••";
   const [formModal,setFormModal]=useState(false);
   const [contaModal,setContaModal]=useState(false);
   const [transModal,setTransModal]=useState(false);
@@ -2567,11 +2590,18 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
         </div>
       </div>
 
+      {contas.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.linho,borderRadius:8,padding:"10px 16px",marginBottom:10}}>
+        <span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>Saldo total das contas ({contas.length})</span>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{maskBRL(contas.reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
+          <button onClick={toggleMostrarSaldos} title={mostrarSaldos?"Ocultar saldos":"Mostrar saldos"} style={{background:"none",border:`1.5px solid ${C.areia}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",fontSize:13,color:C.cafe,display:"flex",alignItems:"center",gap:4}}>{mostrarSaldos?"🙈 Ocultar":"👁 Mostrar"}</button>
+        </div>
+      </div>}
       {contas.length>0&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
         {contas.map(c=><div key={c.id} className="ch" onClick={()=>{setCForm({...c});setContaModal(true);}} style={{flex:"1 1 130px",background:`linear-gradient(135deg,${c.cor||C.dourado},${c.cor||C.dourado}bb)`,borderRadius:8,padding:"12px 16px",cursor:"pointer"}}>
           <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
           <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>{c.nome}</div>
-          <div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{fmtBRL(c.saldo||0)}</div>
+          <div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(c.saldo||0)}</div>
         </div>)}
         <div onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});setContaModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.areia}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.oliva,fontWeight:600}}>+ Nova conta</div>
         <div onClick={()=>{setTForm({de:contas[0]?.id||"",para:contas[1]?.id||"",valor:0,data:today,nota:""});setTransModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.dourado}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.dourado,fontWeight:600}}>⇄ Transferir</div>
@@ -8875,7 +8905,7 @@ const Projects = ({projects,setProjects}) => {
 };
 
 // ─── RELATÓRIOS ───────────────────────────────────────────────────────────────
-const Reports = ({orders,products,finance,clients}) => {
+const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],personalDespesas=[]}) => {
   const [per,setPer]=useState("geral");
   const [mes,setMes]=useState(today.slice(0,7));
   const [ano,setAno]=useState(today.slice(0,4));
@@ -8902,8 +8932,31 @@ const Reports = ({orders,products,finance,clients}) => {
     return true;
   };
 
+  // período aplicado ao uso pessoal (conta pessoal, separado do negócio)
+  const inPerPessoalRec=r=>{
+    if(per==="dia")return r.data===today;
+    if(per==="mes")return (r.data||"").startsWith(mes);
+    if(per==="ano")return (r.data||"").startsWith(ano);
+    return true;
+  };
+  const inPerPessoalDesp=d=>{
+    if(!d.pago||!d.dataPagamento)return false;
+    if(per==="dia")return d.dataPagamento===today;
+    if(per==="mes")return d.dataPagamento.startsWith(mes);
+    if(per==="ano")return d.dataPagamento.startsWith(ano);
+    return true;
+  };
+
   // transferências entre contas não são receita/despesa de verdade — ficam fora dos relatórios
   const financePer=finance.filter(f=>!f.isTransferencia&&inPerFin(f));
+
+  // ── uso pessoal (conta pessoal) — separado do negócio ──
+  const pessoalEntradas=personalReceitas.filter(inPerPessoalRec).reduce((a,r)=>a+Number(r.valor||0),0);
+  const pessoalSaidas=personalDespesas.filter(inPerPessoalDesp).reduce((a,d)=>a+Number(d.valor||0),0);
+  const pessoalSaldo=pessoalEntradas-pessoalSaidas;
+
+  // ── saldo das contas (Financeiro → Contas/Cartões, inclui "Saldo pessoal" se ela criar) ──
+  const saldoContas=contas.reduce((a,c)=>a+Number(c.saldo||0),0);
   const ordAtivos=orders.filter(o=>o.status!=="Cancelado"&&inPerOrd(o));
   const fatTotalModa=ordAtivos.reduce((a,o)=>a+(o.precoFinal||o.price||0),0);
   const avgTicket=ordAtivos.length>0?fatTotalModa/ordAtivos.length:0;
@@ -8956,7 +9009,7 @@ const Reports = ({orders,products,finance,clients}) => {
       </div>
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-        {[{l:"Ticket médio (Artesanato)",v:fmtBRL(avgTicket),c:C.dourado},{l:"Pedidos (Artesanato)",v:ordAtivos.length,c:C.cafe},{l:"Clientes cadastrados",v:clients.length,c:C.oliva},{l:"Margem geral",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
+        {[{l:"Saldo das contas",v:fmtBRL(saldoContas),c:C.verde},{l:"Ticket médio (Artesanato)",v:fmtBRL(avgTicket),c:C.dourado},{l:"Pedidos (Artesanato)",v:ordAtivos.length,c:C.cafe},{l:"Clientes cadastrados",v:clients.length,c:C.oliva},{l:"Margem geral",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
           <Card key={k.l} style={{flex:"1 1 110px",textAlign:"center"}}><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginTop:2}}>{k.l}</div></Card>
         ))}
       </div>
@@ -8975,10 +9028,29 @@ const Reports = ({orders,products,finance,clients}) => {
         </div>
       </Card>
 
+      <Card style={{marginBottom:14}}>
+        <h3 style={{fontSize:14,marginBottom:4}}>Conta pessoal {per!=="geral"?`— ${PER_LABELS[per]}`:""}</h3>
+        <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:12}}>Separado do negócio — uso pessoal (entradas e saídas da Conta Pessoal).</div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 140px",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>Entrou</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.verde}}>{fmtBRL(pessoalEntradas)}</div>
+          </div>
+          <div style={{flex:"1 1 140px",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>Saiu</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.vermelho}}>{fmtBRL(pessoalSaidas)}</div>
+          </div>
+          <div style={{flex:"1 1 140px",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>Resultado</div>
+            <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:pessoalSaldo>=0?C.dourado:C.vermelho}}>{fmtBRL(pessoalSaldo)}</div>
+          </div>
+        </div>
+      </Card>
+
       <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
         <Card style={{flex:1,minWidth:200}}>
           <h3 style={{fontSize:14,marginBottom:12}}>Resumo financeiro {per!=="geral"?`— ${PER_LABELS[per]}`:""}</h3>
-          {[["Faturamento total (3 frentes)",fmtBRL(fatTotal)],["Já recebido",fmtBRL(recTotal)],["A receber",fmtBRL(recPend)],["Total despesas",fmtBRL(despTotal)],["Lucro líquido",fmtBRL(lucro)],["Investimentos",fmtBRL(invTotal)]].map(([l,v])=>(
+          {[["Faturamento total (3 frentes)",fmtBRL(fatTotal)],["Já recebido",fmtBRL(recTotal)],["A receber",fmtBRL(recPend)],["Total despesas",fmtBRL(despTotal)],["Lucro líquido",fmtBRL(lucro)],["Investimentos",fmtBRL(invTotal)],["Saldo das contas (atual)",fmtBRL(saldoContas)]].map(([l,v])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.linho}`}}><span style={{fontSize:12,color:C.oliva}}>{l}</span><span style={{fontSize:13,fontWeight:700}}>{v}</span></div>
           ))}
         </Card>
@@ -10555,9 +10627,12 @@ function App() {
   const [menuOpen,setMenuOpen]=useState(false);
   const [fichaModal,setFichaModal]=useState(null);
   const [savedMsg,setSavedMsg]=useState("");
+  const [saveErrorMsg,setSaveErrorMsg]=useState("");
 
   // Registra o setter global para o indicador de salvo
   useEffect(()=>{ _setSavedGlobal=(msg)=>{setSavedMsg(msg);setTimeout(()=>setSavedMsg(""),2500);}; },[]);
+  // Registra o setter global para avisos de ERRO de salvamento — fica na tela até a pessoa fechar
+  useEffect(()=>{ _setSaveErrorGlobal=(msg)=>setSaveErrorMsg(msg); },[]);
 
   // Todos os dados — Firebase é a fonte principal
   const [products,  setProducts  ]=useStorage("products",   INIT.products);
@@ -10657,6 +10732,11 @@ function App() {
             <div style={{width:30,height:30,borderRadius:"50%",background:"linear-gradient(135deg,#A563A2,#23355A)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700,flexShrink:0}}>S</div>
           </div>
         </div>
+        {/* AVISO DE ERRO DE SALVAMENTO — fica visível até a pessoa fechar */}
+        {saveErrorMsg&&<div style={{background:"#FDE8E8",borderBottom:"2px solid #C0392B",padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
+          <span style={{fontSize:12,color:"#8B2E20",fontWeight:600,lineHeight:1.4}}>{saveErrorMsg}</span>
+          <button onClick={()=>setSaveErrorMsg("")} style={{background:"none",border:"none",color:"#8B2E20",fontSize:16,cursor:"pointer",flexShrink:0,fontWeight:700}}>✕</button>
+        </div>}
         {/* CONTEÚDO */}
         <div style={{flex:1,overflowY:"auto"}}>
           {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
@@ -10675,7 +10755,7 @@ function App() {
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
-          {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients}/>}
+          {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients} contas={contas} personalReceitas={personalReceitas} personalDespesas={personalDespesas}/>}
           {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} allData={allData}/>}
         </div>
       </div>
