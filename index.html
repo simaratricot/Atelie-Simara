@@ -1411,114 +1411,104 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
     // ── FUNDO ESCURO ELEGANTE ──
     ctx.fillStyle="#0D0A1A";ctx.fillRect(0,0,W,H);
 
-    // ── FOTO OCUPA 75% DA ARTE (produto é o destaque) ──
+    // ── FOTO — domina a arte, produto totalmente visível (sem véu escurecendo tudo) ──
+    const fh=H*0.64;
     if(p.photos?.[0]){
       try{
         await new Promise((res,rej)=>{
           const img=new Image();img.crossOrigin="anonymous";
           img.onload=()=>{
-            const fh=H*0.72,fw=W,fx=0,fy=0;
+            const fw=W,fx=0,fy=0;
             const ir=img.width/img.height,fr=fw/fh;
             let sw,sh,sx,sy;
             if(ir>fr){sh=img.height;sw=sh*fr;sx=(img.width-sw)/2;sy=0;}
             else{sw=img.width;sh=sw/fr;sx=0;sy=(img.height-sh)/2;}
             ctx.drawImage(img,sx,sy,sw,sh,fx,fy,fw,fh);
-            // Vinheta sutil nas bordas — a foto se funde com o fundo escuro em vez de ficar "no quadrado"
-            const vig=ctx.createRadialGradient(W/2,fh*0.4,fh*0.3,W/2,fh*0.4,fh*0.82);
-            vig.addColorStop(0,"rgba(13,10,26,0)");
-            vig.addColorStop(1,"rgba(13,10,26,0.5)");
-            ctx.fillStyle=vig;ctx.fillRect(0,0,W,fh);
-            // Leve véu roxo da marca sobre a foto, pra unificar com a paleta da arte
-            const tint=ctx.createLinearGradient(0,0,0,fh);
-            tint.addColorStop(0,"rgba(45,27,105,0.12)");
-            tint.addColorStop(1,"rgba(45,27,105,0)");
-            ctx.fillStyle=tint;ctx.fillRect(0,0,W,fh);
-            // Degradê suave na base da foto, fundindo com o texto por cima
-            const gB=ctx.createLinearGradient(0,fh*0.52,0,fh);
+            // Degradê só na faixa final da foto (onde entra o nome) — o produto fica visível,
+            // só a base da foto se funde com o fundo pra não parecer "no quadrado".
+            const gB=ctx.createLinearGradient(0,fh*0.78,0,fh);
             gB.addColorStop(0,"rgba(13,10,26,0)");
-            gB.addColorStop(1,"rgba(13,10,26,0.98)");
-            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.52,W,fh*0.48);
+            gB.addColorStop(1,"rgba(13,10,26,0.92)");
+            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.78,W,fh*0.22);
             res();
           };img.onerror=rej;img.src=p.photos[0];
         });
       }catch{}
     } else {
       // Sem foto: fundo lilás com emoji
-      const g=ctx.createLinearGradient(0,0,0,H*0.72);
+      const g=ctx.createLinearGradient(0,0,0,fh);
       g.addColorStop(0,"#2D1B69");g.addColorStop(1,"#0D0A1A");
-      ctx.fillStyle=g;ctx.fillRect(0,0,W,H*0.72);
+      ctx.fillStyle=g;ctx.fillRect(0,0,W,fh);
       ctx.fillStyle="rgba(165,99,162,0.3)";ctx.font="200px serif";ctx.textAlign="center";
-      ctx.fillText(p.img||"🧶",W/2,H*0.4);
+      ctx.fillText(p.img||"🧶",W/2,fh*0.55);
     }
 
-    // ── NOME DO PRODUTO — mais acima, sobre a foto ──
-    const nY=H*0.68;
+    // ── NOME DO PRODUTO — sobre a base já esmaecida da foto ──
+    const nY=fh-46;
     ctx.textAlign="left";
-    ctx.shadowColor="rgba(0,0,0,0.5)";ctx.shadowBlur=12;
+    ctx.shadowColor="rgba(0,0,0,0.6)";ctx.shadowBlur=14;
 
     if(partes.length===1){
-      ctx.fillStyle="#FDFAFF";ctx.font="bold 86px Georgia,serif";ctx.letterSpacing="-2px";
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 78px Georgia,serif";ctx.letterSpacing="-2px";
       ctx.fillText(partes[0],52,nY);
     } else {
-      ctx.fillStyle="#FDFAFF";ctx.font="bold 72px Georgia,serif";ctx.letterSpacing="-1px";
-      ctx.fillText(partes[0],52,nY-56);
-      ctx.fillStyle="#D8B4CE";ctx.font="bold 76px Georgia,serif";
-      ctx.fillText(partes.slice(1,3).join(" "),52,nY+18);
+      ctx.fillStyle="#FDFAFF";ctx.font="bold 66px Georgia,serif";ctx.letterSpacing="-1px";
+      ctx.fillText(partes[0],52,nY-52);
+      ctx.fillStyle="#D8B4CE";ctx.font="bold 70px Georgia,serif";
+      ctx.fillText(partes.slice(1,3).join(" "),52,nY+16);
       if(partes.length>3){
-        ctx.fillStyle="rgba(216,180,206,0.85)";ctx.font="italic 56px Georgia,serif";
-        ctx.fillText(partes.slice(3).join(" "),52,nY+86);
+        ctx.fillStyle="rgba(216,180,206,0.85)";ctx.font="italic 48px Georgia,serif";
+        ctx.fillText(partes.slice(3).join(" "),52,nY+76);
       }
     }
     ctx.shadowBlur=0;
 
-    // ── BADGE DISPONIBILIDADE ──
-    const dispLabel=p.type==="pronta"?`✓ Pronta Entrega — ${p.stock} unid.`:"✦ Sob Encomenda";
+    // A partir daqui, posições calculadas em sequência — garante espaço entre os blocos, sem sobrepor texto.
+    let y=fh+34;
+
+    // ── BADGE DISPONIBILIDADE — discreto, logo abaixo da foto ──
+    const dispLabel=p.type==="pronta"?`✓ Pronta entrega — ${p.stock} unid.`:"✦ Sob encomenda";
     const dispColor=p.type==="pronta"?"rgba(46,107,46,0.85)":"rgba(75,45,127,0.85)";
-    ctx.fillStyle=dispColor;
+    ctx.font="bold 20px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
     const dispW=ctx.measureText(dispLabel).width+40;
-    ctx.beginPath();ctx.roundRect(44,H*0.72+8,dispW+20,40,20);ctx.fill();
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 22px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
-    ctx.fillText(dispLabel,64,H*0.72+34);
+    ctx.fillStyle=dispColor;
+    ctx.beginPath();ctx.roundRect(52,y,dispW,38,19);ctx.fill();
+    ctx.fillStyle="#FDFAFF";
+    ctx.fillText(dispLabel,72,y+25);
+    y+=38+42;
 
-    // ── LINHA DECORATIVA ──
-    ctx.strokeStyle="#A563A2";ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(52,H*0.72+60);ctx.lineTo(220,H*0.72+60);ctx.stroke();
+    // ── PREÇO — elegante e discreto, sem "gritar" (sem caixa pesada) ──
+    ctx.fillStyle="rgba(216,180,206,0.75)";ctx.font="bold 19px Arial,sans-serif";ctx.letterSpacing="3px";
+    ctx.fillText("A PARTIR DE",52,y);
+    y+=50;
+    ctx.fillStyle="#FDFAFF";ctx.font="bold 48px Georgia,serif";ctx.letterSpacing="-1px";
+    ctx.fillText(precoStr,52,y);
+    ctx.strokeStyle="rgba(165,99,162,0.6)";ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(52,y+22);ctx.lineTo(52+140,y+22);ctx.stroke();
+    y+=22+46;
 
-    // ── ÁREA DE INFORMAÇÕES ──
-    const infoY=H*0.72+76;
-
-    // Preço
-    ctx.fillStyle="rgba(165,99,162,0.15)";ctx.beginPath();ctx.roundRect(44,infoY,380,108,10);ctx.fill();
-    ctx.strokeStyle="rgba(165,99,162,0.35)";ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(44,infoY,380,108,10);ctx.stroke();
-    ctx.fillStyle="rgba(216,180,206,0.7)";ctx.font="20px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
-    ctx.fillText("A partir de",66,infoY+36);
-    ctx.fillStyle="#FDFAFF";ctx.font="bold 58px Georgia,serif";ctx.letterSpacing="-1px";
-    ctx.fillText(precoStr,66,infoY+96);
-
-    // ── CBS — texto completo com quebra de linha ──
+    // ── CBS — Características / Benefício / Sensação, com respiro entre os blocos ──
     const drawTextBlock=(label,icon,texto,startY,maxW)=>{
-      if(!texto||startY>H-100)return startY;
+      if(!texto||startY>H-90)return startY;
       ctx.letterSpacing="0px";ctx.textAlign="left";
-      // Label
-      ctx.fillStyle="#A563A2";ctx.font="bold 24px Arial,sans-serif";
+      ctx.fillStyle="#A563A2";ctx.font="bold 23px Arial,sans-serif";
       ctx.fillText(`${icon} ${label}`,52,startY);
-      let y=startY+32;
-      // Texto completo com quebra
-      ctx.fillStyle="rgba(253,250,255,0.88)";ctx.font="22px Georgia,serif";
+      let yy=startY+30;
+      ctx.fillStyle="rgba(253,250,255,0.9)";ctx.font="21px Georgia,serif";
       const words=texto.split(" ");let line="";
       for(const w of words){
         const test=line+w+" ";
         if(ctx.measureText(test).width>maxW&&line){
-          if(y>H-80)break;
-          ctx.fillText(line.trim(),52,y);line=w+" ";y+=30;
+          if(yy>H-70)break;
+          ctx.fillText(line.trim(),52,yy);line=w+" ";yy+=28;
         }else line=test;
       }
-      if(line.trim()&&y<=H-80){ctx.fillText(line.trim(),52,y);y+=30;}
-      return y+14;
+      if(line.trim()&&yy<=H-70){ctx.fillText(line.trim(),52,yy);yy+=28;}
+      return yy+34;
     };
 
     const maxW=W-104;
-    let cY=infoY+120;
+    let cY=y;
     if(p.caracteristicas)cY=drawTextBlock("Características","✦",p.caracteristicas,cY,maxW);
     if(p.beneficio)cY=drawTextBlock("Benefício","♥",p.beneficio,cY,maxW);
     if(p.sensacao)cY=drawTextBlock("Sensação","◈",p.sensacao,cY,maxW);
