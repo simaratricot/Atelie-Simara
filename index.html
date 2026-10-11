@@ -913,6 +913,29 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
       return c.foco?{...c,foco:false}:c;
     }));
   };
+  // Itens já lançados hoje (agenda/compromissos e entregas de encomendas) que ainda não viraram tarefa —
+  // pra poder SELECIONAR em vez de reescrever, e marcar direto como foco do dia.
+  const compHojeParaSelecao=compromissos.filter(c=>c.data===today&&c.tipo!=="Tarefa");
+  const itensHojeParaFoco=[
+    ...compHojeParaSelecao.map(c=>({id:"comp-"+c.id,desc:c.desc,origem:c.hora?`${c.hora} · Agenda`:"Agenda"})),
+    ...agenda.filter(o=>o.delivery===today).map(o=>({id:"ped-"+o.id,desc:`Entrega — ${o.client}`,origem:"Encomenda"})),
+  ].filter(it=>it.desc&&!tarefasHoje.some(t=>t.desc===it.desc));
+  const selecionarComoFoco=(desc)=>{
+    if(!desc||!setCompromissos)return;
+    setCompromissos(prev=>{
+      const existe=prev.find(c=>c.tipo==="Tarefa"&&c.data===today&&c.desc===desc);
+      if(existe){
+        return prev.map(c=>{
+          if(c.data!==today||c.tipo!=="Tarefa")return c;
+          if(c.id===existe.id)return{...c,foco:true};
+          return c.foco?{...c,foco:false}:c;
+        });
+      }
+      const nova={id:uid(),desc,data:today,hora:"",prioridade:"Normal",status:"Pendente",tipo:"Tarefa",categoria:catTarefa,foco:true};
+      return [...prev.map(c=>c.data===today&&c.tipo==="Tarefa"&&c.foco?{...c,foco:false}:c),nova];
+    });
+    showSavedGlobal("Marcado como foco do dia!");
+  };
 
   // Tarefas do dia por categoria (pendentes de hoje)
   const tarefasAbertas=tarefasHoje.filter(t=>t.status!=="Concluído");
@@ -1111,6 +1134,10 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
             {t.status!=="Concluído"&&<button onClick={()=>toggleFoco(t)} title="Marcar como foco do dia" style={{fontSize:13,background:"none",border:"none",cursor:"pointer"}}>⭐</button>}
           </div>
         ))}
+        {itensHojeParaFoco.length>0&&<select value="" onChange={e=>{if(e.target.value)selecionarComoFoco(e.target.value);}} style={{width:"100%",padding:"6px 10px",border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12,color:C.cafe,marginTop:6}}>
+          <option value="">↳ Ou selecione algo já lançado hoje (agenda/encomenda) pra marcar como foco...</option>
+          {itensHojeParaFoco.map(it=><option key={it.id} value={it.desc}>{it.desc} — {it.origem}</option>)}
+        </select>}
         <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
           <input id="novaTarefaInput" value={novaTarefa} onChange={e=>setNovaTarefa(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTarefa()} placeholder="+ Nova tarefa rápida..."
             style={{flex:"1 1 140px",padding:"6px 10px",border:`1px solid ${C.areia}`,borderRadius:4,fontSize:12}}/>
@@ -1379,6 +1406,7 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
     canvas.width=W;canvas.height=H;
     const ctx=canvas.getContext("2d");
     const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
+    const partes=String(p.name||"Produto").split(" ");
 
     // ── FUNDO ESCURO ELEGANTE ──
     ctx.fillStyle="#0D0A1A";ctx.fillRect(0,0,W,H);
@@ -1395,11 +1423,21 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
             if(ir>fr){sh=img.height;sw=sh*fr;sx=(img.width-sw)/2;sy=0;}
             else{sw=img.width;sh=sw/fr;sx=0;sy=(img.height-sh)/2;}
             ctx.drawImage(img,sx,sy,sw,sh,fx,fy,fw,fh);
-            // Degradê suave apenas na base da foto
-            const gB=ctx.createLinearGradient(0,fh*0.6,0,fh);
+            // Vinheta sutil nas bordas — a foto se funde com o fundo escuro em vez de ficar "no quadrado"
+            const vig=ctx.createRadialGradient(W/2,fh*0.4,fh*0.3,W/2,fh*0.4,fh*0.82);
+            vig.addColorStop(0,"rgba(13,10,26,0)");
+            vig.addColorStop(1,"rgba(13,10,26,0.5)");
+            ctx.fillStyle=vig;ctx.fillRect(0,0,W,fh);
+            // Leve véu roxo da marca sobre a foto, pra unificar com a paleta da arte
+            const tint=ctx.createLinearGradient(0,0,0,fh);
+            tint.addColorStop(0,"rgba(45,27,105,0.12)");
+            tint.addColorStop(1,"rgba(45,27,105,0)");
+            ctx.fillStyle=tint;ctx.fillRect(0,0,W,fh);
+            // Degradê suave na base da foto, fundindo com o texto por cima
+            const gB=ctx.createLinearGradient(0,fh*0.52,0,fh);
             gB.addColorStop(0,"rgba(13,10,26,0)");
             gB.addColorStop(1,"rgba(13,10,26,0.98)");
-            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.6,W,fh*0.4);
+            ctx.fillStyle=gB;ctx.fillRect(0,fh*0.52,W,fh*0.48);
             res();
           };img.onerror=rej;img.src=p.photos[0];
         });
