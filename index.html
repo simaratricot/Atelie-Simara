@@ -98,7 +98,35 @@ const TOTAL_WH = Object.values(WEEK_HRS).reduce((a,b)=>a+b,0);
 const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
-const readFile = f => new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsDataURL(f);});
+// Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
+// grandes demais pra salvar na nuvem (fotos de celular costumam vir enormes).
+const readFile = f => new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=e=>{
+    const original=e.target.result;
+    const img=new Image();
+    img.onload=()=>{
+      const MAXDIM=1280;
+      let w=img.width,h=img.height;
+      if(w>MAXDIM||h>MAXDIM){
+        if(w>=h){h=Math.round(h*MAXDIM/w);w=MAXDIM;}
+        else{w=Math.round(w*MAXDIM/h);h=MAXDIM;}
+      }
+      try{
+        const canvas=document.createElement("canvas");
+        canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext("2d");
+        ctx.drawImage(img,0,0,w,h);
+        const isPng=f.type==="image/png";
+        res(isPng?canvas.toDataURL("image/png"):canvas.toDataURL("image/jpeg",0.8));
+      }catch(err){res(original);} // se algo falhar na compressão, usa a imagem original
+    };
+    img.onerror=()=>res(original);
+    img.src=original;
+  };
+  r.onerror=rej;
+  r.readAsDataURL(f);
+});
 const addDays = (d,n) => { const dt=new Date(d+"T00:00"); dt.setDate(dt.getDate()+n); return dt.toISOString().split("T")[0]; };
 const calcDays = h => { let rem=h,days=0,i=0; const wh=Object.values(WEEK_HRS); while(rem>0){rem-=wh[i%7];days++;i++;} return days; };
 
@@ -315,6 +343,7 @@ const INIT = {
   banners:[],
   depoimentos:[],
   categories:["Moda","Casa","Amigurumi"],
+  subcategories:{Moda:["Blusas","Coletes","Toucas","Cachecóis","Acessórios"],Casa:["Jogos de banheiro","Panos de prato","Decoração"],Amigurumi:["Bichinhos","Personagens"]},
   projects:[],
   metas:[{ano:new Date().getFullYear(),faturamentoMensal:3000,encomendas:10,produtosVendidos:15,investimentoAnual:10000}],
   config:{
@@ -1609,7 +1638,7 @@ const ArteDivulgacaoV2Preview=({produto,config})=>{
   );
 };
 
-const Products = ({products,setProducts,categories,config,stockSup}) => {
+const Products = ({products,setProducts,categories,subcategories,config,stockSup}) => {
   const [search,setSearch]=useState("");
   const [catF,setCatF]=useState("Todos");
   const [modal,setModal]=useState(null);
@@ -1620,7 +1649,7 @@ const Products = ({products,setProducts,categories,config,stockSup}) => {
   const custoMat=(form.materiais||[]).reduce((sum,m)=>{const it=stockSup.find(s=>s.id===m.itemId);return sum+(it?.custoUnitario||0)*Number(m.qtd||0);},0);
   const custoFinal=form.materiais?.length>0?custoMat:Number(form.cost||0);
   const precoSug=calcPreco(custoFinal,Number(form.hours||0),config.valorHora,Number(form.margem||40));
-  const SUBS={Moda:["Blusas","Coletes","Toucas","Cachecóis","Acessórios"],Casa:["Jogos de banheiro","Panos de prato","Decoração"],Amigurumi:["Bichinhos","Personagens"]};
+  const SUBS=subcategories||{};
 
   const compartilharProduto=async(p)=>{
     // Arte de divulgação — só usa o que está de fato cadastrado no produto:
@@ -9366,13 +9395,14 @@ const StorageMonitor = () => {
 };
 
 // ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
-const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,allData}) => {
+const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,subcategories,setSubcategories,allData}) => {
   const [tab,setTab]=useState("geral");
   const [saved,setSaved]=useState(false);
   const [novaFrase,setNovaFrase]=useState({texto:"",categoria:"Motivação"});
   const [novoBanner,setNovoBanner]=useState({title:"",sub:"",foto:"",ativo:true});
   const [novaDepo,setNovaDepo]=useState({name:"",product:"",comment:"",foto:""});
   const [novaCat,setNovaCat]=useState("");
+  const [novaSub,setNovaSub]=useState({});
   const artesaRef=useRef();
   const logoRef=useRef();
   const obrasLogoRef=useRef();
@@ -9578,12 +9608,37 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
             <Btn sm onClick={()=>{if(!novaCat.trim()||categories.includes(novaCat))return;setCategories(p=>[...p,novaCat]);setNovaCat("");}}>Adicionar</Btn>
           </div>
         </Card>
-        {categories.map(c=>(
-          <div key={c} style={{display:"flex",gap:10,alignItems:"center",background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,padding:"10px 12px",marginBottom:8}}>
-            <div style={{flex:1,fontSize:14,fontWeight:600}}>{c}</div>
-            <Btn sm v="danger" onClick={()=>setCategories(prev=>prev.filter(x=>x!==c))}>✕</Btn>
+        {categories.map(c=>{
+          const subs=subcategories?.[c]||[];
+          return (
+          <div key={c} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:6,padding:"10px 12px",marginBottom:10}}>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:8}}>
+              <div style={{flex:1,fontSize:14,fontWeight:600}}>{c}</div>
+              <Btn sm v="danger" onClick={()=>{setCategories(prev=>prev.filter(x=>x!==c));setSubcategories(prev=>{const n={...prev};delete n[c];return n;});}}>✕ Categoria</Btn>
+            </div>
+            <div style={{paddingLeft:12,borderLeft:`2px solid ${C.areia}`}}>
+              <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Subcategorias</div>
+              {subs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {subs.map(s=>(
+                  <div key={s} style={{display:"flex",alignItems:"center",gap:4,background:C.linho,border:`1px solid ${C.areia}`,borderRadius:20,padding:"3px 6px 3px 12px"}}>
+                    <span style={{fontSize:12,fontWeight:600,color:C.cafe}}>{s}</span>
+                    <button onClick={()=>setSubcategories(prev=>({...prev,[c]:(prev[c]||[]).filter(x=>x!==s)}))} style={{background:"none",border:"none",color:C.oliva,fontSize:12,cursor:"pointer"}}>✕</button>
+                  </div>
+                ))}
+              </div>}
+              <div style={{display:"flex",gap:8}}>
+                <div style={{flex:1}}><Inp value={novaSub[c]||""} onChange={v=>setNovaSub(p=>({...p,[c]:v}))} placeholder="Nova subcategoria"/></div>
+                <Btn sm onClick={()=>{
+                  const v=(novaSub[c]||"").trim();
+                  if(!v||(subcategories?.[c]||[]).includes(v))return;
+                  setSubcategories(prev=>({...prev,[c]:[...(prev[c]||[]),v]}));
+                  setNovaSub(p=>({...p,[c]:""}));
+                }}>Adicionar</Btn>
+              </div>
+            </div>
           </div>
-        ))}
+          );
+        })}
       </>}
 
     </div>
@@ -10878,6 +10933,7 @@ function App() {
   const [banners,   setBanners   ]=useStorage("banners",     INIT.banners);
   const [depoimentos,setDepoimentos]=useStorage("depoimentos",INIT.depoimentos);
   const [categories,setCategories]=useStorage("categories",  INIT.categories);
+  const [subcategories,setSubcategories]=useStorage("subcategories", INIT.subcategories);
   const [projects,  setProjects  ]=useStorage("projects",    INIT.projects);
   const [metas,     setMetas     ]=useStorage("metas",       INIT.metas);
   const [config,    setConfig    ]=useStorage("config",      INIT.config);
@@ -10903,7 +10959,7 @@ function App() {
   };
   // setters já vêm direto do useStorage acima
 
-  const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,projects,metas,config};
+  const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config};
 
   const copyLink=()=>{
     const link=`${window.location.origin}/?loja=1`;
@@ -10974,7 +11030,7 @@ function App() {
         <div style={{flex:1,overflowY:"auto"}}>
           {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
-          {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} config={config} stockSup={stockSup}/>}
+          {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} subcategories={subcategories} config={config} stockSup={stockSup}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
@@ -10989,7 +11045,7 @@ function App() {
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients} contas={contas} personalReceitas={personalReceitas} personalDespesas={personalDespesas}/>}
-          {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} allData={allData}/>}
+          {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData}/>}
         </div>
       </div>
       {fichaModal&&<FichaPedido order={fichaModal} products={products} config={config} onClose={()=>setFichaModal(null)}/>}
