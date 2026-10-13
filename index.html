@@ -1416,9 +1416,9 @@ const calcPreco = (custo,horas,valorHora,margem) => {
   return Math.ceil((sub+sub*(margem/100))/5)*5;
 };
 
-// ─── GERADOR DE ARTE DE DIVULGAÇÃO — V2 (prévia em avaliação) ─────────────────
-// Novo gerador, em paralelo ao antigo (compartilharProduto). Não substitui nada
-// ainda — é só uma prévia pra ela avaliar. Usa só o que está cadastrado no
+// ─── GERADOR DE ARTE DE DIVULGAÇÃO ─────────────────────────────────────────────
+// Motor único, usado tanto pelo botão 📤 do card do produto quanto pela prévia
+// dentro do cadastro (ArteDivulgacaoV2Preview). Usa só o que está cadastrado no
 // produto: nada de inventar texto, nada de IA gerando imagem do produto.
 
 const inferTipoVisualProduto=(p)=>{
@@ -1554,23 +1554,28 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   ctx.fillText(precoStr,padL,y);
   y+=38;
 
-  // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO — só a frase do cadastro, sem rótulo ──
-  const drawTextBlock=(texto,startY)=>{
-    if(!texto||startY>H-54)return startY;
-    ctx.textAlign="left";
-    ctx.fillStyle="rgba(253,250,255,0.9)";ctx.font="18px Georgia,serif";
-    let yy=startY;
-    const lines=wrapLines(texto,maxW);
-    for(const l of lines){
-      if(yy>H-54)break;
-      ctx.fillText(l,padL,yy);yy+=24;
-    }
-    return yy+22;
+  // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO — um pequeno texto fluido, sem rótulo,
+  // juntando um trechinho natural de cada campo preenchido (nunca os três blocos inteiros).
+  const fragmento=(txt,max=70)=>{
+    if(!txt)return "";
+    let t=String(txt).trim();
+    const corte=[",",".",";"].map(c=>t.indexOf(c)).filter(i=>i>10);
+    if(corte.length)t=t.slice(0,Math.min(...corte)).trim();
+    if(t.length>max)t=t.slice(0,max).trim().replace(/\s+\S*$/,"");
+    return t;
   };
-  let cY=y;
-  if(p.caracteristicas)cY=drawTextBlock(p.caracteristicas,cY);
-  if(p.beneficio)cY=drawTextBlock(p.beneficio,cY);
-  if(p.sensacao)cY=drawTextBlock(p.sensacao,cY);
+  const textoFluido=[fragmento(p.caracteristicas),fragmento(p.beneficio),fragmento(p.sensacao)]
+    .filter(Boolean).join(" · ");
+  if(textoFluido&&y<H-60){
+    ctx.textAlign="left";
+    ctx.fillStyle="rgba(253,250,255,0.88)";ctx.font="italic 19px Georgia,serif";
+    const lines=wrapLines(textoFluido,maxW);
+    let yy=y;
+    for(const l of lines.slice(0,3)){
+      if(yy>H-54)break;
+      ctx.fillText(l,padL,yy);yy+=26;
+    }
+  }
   ctx.shadowBlur=0;
 
   // ── Assinatura discreta, sempre embaixo ao centro ──
@@ -1621,7 +1626,7 @@ const ArteDivulgacaoV2Preview=({produto,config})=>{
 
   return (
     <div style={{background:C.linho,borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
-      <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>🧪 Nova arte de divulgação — prévia em avaliação (não substitui o botão 📤 atual).</div>
+      <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>📤 Prévia da arte de divulgação — a mesma que o botão de compartilhar gera.</div>
       <div style={{display:"flex",gap:8}}>
         <Btn sm v={formato==="feed"?"primary":"ghost"} onClick={()=>setFormato("feed")}>Feed 4:5</Btn>
         <Btn sm v={formato==="stories"?"primary":"ghost"} onClick={()=>setFormato("stories")}>Stories 9:16</Btn>
@@ -1652,141 +1657,14 @@ const Products = ({products,setProducts,categories,subcategories,config,stockSup
   const SUBS=subcategories||{};
 
   const compartilharProduto=async(p)=>{
-    // Arte de divulgação — só usa o que está de fato cadastrado no produto:
-    // nome, foto(s), preço, disponibilidade e os campos Características/Benefício/Sensação, por completo (sem inventar nem cortar frase no meio).
-    const W=1080,H=1350;
-    const canvas=document.createElement("canvas");
-    canvas.width=W;canvas.height=H;
-    const ctx=canvas.getContext("2d");
-    const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
-    const partes=String(p.name||"Produto").split(" ");
-
-    const loadImg=src=>new Promise((res)=>{
-      if(!src)return res(null);
-      const img=new Image();img.crossOrigin="anonymous";
-      img.onload=()=>res(img);img.onerror=()=>res(null);img.src=src;
-    });
-    const drawCover=(img,x,y,w,h)=>{
-      const ir=img.width/img.height,fr=w/h;
-      let sw,sh,sx,sy;
-      if(ir>fr){sh=img.height;sw=sh*fr;sx=(img.width-sw)/2;sy=0;}
-      else{sw=img.width;sh=sw/fr;sx=0;sy=(img.height-sh)/2;}
-      ctx.drawImage(img,sx,sy,sw,sh,x,y,w,h);
-    };
-    // Quebra de linha SEM perder espaço entre palavras (bug corrigido: não usar trim() na linha acumulada)
-    const wrapLines=(txt,maxW)=>{
-      const words=String(txt||"").trim().split(/\s+/).filter(Boolean);
-      const lines=[];let line="";
-      for(const w of words){
-        const test=line?line+" "+w:w;
-        if(ctx.measureText(test).width>maxW&&line){lines.push(line);line=w;}
-        else line=test;
-      }
-      if(line)lines.push(line);
-      return lines;
-    };
-
-    const LILAS="#5B3B7A",LILAS_CLARO="#D9C2E6";
-
-    // ── FOTO — ocupa a arte inteira, sem quadro nem linha dividindo ──
-    const heroImg=await loadImg(p.photos?.[0]);
-    if(heroImg){
-      drawCover(heroImg,0,0,W,H);
-    } else {
-      const g=ctx.createLinearGradient(0,0,0,H);
-      g.addColorStop(0,"#7A5A9A");g.addColorStop(1,"#2E2040");
-      ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-      ctx.fillStyle="rgba(255,255,255,0.3)";ctx.font="200px serif";ctx.textAlign="center";
-      ctx.fillText(p.img||"🧶",W/2,H*0.4);
-    }
-
-    // Sombreado leve e gradual, só pra dar contraste ao texto — nunca um bloco sólido cobrindo a foto.
-    const gTop=ctx.createLinearGradient(0,0,0,H*0.34);
-    gTop.addColorStop(0,"rgba(20,12,28,0.42)");gTop.addColorStop(1,"rgba(20,12,28,0)");
-    ctx.fillStyle=gTop;ctx.fillRect(0,0,W,H*0.34);
-
-    const gBot=ctx.createLinearGradient(0,H*0.46,0,H);
-    gBot.addColorStop(0,"rgba(18,10,26,0)");
-    gBot.addColorStop(0.55,"rgba(18,10,26,0.55)");
-    gBot.addColorStop(1,"rgba(18,10,26,0.86)");
-    ctx.fillStyle=gBot;ctx.fillRect(0,H*0.46,W,H*0.54);
-
-    // ── NOME DO PRODUTO (do cadastro) — topo esquerda, sobre a foto ──
-    ctx.textAlign="left";
-    ctx.shadowColor="rgba(0,0,0,0.5)";ctx.shadowBlur=12;
-    let ny=96;
-    if(partes.length===1){
-      ctx.fillStyle="#FDFBF7";ctx.font="italic bold 72px Georgia,serif";ctx.letterSpacing="-2px";
-      ctx.fillText(partes[0],52,ny+56);
-    } else {
-      ctx.fillStyle="#FDFBF7";ctx.font="italic 58px Georgia,serif";ctx.letterSpacing="0px";
-      ctx.fillText(partes[0],52,ny+40);
-      ny+=56;
-      const nomeLines=wrapLines(partes.slice(1).join(" "),W-320);
-      ctx.fillStyle=LILAS_CLARO;ctx.font="bold 62px Georgia,serif";ctx.letterSpacing="-1px";
-      nomeLines.forEach(l=>{ny+=64;ctx.fillText(l,52,ny);});
-    }
-    ctx.shadowBlur=0;ctx.letterSpacing="0px";
-
-    // A partir daqui, posições calculadas em sequência a partir da base da arte — garante espaço entre os blocos.
-    let y=H*0.56;
-
-    // ── BADGE DISPONIBILIDADE (do cadastro) ──
-    const dispLabel=p.type==="pronta"?`✓ Pronta entrega — ${p.stock} unid.`:"✦ Sob encomenda";
-    ctx.font="bold 20px Arial,sans-serif";ctx.letterSpacing="1px";ctx.textAlign="left";
-    const dispW=ctx.measureText(dispLabel).width+40;
-    ctx.fillStyle=LILAS;
-    ctx.beginPath();ctx.roundRect(52,y,dispW,38,19);ctx.fill();
-    ctx.fillStyle="#FDFBF7";ctx.letterSpacing="0px";
-    ctx.fillText(dispLabel,72,y+25);
-    y+=38+42;
-
-    // ── PREÇO (do cadastro) — elegante e discreto, sem "gritar" ──
-    ctx.fillStyle=LILAS_CLARO;ctx.font="bold 19px Arial,sans-serif";ctx.letterSpacing="3px";
-    ctx.fillText("A PARTIR DE",52,y);
-    ctx.letterSpacing="0px";
-    y+=50;
-    ctx.fillStyle="#FDFBF7";ctx.font="bold 48px Georgia,serif";ctx.letterSpacing="-1px";
-    ctx.fillText(precoStr,52,y);
-    ctx.letterSpacing="0px";
-    ctx.strokeStyle=LILAS_CLARO;ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(52,y+22);ctx.lineTo(52+140,y+22);ctx.stroke();
-    y+=22+46;
-
-    // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO (texto completo do cadastro) ──
-    const maxW=W-104;
-    const drawTextBlock=(label,icon,texto,startY)=>{
-      if(!texto||startY>H-90)return startY;
-      ctx.textAlign="left";
-      ctx.fillStyle=LILAS_CLARO;ctx.font="bold 23px Arial,sans-serif";
-      ctx.fillText(`${icon} ${label}`,52,startY);
-      let yy=startY+32;
-      ctx.fillStyle="rgba(253,250,255,0.92)";ctx.font="21px Georgia,serif";
-      const lines=wrapLines(texto,maxW);
-      for(const l of lines){
-        if(yy>H-70)break;
-        ctx.fillText(l,52,yy);yy+=28;
-      }
-      return yy+34;
-    };
-    let cY=y;
-    if(p.caracteristicas)cY=drawTextBlock("Características","✦",p.caracteristicas,cY);
-    if(p.beneficio)cY=drawTextBlock("Benefício","♥",p.beneficio,cY);
-    if(p.sensacao)cY=drawTextBlock("Sensação","◈",p.sensacao,cY);
-
-    // ── RODAPÉ MINIMALISTA ──
-    const rY=H-90;
-    ctx.strokeStyle="rgba(217,194,230,0.4)";ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(44,rY);ctx.lineTo(W-44,rY);ctx.stroke();
-    ctx.fillStyle=LILAS_CLARO;ctx.font="22px Arial,sans-serif";ctx.letterSpacing="4px";ctx.textAlign="center";
-    ctx.fillText(`@${config?.instagram?.replace("@","")||"simara.lobui"}`,W/2,rY+44);
-    ctx.letterSpacing="0px";
-
-    // ── DOWNLOAD DIRETO (funciona no celular) ──
+    // Arte de divulgação — gerada pelo mesmo motor novo (gerarArteDivulgacaoV2),
+    // já aprovado: nome em evidência, preço discreto "a partir de", disponibilidade,
+    // e um texto fluido curto juntando Características/Benefício/Sensação.
+    const canvas=await gerarArteDivulgacaoV2(p,config,"feed",0);
     const previewUrl=canvas.toDataURL("image/jpeg",0.92);
     const a=document.createElement("a");
     a.href=previewUrl;
-    a.download=`divulgacao-${p.name.replace(/\s+/g,"-").toLowerCase()}.jpg`;
+    a.download=`divulgacao-${(p.name||"produto").replace(/\s+/g,"-").toLowerCase()}.jpg`;
     document.body.appendChild(a);a.click();document.body.removeChild(a);
     showSavedGlobal("Arte baixada! ✨");
   };
