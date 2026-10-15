@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v42 · 2026-10-14 23:33";
+const APP_BUILD = "v44 · 2026-10-15 10:20";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -3051,11 +3051,37 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
   );
 };
 
+// Confirma pagamento/recebimento de um lançamento pessoal, pedindo data + conta (igual ao Financeiro)
+const PFConfirmMov = ({registro,contas,tipo,onConfirm,onCancel}) => {
+  const [data,setData]=useState(today);
+  const [contaId,setContaId]=useState(contas[0]?.id||"");
+  return (
+    <div>
+      <div style={{background:C.linho,borderRadius:6,padding:"12px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <span style={{fontSize:13,color:C.oliva}}>{registro.descricao}</span>
+        <b style={{fontSize:15,fontFamily:"'Playfair Display',serif"}}>{fmtBRL(registro.valor)}</b>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Inp label={tipo==="pagar"?"Data do pagamento":"Data do recebimento"} type="date" value={data} onChange={setData}/>
+        {contas.length>0?
+          <Sel label={tipo==="pagar"?"Conta de onde saiu":"Conta que recebeu"} value={contaId} onChange={setContaId} options={contas.map(c=>({v:c.id,l:c.nome}))}/>:
+          <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Nenhuma conta cadastrada ainda — cadastre em "Contas/Cartões" pra poder escolher aqui. Pode confirmar sem escolher conta por enquanto.</div>}
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
+        <Btn v="ghost" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={()=>onConfirm(data,contaId)}>{tipo==="pagar"?"Confirmar pagamento":"Confirmar recebimento"}</Btn>
+      </div>
+    </div>
+  );
+};
+
 // ─── CONTAS PESSOAIS ──────────────────────────────────────────────────────────
 const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,categorias,setCategorias,contasPF=[],setContasPF,faturas=[],setFaturas}) => {
   const [tab,setTab]=useState("painel");
   const [despModal,setDespModal]=useState(false);
   const [recModal,setRecModal]=useState(false);
+  const [pagarAlvo,setPagarAlvo]=useState(null);
+  const [receberAlvo,setReceberAlvo]=useState(null);
   const [catModal,setCatModal]=useState(null); // {tipo}
   const [contaModal,setContaModal]=useState(false);
   const [filtStatus,setFiltStatus]=useState("todos");
@@ -3147,7 +3173,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
     }
     setDespModal(false);
   };
-  const marcarPagoDesp=(d,dataPagamento)=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:true,dataPagamento:dataPagamento||today}:x));showSavedGlobal("Marcada como paga!");};
+  const marcarPagoDesp=(d,dataPagamento,contaId)=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:true,dataPagamento:dataPagamento||today,contaPagamento:contaId||""}:x));showSavedGlobal("Marcada como paga!");};
   const cancelarPagoDesp=d=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:false,dataPagamento:""}:x));};
   const excluirDesp=id=>{if(window.confirm("Excluir esta despesa pessoal?"))setDespesas(prev=>prev.filter(d=>d.id!==id));};
 
@@ -3187,7 +3213,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
     setRecModal(false);showSavedGlobal("Receita pessoal salva!");
   };
   const excluirRec=id=>{if(window.confirm("Excluir esta receita pessoal?"))setReceitas(prev=>prev.filter(r=>r.id!==id));};
-  const marcarRecebidoRec=(r,dataRecebimento)=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:true,dataRecebimento:dataRecebimento||today}:x));showSavedGlobal("Marcada como recebida!");};
+  const marcarRecebidoRec=(r,dataRecebimento,contaId)=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:true,dataRecebimento:dataRecebimento||today,contaRecebimento:contaId||""}:x));showSavedGlobal("Marcada como recebida!");};
   const cancelarRecebidoRec=r=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:false,dataRecebimento:""}:x));};
 
   const abrirNovaCat=tipo=>{setCatForm({tipo,id:"",nome:""});setCatModal(tipo);};
@@ -3295,11 +3321,11 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
             <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1,minWidth:160}}>
                 <div className="pf-desc" style={{fontSize:13,fontWeight:700}}>{d.descricao}{d.tipo==="Fixa"&&<span className="pf-badge" style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Fixa</span>}</div>
-                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{d.categoria} · Venc: <b>{fmtDate(d.vencimento)}</b>{d.formaPagamento?` · ${d.formaPagamento}`:""}{d.contaCartao?` · ${d.contaCartao}`:""}</div>
+                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{d.categoria} · Venc: <b>{fmtDate(d.vencimento)}</b>{d.formaPagamento?` · ${d.formaPagamento}`:""}{d.contaCartao?` · ${d.contaCartao}`:""}{d.pago&&d.contaPagamento?` · Pago de: ${(contasPF.find(c=>c.id===d.contaPagamento)||{}).nome||"—"}`:""}</div>
               </div>
               <div className="pf-valor" style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(d.valor)}</div>
               <StatusChip s={s}/>
-              {s!=="Pago"?<Btn sm onClick={()=>marcarPagoDesp(d)}>💰 Pagar</Btn>:<button onClick={()=>cancelarPagoDesp(d)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
+              {s!=="Pago"?<Btn sm onClick={()=>setPagarAlvo(d)}>💰 Pagar</Btn>:<button onClick={()=>cancelarPagoDesp(d)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
               <Btn sm v="ghost" onClick={()=>abrirEditarDesp(d)}>✎</Btn>
               <Btn sm v="danger" onClick={()=>excluirDesp(d.id)}>✕</Btn>
             </div>
@@ -3328,11 +3354,11 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
             <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1,minWidth:160}}>
                 <div className="pf-desc" style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span className="pf-badge" style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Automática</span>}{r.parcelado&&<span className="pf-badge" style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Parcela {r.numParcela}/{r.totalParcelas}</span>}</div>
-                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}</div>
+                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}{recebida&&r.contaRecebimento?` · Recebido em: ${(contasPF.find(c=>c.id===r.contaRecebimento)||{}).nome||"—"}`:""}</div>
               </div>
               <div className="pf-valor" style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.oliva,fontWeight:700}}>{fmtBRL(r.valor)}</div>
               <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:recebida?"#D4E8D4":"#FEF3E9",color:recebida?"#2E6B2E":C.dourado}}>{recebida?"Recebido":"Pendente"}</span>
-              {!recebida?<Btn sm onClick={()=>marcarRecebidoRec(r)}>💰 Receber</Btn>:<button onClick={()=>cancelarRecebidoRec(r)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
+              {!recebida?<Btn sm onClick={()=>setReceberAlvo(r)}>💰 Receber</Btn>:<button onClick={()=>cancelarRecebidoRec(r)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
               <Btn sm v="ghost" onClick={()=>abrirEditarRec(r)}>✎</Btn>
               <Btn sm v="danger" onClick={()=>excluirRec(r.id)}>✕</Btn>
             </div>
@@ -3548,6 +3574,18 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
           <Inp label="Observações" rows={2} value={rForm.observacoes} onChange={v=>setRForm(f=>({...f,observacoes:v}))}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setRecModal(false)}>Cancelar</Btn><Btn onClick={saveRec}>Salvar</Btn></div>
+      </Modal>}
+
+      {pagarAlvo&&<Modal title="Confirmar pagamento" onClose={()=>setPagarAlvo(null)}>
+        <PFConfirmMov registro={pagarAlvo} contas={contasPF} tipo="pagar"
+          onConfirm={(data,contaId)=>{marcarPagoDesp(pagarAlvo,data,contaId);setPagarAlvo(null);}}
+          onCancel={()=>setPagarAlvo(null)}/>
+      </Modal>}
+
+      {receberAlvo&&<Modal title="Confirmar recebimento" onClose={()=>setReceberAlvo(null)}>
+        <PFConfirmMov registro={receberAlvo} contas={contasPF} tipo="receber"
+          onConfirm={(data,contaId)=>{marcarRecebidoRec(receberAlvo,data,contaId);setReceberAlvo(null);}}
+          onCancel={()=>setReceberAlvo(null)}/>
       </Modal>}
 
       {catModal&&<Modal title={catForm.id?"Editar categoria":"Nova categoria"} onClose={()=>setCatModal(null)}>
@@ -4946,6 +4984,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     const d=(sel&&sel.diagnostico)||{};
     const t={};PC_DG_CAMPOS.forEach(([k])=>{t[k]=d[k]||"";});
     t.resultadoManual=d.resultadoManual||"";
+    t.perguntasAvulsas=d.perguntasAvulsas||[];
     setDg(t);setDgSujo(false);
     setNivelDg((sel&&sel.nivel)||"");
   },[selId,sel&&sel.nivel]);
@@ -4957,6 +4996,9 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
   const upd=(fn)=>setProjetos&&setProjetos(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const addAvulsa=()=>{setDg(d=>({...d,perguntasAvulsas:[...(d.perguntasAvulsas||[]),{id:uid(),pergunta:"",resposta:""}]}));setDgSujo(true);};
+  const updAvulsa=(id,campo,v)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>x.id===id?{...x,[campo]:v}:x)}));setDgSujo(true);};
+  const delAvulsa=(id)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).filter(x=>x.id!==id)}));setDgSujo(true);};
 
   // ── projeto: criar / editar / excluir ──
   const cadastrarCliente=()=>{
@@ -5192,6 +5234,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     const cli=clients.find(c=>c.id===p.clientId)||{};
     const linhasCampos=PC_DG_CAMPOS.filter(([k])=>String(dd[k]||"").trim()).map(([k,l])=>`<div class="campo"><b>${l}:</b> ${dd[k]}</div>`).join("");
     const blocoCampos=`<h2>Diagnóstico</h2>${linhasCampos||'<div class="campo">Diagnóstico ainda não preenchido.</div>'}`;
+    const avulsas=(dd.perguntasAvulsas||[]).filter(a=>String(a.pergunta||"").trim());
+    const blocoAvulsas=avulsas.length?`<h2>Perguntas e respostas adicionais</h2>${avulsas.map(a=>`<div class="campo"><b>${a.pergunta}</b><br>${a.resposta||"—"}</div>`).join("")}`:"";
     let blocoResultado,blocoFechamento="";
     if(completo){
       const total=dd.pontuacaoTotal!==undefined?dd.pontuacaoTotal:Object.values(respostas).reduce((s,v)=>s+v,0);
@@ -5224,6 +5268,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     ${pcHdr(p,"DIAGNÓSTICO",dd.concluido?`Concluído em ${fmtDate(dd.dataConclusao)}`:"Em andamento")}
     ${pcCliBloco(p,cli)}
     ${blocoCampos}
+    ${blocoAvulsas}
     ${blocoResultado}
     ${blocoFechamento}
     ${pcRodape(config)}</body></html>`;
@@ -5559,7 +5604,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["orc","💰 Orçamento"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
+  const abas=[["resumo","📊 Resumo"],["perg","❓ Perguntas avulsas"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["orc","💰 Orçamento"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
@@ -5663,6 +5708,34 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     </div>);
   };
 
+  const renderPerguntas=()=>{
+    return(<div>
+      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.oliva,textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>🔒 Análise interna (uso da consultora — não entra no documento do cliente, exceto a resposta junto da pergunta)</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
+        <div style={{fontSize:13,color:C.cafe}}>Registre aqui perguntas próprias que você fizer a esse cliente, além do questionário fixo do Diagnóstico.</div>
+        <Btn sm onClick={addAvulsa}>+ Nova pergunta</Btn>
+      </div>
+      {(dg.perguntasAvulsas||[]).length===0?
+        <div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma pergunta avulsa ainda.<br/>Clique em "+ Nova pergunta" pra começar.</div>:
+        (dg.perguntasAvulsas||[]).map(a=>(
+          <div key={a.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+            <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+              <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+                <Inp label="Pergunta" value={a.pergunta} onChange={v=>updAvulsa(a.id,"pergunta",v)}/>
+                <Inp label="Resposta" rows={2} value={a.resposta} onChange={v=>updAvulsa(a.id,"resposta",v)}/>
+              </div>
+              <Btn sm v="danger" onClick={()=>delAvulsa(a.id)}>✕</Btn>
+            </div>
+          </div>
+        ))}
+      <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn onClick={salvarDiag}>💾 Salvar perguntas</Btn>
+        {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:8}}>Essas perguntas são salvas junto com o diagnóstico e aparecem no documento de diagnóstico enviado ao cliente, numa seção própria.</div>
+    </div>);
+  };
+
   const renderDiag=()=>{
     const dd=p.diagnostico||{};
     return(<div>
@@ -5678,6 +5751,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
               placeholder={k==="problemas"?"Um problema por linha — depois viram prioridades com um clique":""}/>
           </div>))}
       </div>
+
       <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
         <Btn onClick={salvarDiag}>💾 Salvar diagnóstico</Btn>
         {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
@@ -6110,6 +6184,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
       </div>
       {tab==="resumo"&&renderResumo()}
+      {tab==="perg"&&renderPerguntas()}
       {tab==="diag"&&renderDiag()}
       {tab==="prior"&&renderPrior()}
       {tab==="orc"&&renderOrc()}
