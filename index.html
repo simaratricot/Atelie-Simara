@@ -88,6 +88,13 @@ const GS = () => (
     .pulse{animation:pulse 2s infinite;}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
     @media(max-width:768px){.hide-desk{display:none!important;}}
+    @media(max-width:640px){
+      .pf-row{padding:7px 10px!important;margin-bottom:6px!important;}
+      .pf-row .pf-desc{font-size:12px!important;}
+      .pf-row .pf-sub{font-size:10px!important;}
+      .pf-row .pf-valor{font-size:13px!important;}
+      .pf-row .pf-badge{font-size:7px!important;padding:1px 4px!important;}
+    }
   `}</style>
 );
 
@@ -99,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v41 · 2026-10-14 07:17";
+const APP_BUILD = "v42 · 2026-10-14 23:33";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -287,7 +294,8 @@ const pfGerarParcelasReceita = (form,n) => {
     const centavos=baseCent+(i<resto?1:0);
     return {...form,id:uid(),compraId,numParcela:i+1,totalParcelas:n,parcelado:true,
       valor:centavos/100,valorTotalCompra:Number(form.valor),
-      data,descricao:`${form.descricao} (${i+1}/${n})`};
+      data,descricao:`${form.descricao} (${i+1}/${n})`,
+      recebido:i===0,dataRecebimento:i===0?data:""};
   });
 };
 // Lançamentos soltos (sem fatura fechada ainda) de um cartão numa competência
@@ -300,8 +308,9 @@ const pfLimiteUsado = (despesas,nomeCartao) =>
 // Painel financeiro pessoal completo (saldo atual + entradas/saídas do mês)
 const pfPainel = (despesas,receitas,mes) => {
   const soma=(arr,campo="valor")=>arr.reduce((a,x)=>a+Number(x[campo]||0),0);
-  const saldoAtual=soma(receitas)-soma(despesas.filter(d=>d.pago));
-  const recMes=receitas.filter(r=>r.data?.startsWith(mes));
+  const recRecebidas=receitas.filter(r=>r.recebido!==false);
+  const saldoAtual=soma(recRecebidas)-soma(despesas.filter(d=>d.pago));
+  const recMes=recRecebidas.filter(r=>(r.dataRecebimento||r.data)?.startsWith(mes));
   const entradaProLabore=soma(recMes.filter(r=>r.categoria==="Pró-labore/Retirada do negócio"));
   const entradaOutras=soma(recMes.filter(r=>r.categoria==="Outras receitas"));
   const entradaAvulsa=soma(recMes)-entradaProLabore-entradaOutras;
@@ -316,6 +325,7 @@ const pfPainel = (despesas,receitas,mes) => {
     saidasMes,saidaFixaMes,saidaEventualMes,
     resultadoMes:entradasMes-saidasMes,
     pendenteTotal:soma(despesas.filter(d=>!d.pago)),
+    pendenteReceberTotal:soma(receitas.filter(r=>r.recebido===false)),
   };
 };
 
@@ -3056,7 +3066,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
   const [painelMes,setPainelMes]=useState(today.slice(0,7)); // mês que o Painel mostra (resultado, saída, gráfico)
   useEffect(()=>{setFiltCategoria("");setFiltTipo("todos");setFiltMes("");},[tab]);
   const dDefault=()=>({descricao:"",categoria:(categorias.despesa||[]).find(c=>c.ativa)?.nome||"",tipo:"Eventual",valor:0,vencimento:today,dataCompra:today,pago:false,dataPagamento:"",formaPagamento:"Dinheiro",contaCartao:"",parcelado:false,numParcelas:2,recorrente:false,qtdMeses:12,vencimentoManual:false,observacoes:""});
-  const rDefault=()=>({descricao:"",categoria:(categorias.receita||[]).find(c=>c.ativa)?.nome||"",valor:0,data:today,formaRecebimento:"Dinheiro",origem:"",parcelado:false,numParcelas:2,observacoes:""});
+  const rDefault=()=>({descricao:"",categoria:(categorias.receita||[]).find(c=>c.ativa)?.nome||"",valor:0,data:today,formaRecebimento:"Dinheiro",origem:"",parcelado:false,numParcelas:2,observacoes:"",recebido:true,dataRecebimento:today});
   const [dForm,setDForm]=useState(dDefault());
   const [rForm,setRForm]=useState(rDefault());
   const [catForm,setCatForm]=useState({tipo:"despesa",id:"",nome:""});
@@ -3177,6 +3187,8 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
     setRecModal(false);showSavedGlobal("Receita pessoal salva!");
   };
   const excluirRec=id=>{if(window.confirm("Excluir esta receita pessoal?"))setReceitas(prev=>prev.filter(r=>r.id!==id));};
+  const marcarRecebidoRec=(r,dataRecebimento)=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:true,dataRecebimento:dataRecebimento||today}:x));showSavedGlobal("Marcada como recebida!");};
+  const cancelarRecebidoRec=r=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:false,dataRecebimento:""}:x));};
 
   const abrirNovaCat=tipo=>{setCatForm({tipo,id:"",nome:""});setCatModal(tipo);};
   const abrirEditarCat=(tipo,c)=>{setCatForm({tipo,id:c.id,nome:c.nome});setCatModal(tipo);};
@@ -3212,7 +3224,7 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       <div style={{background:`linear-gradient(120deg,${C.cafe},${C.oliva})`,borderRadius:8,padding:"16px 20px",marginBottom:16}}>
         <div style={{fontSize:9,color:"rgba(255,255,255,0.75)",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:10}}>Visão pessoal</div>
         <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-          {[{l:"Saldo atual",v:fmtBRL(painel.saldoAtual),c:painel.saldoAtual>=0?"#FDFBF7":"#F5B5B0"},{l:"Entradas do mês",v:fmtBRL(totalRecMes),c:"#FDFBF7"},{l:"Saídas pagas no mês",v:fmtBRL(totalDespPagasMes),c:"#F5D5D0"},{l:"Resultado do mês",v:fmtBRL(saldoMes),c:saldoMes>=0?"#D8EFD8":"#F5B5B0"},{l:"Pendente total",v:fmtBRL(totalDespPendentes),c:"rgba(255,255,255,0.85)"}].map(k=>(
+          {[{l:"Saldo atual",v:fmtBRL(painel.saldoAtual),c:painel.saldoAtual>=0?"#FDFBF7":"#F5B5B0"},{l:"Entradas do mês",v:fmtBRL(totalRecMes),c:"#FDFBF7"},{l:"Saídas pagas no mês",v:fmtBRL(totalDespPagasMes),c:"#F5D5D0"},{l:"Resultado do mês",v:fmtBRL(saldoMes),c:saldoMes>=0?"#D8EFD8":"#F5B5B0"},{l:"Total a receber",v:fmtBRL(painel.pendenteReceberTotal),c:"#D8EFD8"},{l:"Total a pagar",v:fmtBRL(totalDespPendentes),c:"rgba(255,255,255,0.85)"}].map(k=>(
             <div key={k.l}><div style={{fontSize:9,color:"rgba(255,255,255,0.65)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:k.c,fontWeight:700}}>{k.v}</div></div>
           ))}
         </div>
@@ -3223,31 +3235,34 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
       </div>
 
       {tab==="painel"&&<div>
-        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
           <label style={{fontSize:12,color:C.oliva}}>Mês do painel:</label>
           <input type="month" value={painelMes} onChange={e=>setPainelMes(e.target.value)} style={{padding:"6px 10px",borderRadius:4,border:`1.5px solid ${C.areia}`,fontSize:12,color:C.cafe,background:"#fff"}}/>
-          {painelMes!==mesAtual&&<button onClick={()=>setPainelMes(mesAtual)} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar pro mês atual</button>}
+          {painelMes&&painelMes!==mesAtual&&<button onClick={()=>setPainelMes(mesAtual)} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar pro mês atual</button>}
+          {painelMes&&<button onClick={()=>setPainelMes("")} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>📅 Ver geral (todos os períodos)</button>}
         </div>
+        <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:14}}>Mostrando: {painelMes?`${pfCompetenciaLabel?pfCompetenciaLabel(painelMes):painelMes}`:"geral (todos os períodos)"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16}}>
           <Card>
-            <h3 style={{fontSize:14,marginBottom:10}}>Entradas do mês</h3>
+            <h3 style={{fontSize:14,marginBottom:10}}>Entradas {painelMes?"do mês":"(geral)"}</h3>
             {[{l:"Pró-labore/retirada do negócio",v:painel.entradaProLabore},{l:"Receitas pessoais avulsas",v:painel.entradaAvulsa},{l:"Outras receitas",v:painel.entradaOutras}].map(k=>(
               <div key={k.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}><span style={{color:C.oliva}}>{k.l}</span><b>{fmtBRL(k.v)}</b></div>
             ))}
             <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4,fontSize:14,fontWeight:700}}><span>Total de entradas</span><span style={{color:C.oliva}}>{fmtBRL(painel.entradasMes)}</span></div>
           </Card>
           <Card>
-            <h3 style={{fontSize:14,marginBottom:10}}>Saídas do mês (pagas)</h3>
+            <h3 style={{fontSize:14,marginBottom:10}}>Saídas {painelMes?"do mês":"(geral)"} (pagas)</h3>
             {[{l:"Despesas fixas",v:painel.saidaFixaMes},{l:"Despesas eventuais",v:painel.saidaEventualMes}].map(k=>(
               <div key={k.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.linho}`,fontSize:12}}><span style={{color:C.oliva}}>{k.l}</span><b>{fmtBRL(k.v)}</b></div>
             ))}
             <div style={{display:"flex",justifyContent:"space-between",paddingTop:8,marginTop:4,fontSize:14,fontWeight:700}}><span>Total de despesas</span><span style={{color:C.vermelho}}>{fmtBRL(painel.saidasMes)}</span></div>
           </Card>
           <Card style={{background:C.linho}}>
-            <h3 style={{fontSize:14,marginBottom:10}}>Resultado do mês</h3>
+            <h3 style={{fontSize:14,marginBottom:10}}>Resultado {painelMes?"do mês":"(geral)"}</h3>
             <div style={{fontSize:28,fontFamily:"'Playfair Display',serif",fontWeight:700,color:painel.resultadoMes>=0?C.oliva:C.vermelho}}>{fmtBRL(painel.resultadoMes)}</div>
-            <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Saldo atual (tudo que já entrou − tudo que já foi pago, de sempre): <b>{fmtBRL(painel.saldoAtual)}</b></div>
-            <div style={{fontSize:11,color:C.vermelho,marginTop:4}}>Pendente a pagar (todas as datas): <b>{fmtBRL(painel.pendenteTotal)}</b></div>
+            <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Saldo atual (tudo que já foi recebido − tudo que já foi pago, de sempre): <b>{fmtBRL(painel.saldoAtual)}</b></div>
+            <div style={{fontSize:11,color:C.oliva,marginTop:4}}>Total a receber (parcelas e receitas ainda não recebidas): <b>{fmtBRL(painel.pendenteReceberTotal)}</b></div>
+            <div style={{fontSize:11,color:C.vermelho,marginTop:4}}>Total a pagar (todas as datas): <b>{fmtBRL(painel.pendenteTotal)}</b></div>
           </Card>
         </div>
 
@@ -3276,13 +3291,13 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
         {despFiltradas.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma despesa pessoal aqui ✦</div>:
         despFiltradas.sort((a,b)=>(a.vencimento||"").localeCompare(b.vencimento||"")).map(d=>{
           const s=pfStatus(d);
-          return <Card key={d.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:s==="Atrasado"?`3px solid ${C.vermelho}`:`3px solid ${C.areia}`}}>
-            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+          return <Card key={d.id} className="pf-row" style={{marginBottom:8,padding:"10px 14px",borderLeft:s==="Atrasado"?`3px solid ${C.vermelho}`:`3px solid ${C.areia}`}}>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1,minWidth:160}}>
-                <div style={{fontSize:13,fontWeight:700}}>{d.descricao}{d.tipo==="Fixa"&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>
-                <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{d.categoria} · Venc: <b>{fmtDate(d.vencimento)}</b>{d.formaPagamento?` · ${d.formaPagamento}`:""}{d.contaCartao?` · ${d.contaCartao}`:""}</div>
+                <div className="pf-desc" style={{fontSize:13,fontWeight:700}}>{d.descricao}{d.tipo==="Fixa"&&<span className="pf-badge" style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Fixa</span>}</div>
+                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{d.categoria} · Venc: <b>{fmtDate(d.vencimento)}</b>{d.formaPagamento?` · ${d.formaPagamento}`:""}{d.contaCartao?` · ${d.contaCartao}`:""}</div>
               </div>
-              <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(d.valor)}</div>
+              <div className="pf-valor" style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.vermelho,fontWeight:700}}>{fmtBRL(d.valor)}</div>
               <StatusChip s={s}/>
               {s!=="Pago"?<Btn sm onClick={()=>marcarPagoDesp(d)}>💰 Pagar</Btn>:<button onClick={()=>cancelarPagoDesp(d)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
               <Btn sm v="ghost" onClick={()=>abrirEditarDesp(d)}>✎</Btn>
@@ -3306,19 +3321,23 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
           {(filtCategoria||filtMes)&&<button onClick={()=>{setFiltCategoria("");setFiltMes("");}} style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Limpar filtros</button>}
         </div>
         {recFiltradas.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontStyle:"italic"}}>Nenhuma receita pessoal aqui ✦</div>:
-        recFiltradas.sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(r=>(
-          <Card key={r.id} style={{marginBottom:10,padding:"12px 16px",borderLeft:`3px solid ${C.oliva}`}}>
-            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+        recFiltradas.sort((a,b)=>(b.data||"").localeCompare(a.data||"")).map(r=>{
+          const recebida=r.recebido!==false;
+          return (
+          <Card key={r.id} className="pf-row" style={{marginBottom:8,padding:"10px 14px",borderLeft:`3px solid ${recebida?C.oliva:C.dourado}`}}>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
               <div style={{flex:1,minWidth:160}}>
-                <div style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>AUTOMÁTICA</span>}{r.parcelado&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>PARCELA {r.numParcela}/{r.totalParcelas}</span>}</div>
-                <div style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}</div>
+                <div className="pf-desc" style={{fontSize:13,fontWeight:700}}>{r.descricao}{r.automatica&&<span className="pf-badge" style={{fontSize:9,background:"#E4EEE6",color:C.verde||C.oliva,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Automática</span>}{r.parcelado&&<span className="pf-badge" style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>Parcela {r.numParcela}/{r.totalParcelas}</span>}</div>
+                <div className="pf-sub" style={{fontSize:11,color:C.oliva,marginTop:1}}>{r.categoria}{r.origem?` · ${r.origem}`:""} · {fmtDate(r.data)}{r.formaRecebimento?` · ${r.formaRecebimento}`:""}</div>
               </div>
-              <div style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.oliva,fontWeight:700}}>{fmtBRL(r.valor)}</div>
+              <div className="pf-valor" style={{fontSize:16,fontFamily:"'Playfair Display',serif",color:C.oliva,fontWeight:700}}>{fmtBRL(r.valor)}</div>
+              <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:recebida?"#D4E8D4":"#FEF3E9",color:recebida?"#2E6B2E":C.dourado}}>{recebida?"Recebido":"Pendente"}</span>
+              {!recebida?<Btn sm onClick={()=>marcarRecebidoRec(r)}>💰 Receber</Btn>:<button onClick={()=>cancelarRecebidoRec(r)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Desfazer</button>}
               <Btn sm v="ghost" onClick={()=>abrirEditarRec(r)}>✎</Btn>
               <Btn sm v="danger" onClick={()=>excluirRec(r.id)}>✕</Btn>
             </div>
           </Card>
-        ))}
+        );})}
       </>}
 
       {tab==="fatura"&&<div>
@@ -3507,6 +3526,10 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
           <Inp label={rForm.parcelado&&!rForm.id?"Data da 1ª parcela":"Data"} type="date" value={rForm.data} onChange={v=>setRForm(f=>({...f,data:v}))}/>
           <Sel label="Forma de recebimento" value={rForm.formaRecebimento} onChange={v=>setRForm(f=>({...f,formaRecebimento:v}))} options={PF_FORMAS_RECEB}/>
           <Inp label="Origem (detalhe)" value={rForm.origem} onChange={v=>setRForm(f=>({...f,origem:v}))} placeholder="Ex: reembolso da Maria, venda do sofá..."/>
+          {!rForm.parcelado&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:rForm.recebido?"#EAF2EA":"#FEF3E9",padding:"10px 12px",borderRadius:6}}>
+            <input type="checkbox" checked={rForm.recebido!==false} onChange={e=>setRForm(f=>({...f,recebido:e.target.checked,dataRecebimento:e.target.checked?(f.dataRecebimento||f.data||today):""}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+            <span style={{fontWeight:600,color:rForm.recebido?C.oliva:C.dourado}}>{rForm.recebido!==false?"💰 Já recebido — entra no saldo atual":"⏳ Ainda pendente — não entra no saldo até marcar como recebido"}</span>
+          </label>}
           {!rForm.id&&<>
             <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#EAF2EA",padding:"10px 12px",borderRadius:6}}>
               <input type="checkbox" checked={rForm.parcelado||false} onChange={e=>setRForm(f=>({...f,parcelado:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
@@ -10919,7 +10942,7 @@ function App() {
   const [personalFaturas, setPersonalFaturas]=useStorage("personalFaturas", INIT.personalFaturas);
   const onRetiradaPessoal=({valor,data,desc})=>{
     const catPl=(personalCategorias.receita||[]).find(c=>c.nome==="Pró-labore/Retirada do negócio");
-    setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true}]);
+    setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today}]);
   };
   // setters já vêm direto do useStorage acima
 
