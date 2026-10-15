@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v45 · 2026-10-15 10:30";
+const APP_BUILD = "v46 · 2026-10-15 10:45";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -5726,10 +5726,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const renderPerguntas=()=>{
     return(<div>
       <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.oliva,textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>🔒 Análise interna (uso da consultora — não entra no documento do cliente, exceto a resposta junto da pergunta)</div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:8}}>
-        <div style={{fontSize:13,color:C.cafe}}>Registre aqui perguntas próprias que você fizer a esse cliente, além do questionário fixo do Diagnóstico.</div>
-        <Btn sm onClick={addAvulsa}>+ Nova pergunta</Btn>
-      </div>
+      <div style={{fontSize:13,color:C.cafe,marginBottom:10}}>Registre aqui perguntas próprias que você fizer a esse cliente, além do questionário fixo do Diagnóstico.</div>
       {(dg.perguntasAvulsas||[]).length===0?
         <div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma pergunta avulsa ainda.<br/>Clique em "+ Nova pergunta" pra começar.</div>:
         (dg.perguntasAvulsas||[]).map(a=>{
@@ -5761,6 +5758,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           </div>
         );})}
       <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn sm v="ghost" onClick={addAvulsa}>+ Nova pergunta</Btn>
         <Btn onClick={salvarDiag}>💾 Salvar perguntas</Btn>
         {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
       </div>
