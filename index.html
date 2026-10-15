@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v44 · 2026-10-15 10:20";
+const APP_BUILD = "v45 · 2026-10-15 10:30";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -4996,9 +4996,24 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
   const upd=(fn)=>setProjetos&&setProjetos(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const addAvulsa=()=>{setDg(d=>({...d,perguntasAvulsas:[...(d.perguntasAvulsas||[]),{id:uid(),pergunta:"",resposta:""}]}));setDgSujo(true);};
+  const addAvulsa=()=>{setDg(d=>({...d,perguntasAvulsas:[...(d.perguntasAvulsas||[]),{id:uid(),pergunta:"",tipo:"texto",resposta:"",opcoes:[]}]}));setDgSujo(true);};
   const updAvulsa=(id,campo,v)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>x.id===id?{...x,[campo]:v}:x)}));setDgSujo(true);};
   const delAvulsa=(id)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).filter(x=>x.id!==id)}));setDgSujo(true);};
+  const mudarTipoAvulsa=(id,tipo)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>x.id===id?{...x,tipo,resposta:"",opcoes:tipo==="multipla"?(x.opcoes&&x.opcoes.length?x.opcoes:["",""]):x.opcoes}:x)}));setDgSujo(true);};
+  const addOpcaoAvulsa=(id)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>x.id===id?{...x,opcoes:[...(x.opcoes||[]),""]}:x)}));setDgSujo(true);};
+  const updOpcaoAvulsa=(id,idx,v)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>{
+    if(x.id!==id)return x;
+    const opcoes=(x.opcoes||[]).map((o,i)=>i===idx?v:o);
+    const resposta=x.resposta===x.opcoes[idx]?v:x.resposta;
+    return {...x,opcoes,resposta};
+  })}));setDgSujo(true);};
+  const delOpcaoAvulsa=(id,idx)=>{setDg(d=>({...d,perguntasAvulsas:(d.perguntasAvulsas||[]).map(x=>{
+    if(x.id!==id)return x;
+    const removida=(x.opcoes||[])[idx];
+    const opcoes=(x.opcoes||[]).filter((_,i)=>i!==idx);
+    return {...x,opcoes,resposta:x.resposta===removida?"":x.resposta};
+  })}));setDgSujo(true);};
+  const selecionarRespostaAvulsa=(id,opcaoTexto)=>{updAvulsa(id,"resposta",opcaoTexto);};
 
   // ── projeto: criar / editar / excluir ──
   const cadastrarCliente=()=>{
@@ -5717,17 +5732,34 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       </div>
       {(dg.perguntasAvulsas||[]).length===0?
         <div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma pergunta avulsa ainda.<br/>Clique em "+ Nova pergunta" pra começar.</div>:
-        (dg.perguntasAvulsas||[]).map(a=>(
+        (dg.perguntasAvulsas||[]).map(a=>{
+          const tipo=a.tipo||"texto";
+          return (
           <div key={a.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
             <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
               <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
                 <Inp label="Pergunta" value={a.pergunta} onChange={v=>updAvulsa(a.id,"pergunta",v)}/>
-                <Inp label="Resposta" rows={2} value={a.resposta} onChange={v=>updAvulsa(a.id,"resposta",v)}/>
+                <div style={{maxWidth:220}}><Sel label="Tipo de resposta" value={tipo} onChange={v=>mudarTipoAvulsa(a.id,v)} options={[{v:"texto",l:"Texto livre"},{v:"multipla",l:"Múltipla escolha"}]}/></div>
+                {tipo==="multipla"?
+                  <div style={{background:C.linho,borderRadius:6,padding:"10px 12px"}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:0.5,color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Opções (clique na bolinha pra marcar a resposta)</div>
+                    {(a.opcoes||[]).map((o,oi)=>(
+                      <div key={oi} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                        <button type="button" onClick={()=>selecionarRespostaAvulsa(a.id,o)} title="Marcar como resposta"
+                          style={{width:18,height:18,minWidth:18,borderRadius:"50%",border:`2px solid ${C.oliva}`,background:a.resposta===o&&o!==""?C.oliva:"#fff",cursor:"pointer",padding:0}}/>
+                        <div style={{flex:1}}><Inp value={o} onChange={v=>updOpcaoAvulsa(a.id,oi,v)} placeholder={`Opção ${oi+1}`}/></div>
+                        <button onClick={()=>delOpcaoAvulsa(a.id,oi)} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:C.vermelho}}>✕</button>
+                      </div>
+                    ))}
+                    <Btn sm v="ghost" onClick={()=>addOpcaoAvulsa(a.id)}>+ Opção</Btn>
+                    <div style={{fontSize:11,color:C.oliva,marginTop:6}}>Resposta marcada: <b>{a.resposta||"— nenhuma ainda —"}</b></div>
+                  </div>
+                  :<Inp label="Resposta" rows={2} value={a.resposta} onChange={v=>updAvulsa(a.id,"resposta",v)}/>}
               </div>
               <Btn sm v="danger" onClick={()=>delAvulsa(a.id)}>✕</Btn>
             </div>
           </div>
-        ))}
+        );})}
       <div style={{display:"flex",gap:8,marginTop:14,alignItems:"center",flexWrap:"wrap"}}>
         <Btn onClick={salvarDiag}>💾 Salvar perguntas</Btn>
         {dgSujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
