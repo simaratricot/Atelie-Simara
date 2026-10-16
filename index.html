@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v46 · 2026-10-15 10:45";
+const APP_BUILD = "v47 · 2026-10-16 10:00";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -2662,7 +2662,7 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   );
 };
 
-const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetiradaPessoal}) => {
+const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetiradaPessoal,personalContas=[]}) => {
   const [tab,setTab]=useState("lanc");
   const [mostrarSaldos,setMostrarSaldos]=useState(()=>{try{return localStorage.getItem("atelie_mostrarSaldos")==="1";}catch{return false;}});
   const toggleMostrarSaldos=()=>setMostrarSaldos(v=>{const nv=!v;try{localStorage.setItem("atelie_mostrarSaldos",nv?"1":"0");}catch{}return nv;});
@@ -2752,7 +2752,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
       showSavedGlobal("Lançamento salvo!");
     }
     if(form.type==="despesa"&&form.retiradaPessoal&&onRetiradaPessoal){
-      onRetiradaPessoal({valor:Number(form.value),data:form.date,desc:form.desc});
+      onRetiradaPessoal({valor:Number(form.value),data:form.date,desc:form.desc,contaId:form.retiradaContaId||""});
       showSavedGlobal("Lançamento salvo! Entrada criada em Contas Pessoais.");
     }
     setFormModal(false);
@@ -2993,6 +2993,10 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
               <input type="checkbox" checked={form.retiradaPessoal||false} onChange={e=>setForm(f=>({...f,retiradaPessoal:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
               <span style={{fontWeight:600,color:"#B5455B"}}>👛 Isto é retirada/pró-labore para mim — criar entrada em Contas Pessoais</span>
             </label>
+            {form.retiradaPessoal&&<div style={{background:"#F7E3E6",borderRadius:6,padding:"0 12px 12px"}}>
+              <Sel label="Conta destino (em Contas Pessoais)" value={form.retiradaContaId||""} onChange={v=>setForm(f=>({...f,retiradaContaId:v}))}
+                options={[{v:"",l:personalContas.length?"Selecione...":"Nenhuma conta pessoal cadastrada ainda"},...personalContas.map(c=>({v:c.id,l:c.nome}))]}/>
+            </div>}
             {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:12}}>
               <div>
                 <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:4}}>Data de início</label>
@@ -3055,6 +3059,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
 const PFConfirmMov = ({registro,contas,tipo,onConfirm,onCancel}) => {
   const [data,setData]=useState(today);
   const [contaId,setContaId]=useState(contas[0]?.id||"");
+  const [valor,setValor]=useState(registro.valor);
+  const restante=Math.max(0,Number(registro.valor||0)-Number(valor||0));
   return (
     <div>
       <div style={{background:C.linho,borderRadius:6,padding:"12px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
@@ -3062,14 +3068,19 @@ const PFConfirmMov = ({registro,contas,tipo,onConfirm,onCancel}) => {
         <b style={{fontSize:15,fontFamily:"'Playfair Display',serif"}}>{fmtBRL(registro.valor)}</b>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <Inp label={tipo==="pagar"?"Valor pago agora (R$)":"Valor recebido agora (R$)"} type="number" value={valor} onChange={setValor}/>
         <Inp label={tipo==="pagar"?"Data do pagamento":"Data do recebimento"} type="date" value={data} onChange={setData}/>
         {contas.length>0?
           <Sel label={tipo==="pagar"?"Conta de onde saiu":"Conta que recebeu"} value={contaId} onChange={setContaId} options={contas.map(c=>({v:c.id,l:c.nome}))}/>:
           <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Nenhuma conta cadastrada ainda — cadastre em "Contas/Cartões" pra poder escolher aqui. Pode confirmar sem escolher conta por enquanto.</div>}
       </div>
+      {restante>0&&<div style={{background:"#FEF3E9",borderRadius:4,padding:"10px",marginTop:10,textAlign:"center"}}>
+        <span style={{fontSize:12,color:C.dourado}}>Fica pendente um novo lançamento de </span>
+        <span style={{fontSize:15,fontWeight:700,fontFamily:"'Playfair Display',serif",color:C.dourado}}>{fmtBRL(restante)}</span>
+      </div>}
       <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:16}}>
         <Btn v="ghost" onClick={onCancel}>Cancelar</Btn>
-        <Btn onClick={()=>onConfirm(data,contaId)}>{tipo==="pagar"?"Confirmar pagamento":"Confirmar recebimento"}</Btn>
+        <Btn onClick={()=>onConfirm(data,contaId,Number(valor)||0)}>{restante>0?"Confirmar pagamento parcial":(tipo==="pagar"?"Confirmar pagamento":"Confirmar recebimento")}</Btn>
       </div>
     </div>
   );
@@ -3173,7 +3184,22 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
     }
     setDespModal(false);
   };
-  const marcarPagoDesp=(d,dataPagamento,contaId)=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:true,dataPagamento:dataPagamento||today,contaPagamento:contaId||""}:x));showSavedGlobal("Marcada como paga!");};
+  const marcarPagoDesp=(d,dataPagamento,contaId,valorPago)=>{
+    const total=Number(d.valor||0);
+    const pago=valorPago!=null?Math.max(0,Math.min(total,Number(valorPago)||0)):total;
+    const restante=Math.round((total-pago)*100)/100;
+    if(restante>0.004){
+      setDespesas(prev=>{
+        const atualizada=prev.map(x=>x.id===d.id?{...x,valor:pago,pago:true,dataPagamento:dataPagamento||today,contaPagamento:contaId||""}:x);
+        const nova={...d,id:uid(),valor:restante,pago:false,dataPagamento:"",contaPagamento:"",descricao:`${d.descricao} (saldo)`,parcelDoId:d.id};
+        return [...atualizada,nova];
+      });
+      showSavedGlobal(`Pagamento parcial registrado! Saldo de ${fmtBRL(restante)} ficou pendente num novo lançamento.`);
+    } else {
+      setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:true,dataPagamento:dataPagamento||today,contaPagamento:contaId||""}:x));
+      showSavedGlobal("Marcada como paga!");
+    }
+  };
   const cancelarPagoDesp=d=>{setDespesas(prev=>prev.map(x=>x.id===d.id?{...x,pago:false,dataPagamento:""}:x));};
   const excluirDesp=id=>{if(window.confirm("Excluir esta despesa pessoal?"))setDespesas(prev=>prev.filter(d=>d.id!==id));};
 
@@ -3213,7 +3239,22 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
     setRecModal(false);showSavedGlobal("Receita pessoal salva!");
   };
   const excluirRec=id=>{if(window.confirm("Excluir esta receita pessoal?"))setReceitas(prev=>prev.filter(r=>r.id!==id));};
-  const marcarRecebidoRec=(r,dataRecebimento,contaId)=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:true,dataRecebimento:dataRecebimento||today,contaRecebimento:contaId||""}:x));showSavedGlobal("Marcada como recebida!");};
+  const marcarRecebidoRec=(r,dataRecebimento,contaId,valorRecebido)=>{
+    const total=Number(r.valor||0);
+    const recebido=valorRecebido!=null?Math.max(0,Math.min(total,Number(valorRecebido)||0)):total;
+    const restante=Math.round((total-recebido)*100)/100;
+    if(restante>0.004){
+      setReceitas(prev=>{
+        const atualizada=prev.map(x=>x.id===r.id?{...x,valor:recebido,recebido:true,dataRecebimento:dataRecebimento||today,contaRecebimento:contaId||""}:x);
+        const nova={...r,id:uid(),valor:restante,recebido:false,dataRecebimento:"",contaRecebimento:"",descricao:`${r.descricao} (saldo)`,parcelDoId:r.id};
+        return [...atualizada,nova];
+      });
+      showSavedGlobal(`Recebimento parcial registrado! Saldo de ${fmtBRL(restante)} ficou pendente num novo lançamento.`);
+    } else {
+      setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:true,dataRecebimento:dataRecebimento||today,contaRecebimento:contaId||""}:x));
+      showSavedGlobal("Marcada como recebida!");
+    }
+  };
   const cancelarRecebidoRec=r=>{setReceitas(prev=>prev.map(x=>x.id===r.id?{...x,recebido:false,dataRecebimento:""}:x));};
 
   const abrirNovaCat=tipo=>{setCatForm({tipo,id:"",nome:""});setCatModal(tipo);};
@@ -3452,13 +3493,20 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
           {contasPF.map(c=>{
             const usado=c.tipo==="Cartão"?pfLimiteUsado(despesas,c.nome):0;
             const disp=c.tipo==="Cartão"?Number(c.limite||0)-usado:0;
+            const saldoConta=c.tipo!=="Cartão"?
+              receitas.filter(r=>r.recebido!==false&&r.contaRecebimento===c.id).reduce((s,r)=>s+Number(r.valor||0),0)
+              -despesas.filter(d=>d.pago&&d.contaPagamento===c.id).reduce((s,d)=>s+Number(d.valor||0),0)
+              :0;
             return <Card key={c.id} hover onClick={()=>{setCpForm({diaFechamento:1,diaVencimento:10,limite:0,...c});setContaModal(true);}} style={{flex:"1 1 180px"}}>
               <div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
-              <div style={{fontSize:14,fontWeight:700,marginBottom:c.tipo==="Cartão"?6:0}}>{c.nome}</div>
-              {c.tipo==="Cartão"&&<>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>{c.nome}</div>
+              {c.tipo==="Cartão"?<>
                 <div style={{fontSize:11,color:C.oliva}}>Fecha dia {c.diaFechamento||1} · Vence dia {c.diaVencimento||10}</div>
                 <div style={{fontSize:11,color:C.oliva,marginTop:4}}>Limite usado: <b style={{color:C.vermelho}}>{fmtBRL(usado)}</b></div>
                 <div style={{fontSize:13,color:disp>=0?C.oliva:C.vermelho,fontWeight:700}}>Disponível: {fmtBRL(disp)}</div>
+              </>:<>
+                <div style={{fontSize:13,color:saldoConta>=0?C.oliva:C.vermelho,fontWeight:700}}>Saldo: {fmtBRL(saldoConta)}</div>
+                <div style={{fontSize:10,color:C.oliva,marginTop:2,fontStyle:"italic"}}>soma dos pagamentos/recebimentos marcados nesta conta</div>
               </>}
             </Card>;
           })}
@@ -3578,13 +3626,13 @@ const PersonalFinance = ({despesas=[],setDespesas,receitas=[],setReceitas,catego
 
       {pagarAlvo&&<Modal title="Confirmar pagamento" onClose={()=>setPagarAlvo(null)}>
         <PFConfirmMov registro={pagarAlvo} contas={contasPF} tipo="pagar"
-          onConfirm={(data,contaId)=>{marcarPagoDesp(pagarAlvo,data,contaId);setPagarAlvo(null);}}
+          onConfirm={(data,contaId,valor)=>{marcarPagoDesp(pagarAlvo,data,contaId,valor);setPagarAlvo(null);}}
           onCancel={()=>setPagarAlvo(null)}/>
       </Modal>}
 
       {receberAlvo&&<Modal title="Confirmar recebimento" onClose={()=>setReceberAlvo(null)}>
         <PFConfirmMov registro={receberAlvo} contas={contasPF} tipo="receber"
-          onConfirm={(data,contaId)=>{marcarRecebidoRec(receberAlvo,data,contaId);setReceberAlvo(null);}}
+          onConfirm={(data,contaId,valor)=>{marcarRecebidoRec(receberAlvo,data,contaId,valor);setReceberAlvo(null);}}
           onCancel={()=>setReceberAlvo(null)}/>
       </Modal>}
 
@@ -4892,6 +4940,8 @@ const pcMin=(ini,fim)=>{
   const a=f(ini),b=f(fim);return isNaN(a)||isNaN(b)?0:Math.max(0,b-a);
 };
 const pcFmtMin=(m)=>{m=Math.round(Number(m)||0);const h=Math.floor(m/60),mm=m%60;return h>0?(mm>0?`${h}h${String(mm).padStart(2,"0")}`:`${h}h`):`${mm}min`;};
+// Formata horas decimais (ex: 0.6333) em "Xh" / "XhYY" / "YYmin" legível — usado em todo lugar que mostra duração em horas
+const fmtH=(h)=>{h=Number(h)||0;const neg=h<0;h=Math.abs(h);if(h===0)return "0h";let totalMin=Math.round(h*60);let hrs=Math.floor(totalMin/60),mm=totalMin%60;if(mm===60){hrs+=1;mm=0;}const txt=hrs>0?(mm>0?`${hrs}h${String(mm).padStart(2,"0")}`:`${hrs}h`):`${mm}min`;return neg?`-${txt}`:txt;};
 const pcSalvarAtend=(p,a)=>{
   const lista=p.atendimentos||[];
   if(lista.some(x=>x.id===a.id))return {...p,atendimentos:lista.map(x=>x.id===a.id?a:x)};
@@ -7016,7 +7066,7 @@ IS_COR["Concluído"]=["#DDF0E6","#1F7A4D"];IS_COR["Parcial"]=["#F6EFD9","#8A6D1F
 const isSalvarSessao=(p,f)=>{
   const lista=p.sessoes||[];
   if(f.id&&lista.some(x=>x.id===f.id))return {...p,sessoes:lista.map(x=>x.id===f.id?{...x,...f}:x)};
-  return isEv({...p,sessoes:[...lista,{...f,id:uid()}]},"sessao",`Sessão de treinamento: ${f.objetivo||f.participantes||"registrada"}${Number(f.horasUtilizadas)>0?` · ${f.horasUtilizadas}h`:""}`,f.data);
+  return isEv({...p,sessoes:[...lista,{...f,id:uid()}]},"sessao",`Sessão de treinamento: ${f.objetivo||f.participantes||"registrada"}${Number(f.horasUtilizadas)>0?` · ${fmtH(f.horasUtilizadas)}`:""}`,f.data);
 };
 const isExcluirSessao=(p,id)=>({...p,sessoes:(p.sessoes||[]).filter(x=>x.id!==id)});
 const isToggleExecItem=(p,sessaoId,item)=>({...p,sessoes:(p.sessoes||[]).map(x=>{
@@ -7083,6 +7133,12 @@ const isCalcHoras=(ini,fim)=>{
   const [hI,mI]=ini.split(":").map(Number);
   const [hF,mF]=fim.split(":").map(Number);
   return Math.max(0,Math.round(((hF*60+mF)-(hI*60+mI))/60*1e6)/1e6);
+};
+// Numera as sessões de treinamento em ordem cronológica — vira "ATA nº X" (automático, não precisa numerar na mão)
+const isAtaNumero=(p,sessaoId)=>{
+  const lista=(p.sessoes||[]).slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))||String(a.id).localeCompare(String(b.id)));
+  const idx=lista.findIndex(s=>s.id===sessaoId);
+  return idx>=0?idx+1:"—";
 };
 const isSessoesDaAtividade=(p,atividadeId)=>(p.sessoes||[]).filter(x=>x.atividadeId===atividadeId);
 const isPendenciasDaAtividade=(p,atividadeId)=>(p.pendencias||[]).filter(x=>x.atividadeId===atividadeId);
@@ -7157,7 +7213,7 @@ const isEtapas=(p)=>[
 
 const IsChip=({t,sm})=>{const c=IS_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
 
-const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients,config})=>{
+const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients,config,consultoria=[],setConsultoria})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -7178,7 +7234,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
     <h2>Resumo</h2>
     <div class="campo"><b>Etapas concluídas:</b> ${et.filter(e=>e.ok).length}/${et.length}</div>
-    <div class="campo"><b>Horas previstas:</b> ${hs.previstas>0?hs.previstas+"h":"—"} · <b>Utilizadas:</b> ${hs.realizadas}h · <b>Saldo:</b> ${hs.previstas>0?hs.saldo+"h":"—"}</div>
+    <div class="campo"><b>Horas previstas:</b> ${hs.previstas>0?fmtH(hs.previstas):"—"} · <b>Utilizadas:</b> ${fmtH(hs.realizadas)} · <b>Saldo:</b> ${hs.previstas>0?fmtH(hs.saldo):"—"}</div>
     <div class="campo"><b>Pendências abertas:</b> ${pr.abertas}</div>
     <h2>Evolução por etapa</h2>
     <table><tr><th>Etapa</th><th>%</th></tr>
@@ -7189,7 +7245,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     <h2>Gargalos (pendências em aberto)</h2>
     ${abertas.length===0?'<div class="campo">Nenhuma.</div>':`<table><tr><th>Pendência</th><th>Origem</th><th>Responsável</th><th>Prazo</th></tr>${abertas.map(x=>`<tr><td>${x.item}</td><td>${x.origem}</td><td>${x.responsavel}</td><td>${x.prazo?fmtDate(x.prazo):"—"}</td></tr>`).join("")}</table>`}
     <h2>Horas por categoria</h2>
-    ${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${hs.porCategoria[c]}h</div>`).join("")}
+    ${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${fmtH(hs.porCategoria[c])}</div>`).join("")}
     ${pcRodape(config)}</body></html>`;
   };
   const docRelatorioEvolucao=(pj)=>{
@@ -7213,7 +7269,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     ${isHdr(pj,"PLANO DE TREINAMENTO")}
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
     <h2>Treinamentos (${l.length})</h2>
-    ${l.length===0?'<div class="campo">Nenhum treinamento planejado.</div>':`<table><tr><th>#</th><th>Conteúdo</th><th>Usuário/área</th><th>Horas prev.</th><th>Status</th></tr>${l.map((x,i)=>`<tr><td>${i+1}</td><td>${x.conteudo}</td><td>${x.usuario||"—"}</td><td>${Number(x.horasPrevistas)>0?x.horasPrevistas+"h":"—"}</td><td>${x.status}</td></tr>`).join("")}</table>`}
+    ${l.length===0?'<div class="campo">Nenhum treinamento planejado.</div>':`<table><tr><th>#</th><th>Conteúdo</th><th>Usuário/área</th><th>Horas prev.</th><th>Status</th></tr>${l.map((x,i)=>`<tr><td>${i+1}</td><td>${x.conteudo}</td><td>${x.usuario||"—"}</td><td>${Number(x.horasPrevistas)>0?fmtH(x.horasPrevistas):"—"}</td><td>${x.status}</td></tr>`).join("")}</table>`}
     ${pcRodape(config)}</body></html>`;
   };
   const docDiarioReunioes=(pj)=>{
@@ -7227,7 +7283,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       return `<div class="campo" style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eee">
         <b>#${i+1} ${x.atividade}</b>${x.data?` — ${fmtDate(x.data)}`:""} <i>(${x.status})</i><br>
         ${x.responsavel?`Responsável: ${x.responsavel}<br>`:""}${x.dependencia?`Dependência: ${x.dependencia}<br>`:""}
-        ${sess.map(s=>`Sessão ${fmtDate(s.data)}: ${s.objetivo}${s.horasUtilizadas>0?` (${s.horasUtilizadas}h)`:""}<br>`).join("")}
+        ${sess.map(s=>`Sessão ${fmtDate(s.data)}: ${s.objetivo}${s.horasUtilizadas>0?` (${fmtH(s.horasUtilizadas)})`:""}<br>`).join("")}
         ${pend.map(pd=>`Pendência: ${pd.item} — ${pd.responsavel} (${pd.status})<br>`).join("")}
       </div>`;
     }).join("")}
@@ -7247,12 +7303,31 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Controle de Horas — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
     ${isHdr(pj,"CONTROLE DE HORAS")}
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
-    <div class="campo"><b>Contratadas:</b> ${contratadas>0?contratadas+"h":"—"} · <b>Utilizadas:</b> ${hs.realizadas}h · <b>Saldo:</b> ${contratadas>0?(contratadas-hs.realizadas)+"h":"—"}</div>
-    <h2>Por categoria</h2>${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${hs.porCategoria[c]}h</div>`).join("")}
+    <div class="campo"><b>Contratadas:</b> ${contratadas>0?fmtH(contratadas):"—"} · <b>Utilizadas:</b> ${fmtH(hs.realizadas)} · <b>Saldo:</b> ${contratadas>0?fmtH(contratadas-hs.realizadas):"—"}</div>
+    <h2>Por categoria</h2>${IS_CATEGORIA_HORA.map(c=>`<div class="campo"><b>${c}:</b> ${fmtH(hs.porCategoria[c])}</div>`).join("")}
     <h2>Por sessão</h2>
     <table><tr><th>Data</th><th>Objetivo</th><th>Prev.</th><th>Real.</th></tr>
-    ${(pj.sessoes||[]).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(x=>`<tr><td>${fmtDate(x.data)}</td><td>${x.objetivo}</td><td>${x.horasPrevistas||0}h</td><td>${x.horasUtilizadas||0}h</td></tr>`).join("")}
+    ${(pj.sessoes||[]).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(x=>`<tr><td>${fmtDate(x.data)}</td><td>${x.objetivo}</td><td>${fmtH(x.horasPrevistas||0)}</td><td>${fmtH(x.horasUtilizadas||0)}</td></tr>`).join("")}
     </table>
+    ${pcRodape(config)}</body></html>`;
+  };
+  const docAtaSessao=(pj,x)=>{
+    const ata=isAtaNumero(pj,x.id);
+    const pend=(pj.pendencias||[]).filter(z=>z.sessaoId===x.id);
+    const exec=x.execucao||[];
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ATA ${ata} — ${pj.clienteNome}</title><style>${pcDocStyles}</style></head><body>
+    ${isHdr(pj,`ATA DE SESSÃO Nº ${ata}`)}
+    ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
+    <div class="campo"><b>Data:</b> ${fmtDate(x.data)}${x.horaInicio&&x.horaFim?` · <b>Horário:</b> ${x.horaInicio}–${x.horaFim}`:""}</div>
+    ${x.participantes?`<div class="campo"><b>Participantes:</b> ${x.participantes}</div>`:""}
+    <div class="campo"><b>Objetivo:</b> ${x.objetivo||"—"}</div>
+    ${x.conteudoPrevisto?`<div class="campo" style="white-space:pre-line"><b>Conteúdo previsto:</b><br>${x.conteudoPrevisto}</div>`:""}
+    ${exec.length>0?`<div class="campo"><b>Etapas realizadas:</b> ${exec.join(", ")}</div>`:""}
+    <div class="campo"><b>Resultado:</b> ${x.resultado||"—"}</div>
+    ${Number(x.horasUtilizadas)>0?`<div class="campo"><b>Duração:</b> ${fmtH(x.horasUtilizadas)}${x.categoria?` (${x.categoria})`:""}</div>`:""}
+    ${x.motivoDiferenca?`<div class="campo"><b>Motivo da diferença:</b> ${x.motivoDiferenca}</div>`:""}
+    ${pend.length>0?`<h2>Pendências identificadas nesta sessão</h2><table><tr><th>Pendência</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${pend.map(z=>`<tr><td>${z.item}</td><td>${z.responsavel||"—"}</td><td>${z.prazo?fmtDate(z.prazo):"—"}</td><td>${z.status}</td></tr>`).join("")}</table>`:""}
+    <div class="ass" style="margin-top:40px"><div class="ass-box">Simara Lobui<br>Treinamento</div><div class="ass-box">${pj.clienteNome}<br>Cliente</div></div>
     ${pcRodape(config)}</body></html>`;
   };
   const IS_DOCS=[
@@ -7267,6 +7342,26 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
   const upd=(fn)=>setImplantacoes&&setImplantacoes(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const [pendSessao,setPendSessao]=useState([]);
+  const addPendSessao=()=>setPendSessao(l=>[...l,{id:uid(),item:"",responsavel:IS_RESP_PEND[0],prazo:"",origem:"Treinamento"}]);
+  const updPendSessao=(id,campo,v)=>setPendSessao(l=>l.map(x=>x.id===id?{...x,[campo]:v}:x));
+  const delPendSessao=(id)=>setPendSessao(l=>l.filter(x=>x.id!==id));
+
+  // ── enviar sessão de execução como atendimento num Pedido de Consultoria (pode ser de outro cliente, ex: o desenvolvedor) ──
+  const [enviarAlvo,setEnviarAlvo]=useState(null);
+  const [pedidoEscolhido,setPedidoEscolhido]=useState("");
+  const abrirEnviarAtend=(sessao)=>{setPedidoEscolhido("");setEnviarAlvo(sessao);};
+  const confirmarEnviarAtend=()=>{
+    if(!pedidoEscolhido){alert("Escolha o pedido de atendimento.");return;}
+    const x=enviarAlvo;
+    const novo={id:uid(),data:x.data,horaInicio:x.horaInicio||"",horaFim:x.horaFim||"",duracao:Number(x.horasUtilizadas)||0,
+      tipo:"Treinamento",assunto:x.objetivo||"Sessão de treinamento (Implantação)",
+      obs:[x.conteudoPrevisto,x.participantes?`Participantes: ${x.participantes}`:""].filter(Boolean).join("\n"),
+      valor:0,proximosPassos:"",proximaData:"",proximaHora:"09:00",lancarFinanceiro:false,dataVencFin:"",formaPagFin:"PIX",origemImplantacaoId:p.id,origemSessaoId:x.id};
+    setConsultoria&&setConsultoria(prev=>prev.map(c=>c.id===pedidoEscolhido?{...c,atendimentos:[...(c.atendimentos||[]),novo]}:c));
+    showSavedGlobal("Enviado pro Pedido de atendimento!");
+    setEnviarAlvo(null);
+  };
 
   // ── projeto: criar / editar / excluir ──
   const cadastrarCliente=()=>{
@@ -7341,6 +7436,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     setForm({data:isHoje(),participantes:"",objetivo:atividade?atividade.atividade:"",conteudoPrevisto:"",resultado:"Concluído",categoria:IS_CATEGORIA_HORA[0],
       horaInicio:"",horaFim:"",horasPrevistas:atividade&&Number(atividade.previsto)>0?atividade.previsto:"",horasUtilizadas:"",motivoDiferenca:"",
       atividadeId:atividade?atividade.id:""});
+    setPendSessao([]);
     setModal("sessao");
   };
   const salvarSessao=()=>{
@@ -7348,7 +7444,15 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     if(!String(form.objetivo||"").trim()){alert("Informe o objetivo da sessão.");return;}
     const calc=isCalcHoras(form.horaInicio,form.horaFim);
     const horasUtilizadas=Math.round((calc>0?calc:(Number(form.horasUtilizadas)||0))*100)/100;
-    upd(p=>isSalvarSessao(p,{...form,horasUtilizadas}));setModal(null);showSavedGlobal("Sessão registrada!");
+    const sessaoId=form.id||uid();
+    const novasPend=pendSessao.filter(x=>String(x.item||"").trim()).map(x=>({...x,id:uid(),status:"Pendente",sessaoId,atividadeId:form.atividadeId||""}));
+    upd(p=>{
+      let n=isSalvarSessao(p,{...form,id:sessaoId,horasUtilizadas});
+      novasPend.forEach(np=>{n=isSalvarPendencia(n,np);});
+      return n;
+    });
+    setModal(null);
+    showSavedGlobal(novasPend.length?`Sessão registrada com ${novasPend.length} pendência(s)!`:"Sessão registrada!");
   };
 
   // ── validação ──
@@ -7468,14 +7572,58 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         <Sel label="Categoria da hora" value={form.categoria} onChange={v=>F("categoria",v)} options={IS_CATEGORIA_HORA}/>
         <Inp label="Hora início" type="time" value={form.horaInicio} onChange={v=>F("horaInicio",v)}/>
         <Inp label="Hora fim" type="time" value={form.horaFim} onChange={v=>F("horaFim",v)}/>
-        {isCalcHoras(form.horaInicio,form.horaFim)>0&&<div style={{gridColumn:"1 / -1",fontSize:12,color:C.verde,fontWeight:700}}>⏱ {isCalcHoras(form.horaInicio,form.horaFim)}h calculadas automaticamente (usadas no lugar de "Horas utilizadas" abaixo)</div>}
+        {isCalcHoras(form.horaInicio,form.horaFim)>0&&<div style={{gridColumn:"1 / -1",fontSize:12,color:C.verde,fontWeight:700}}>⏱ {fmtH(isCalcHoras(form.horaInicio,form.horaFim))} calculadas automaticamente (usadas no lugar de "Horas utilizadas" abaixo)</div>}
         <Inp label="Horas previstas" type="number" value={form.horasPrevistas} onChange={v=>F("horasPrevistas",v)}/>
         <Inp label="Horas utilizadas (se não usar hora início/fim)" type="number" value={form.horasUtilizadas} onChange={v=>F("horasUtilizadas",v)}/>
         <Sel label="Motivo da diferença (se houve)" value={form.motivoDiferenca} onChange={v=>F("motivoDiferenca",v)} options={[{v:"",l:"—"},...IS_MOTIVO_DIF.map(m=>({v:m,l:m}))]}/>
       </div>
+
+      {form.id&&(()=>{
+        const vinculadas=(p.pendencias||[]).filter(z=>z.sessaoId===form.id);
+        return vinculadas.length>0?(<div style={{marginTop:16}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Pendências já vinculadas a esta sessão</div>
+          {vinculadas.map(z=>(
+            <div key={z.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"6px 10px",marginBottom:6}}>
+              <span style={{flex:1,fontSize:12,color:C.cafe,textDecoration:z.status==="Concluída"?"line-through":"none"}}>{z.item}{z.responsavel?` · ${z.responsavel}`:""}</span>
+              <IsChip t={z.status} sm/>
+              {IS_STATUS_ITEM.filter(s=>s!==z.status).map(s=>(
+                <button key={s} onClick={()=>upd(pp=>isStatusPendencia(pp,z.id,s))} style={{fontSize:10,padding:"2px 8px",borderRadius:12,border:`1px solid ${C.areia}`,background:"#fff",color:C.oliva,cursor:"pointer"}}>{s}</button>
+              ))}
+            </div>
+          ))}
+        </div>):null;
+      })()}
+
+      <div style={{marginTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Pendências identificadas nesta sessão</div>
+        </div>
+        {pendSessao.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:6}}>Nenhuma ainda — registre aqui o que precisa virar pendência, sem sair desta tela.</div>}
+        {pendSessao.map(x=>(
+          <div key={x.id} style={{background:C.linho,borderRadius:6,padding:"8px 10px",marginBottom:6,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div style={{flex:2,minWidth:160}}><Inp label="Pendência" value={x.item} onChange={v=>updPendSessao(x.id,"item",v)}/></div>
+            <div style={{flex:1,minWidth:130}}><Sel label="Responsável" value={x.responsavel} onChange={v=>updPendSessao(x.id,"responsavel",v)} options={IS_RESP_PEND}/></div>
+            <div style={{flex:1,minWidth:130}}><Inp label="Prazo" type="date" value={x.prazo} onChange={v=>updPendSessao(x.id,"prazo",v)}/></div>
+            <Btn sm v="danger" onClick={()=>delPendSessao(x.id)}>✕</Btn>
+          </div>
+        ))}
+        <Btn sm v="ghost" onClick={addPendSessao}>+ Adicionar pendência</Btn>
+        <div style={{fontSize:11,color:C.oliva,marginTop:4}}>Essas pendências são criadas junto quando você salvar a sessão, já vinculadas a ela — depois só precisa ir em Pendências pra mudar o status.</div>
+      </div>
+
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarSessao}>💾 Salvar sessão</Btn>
+      </div>
+    </Modal>}
+
+    {enviarAlvo&&<Modal title="📤 Enviar sessão pro Pedido de atendimento" onClose={()=>setEnviarAlvo(null)}>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Escolha o pedido (pode ser de outro cliente, como o desenvolvedor) onde essa sessão vai entrar como um atendimento.</div>
+      <div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:12,fontSize:12,color:C.cafe}}><b>{enviarAlvo.objetivo}</b><br/>{fmtDate(enviarAlvo.data)}{enviarAlvo.horaInicio&&enviarAlvo.horaFim?` · ${enviarAlvo.horaInicio}–${enviarAlvo.horaFim}`:""}{Number(enviarAlvo.horasUtilizadas)>0?` · ${fmtH(enviarAlvo.horasUtilizadas)}`:""}</div>
+      <Sel label="Pedido de atendimento" value={pedidoEscolhido} onChange={setPedidoEscolhido} options={[{v:"",l:"Selecione..."},...consultoria.map(c=>({v:c.id,l:`${c.clienteNome}${c.servico?` — ${c.servico}`:""}`}))]}/>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setEnviarAlvo(null)}>Cancelar</Btn>
+        <Btn onClick={confirmarEnviarAtend}>Enviar</Btn>
       </div>
     </Modal>}
 
@@ -7605,7 +7753,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
               </div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.oliva,margin:"10px 0 4px",flexWrap:"wrap",gap:6}}>
                 <span>{feitas} de {et.length} etapas iniciais concluídas</span>
-                <span>{fmtDate(p.dataInicio)} → {p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}{Number(p.horasContratadas)>0?` · ${p.horasContratadas}h previstas`:""}</span>
+                <span>{fmtDate(p.dataInicio)} → {p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}{Number(p.horasContratadas)>0?` · ${fmtH(p.horasContratadas)} previstas`:""}</span>
               </div>
               <PcBarra pct={Math.round(feitas/et.length*100)}/>
             </div>
@@ -7634,7 +7782,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {cartao("Cliente",p.clienteNome||"—")}
         {cartao("Desenvolvedor",p.desenvolvedor||"—")}
         {cartao("Período",`${fmtDate(p.dataInicio)} → ${p.dataPrevista?fmtDate(p.dataPrevista):"em aberto"}`)}
-        {cartao("Horas previstas",p.horasContratadas>0?`${p.horasContratadas}h`:"—")}
+        {cartao("Horas previstas",p.horasContratadas>0?fmtH(p.horasContratadas):"—")}
       </div>
 
       <Divider label="Preparação para o treinamento"/>
@@ -7650,7 +7798,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {cartao("Pré-implantação",isChecklistResultado(p),isChecklistResultado(p)==="🟢 Pronto para treinar"?C.verde:isChecklistResultado(p)==="🔴 Não pronto"?C.vermelho:undefined)}
         {cartao("Linha do tempo",`${isCronogramaResumo(p).concluidas}/${isCronogramaResumo(p).total}`)}
         {cartao("Plano de treinamento",`${isTreinoResumo(p).concluidos}/${isTreinoResumo(p).total}`)}
-        {cartao("Horas utilizadas",`${isSessoesResumo(p).realizadas}h`,p.horasContratadas>0&&isSessoesResumo(p).realizadas>p.horasContratadas?C.vermelho:undefined)}
+        {cartao("Horas utilizadas",fmtH(isSessoesResumo(p).realizadas),p.horasContratadas>0&&isSessoesResumo(p).realizadas>p.horasContratadas?C.vermelho:undefined)}
         {cartao("Pendências abertas",isPendenciasResumo(p).abertas,isPendenciasResumo(p).abertas>0?C.vermelho:C.verde)}
         {cartao("Trilha do treinamento",`${isTrilhaGeral(p).pct}%`,isTrilhaGeral(p).pct===100?C.verde:undefined)}
       </div>
@@ -7774,7 +7922,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     return(<div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         <Btn onClick={novaAtividade}>+ Nova atividade</Btn>
-        <span style={{fontSize:12,color:C.oliva}}>{r.concluidas} de {r.total} concluídas{r.horasPrevistas>0?` · ${r.horasPrevistas}h previstas`:""}</span>
+        <span style={{fontSize:12,color:C.oliva}}>{r.concluidas} de {r.total} concluídas{r.horasPrevistas>0?` · ${fmtH(r.horasPrevistas)} previstas`:""}</span>
       </div>
       {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma atividade na linha do tempo ainda.<br/>Monte a sequência com responsável, dependência e horas previstas.</div>}
       {lista.map((x,i)=>{
@@ -7789,8 +7937,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <IsChip t={x.status} sm/>
           </div>
           {x.treinoId&&<div style={{fontSize:11,color:cor.primaria,fontWeight:700}}>🎓 do plano de treinamento</div>}
-          {x.data&&campo("Agenda",fmtDate(x.data))}{campo("Responsável",x.responsavel)}{campo("Dependência",x.dependencia)}{Number(x.previsto)>0&&campo("Horas previstas",`${x.previsto}h`)}
-          {sessoesX.length>0&&<div style={{fontSize:12,color:C.oliva,marginTop:6}}>🎬 {sessoesX.length} sessão(ões) · {horasUsadasX}h utilizadas</div>}
+          {x.data&&campo("Agenda",fmtDate(x.data))}{campo("Responsável",x.responsavel)}{campo("Dependência",x.dependencia)}{Number(x.previsto)>0&&campo("Horas previstas",fmtH(x.previsto))}
+          {sessoesX.length>0&&<div style={{fontSize:12,color:C.oliva,marginTop:6}}>🎬 {sessoesX.length} sessão(ões) · {fmtH(horasUsadasX)} utilizadas</div>}
           {pendAbertasX.length>0&&<div style={{fontSize:12,color:C.vermelho,fontWeight:700,marginTop:4}}>⚠ {pendAbertasX.length} pendência(s) aberta(s) — confira antes do próximo item</div>}
           {pendX.length>0&&pendAbertasX.length===0&&<div style={{fontSize:12,color:C.verde,marginTop:4}}>✓ {pendX.length} pendência(s), todas resolvidas</div>}
           <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
@@ -7816,7 +7964,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         <Btn onClick={carregarTreinoPadrao}>📥 Carregar plano padrão</Btn>
         <Btn v="ghost" onClick={novoTreino}>+ Novo treinamento</Btn>
-        <span style={{fontSize:12,color:C.oliva}}>{r.concluidos} de {r.total} concluídos{r.horasPrevistas>0?` · ${r.horasPrevistas}h previstas`:""}</span>
+        <span style={{fontSize:12,color:C.oliva}}>{r.concluidos} de {r.total} concluídos{r.horasPrevistas>0?` · ${fmtH(r.horasPrevistas)} previstas`:""}</span>
       </div>
       {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum treinamento planejado ainda.</div>}
       {lista.map((x,i)=>{
@@ -7827,7 +7975,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <div style={{color:C.cafe,fontWeight:700,fontSize:14}}><span style={{color:C.oliva,fontWeight:400}}>#{i+1}</span> {x.conteudo}</div>
             <IsChip t={x.status} sm/>
           </div>
-          {campo("Usuário/área",x.usuario)}{Number(x.horasPrevistas)>0&&campo("Horas previstas",`${x.horasPrevistas}h`)}
+          {campo("Usuário/área",x.usuario)}{Number(x.horasPrevistas)>0&&campo("Horas previstas",fmtH(x.horasPrevistas))}
           {jaLancado&&<div style={{fontSize:11,color:C.verde,fontWeight:700,marginTop:4}}>✓ já está na Linha do Tempo</div>}
           <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
             <Btn sm v="oliva" onClick={()=>{upd(pp=>isLancarTreinoNaLinha(pp,x));showSavedGlobal("Lançado na Linha do Tempo!");}}>🗓 Lançar na Linha do Tempo</Btn>
@@ -7853,21 +8001,24 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhuma sessão registrada ainda.</div>}
       {lista.map(x=>{
         const exec=x.execucao||[];
+        const pendX=(p.pendencias||[]).filter(z=>z.sessaoId===x.id);
+        const ataNum=isAtaNumero(p,x.id);
         return(
         <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${(IS_COR[x.resultado]||["","#999"])[1]}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
           <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>{fmtDate(x.data)}{x.participantes?` · ${x.participantes}`:""}</div>
+              <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>ATA nº {ataNum} · {fmtDate(x.data)}{x.participantes?` · ${x.participantes}`:""}</div>
               <div style={{color:C.cafe,fontWeight:600,fontSize:14}}>{x.objetivo}</div>
               {x.atividadeId&&(()=>{const a=(p.cronograma||[]).find(z=>z.id===x.atividadeId);return a?<div style={{fontSize:11,color:cor.primaria,fontWeight:700,marginTop:2}}>🔗 {a.atividade}</div>:null;})()}
+              {pendX.length>0&&<div style={{fontSize:11,color:pendX.some(z=>z.status!=="Concluída")?C.vermelho:C.verde,fontWeight:700,marginTop:2}}>🧩 {pendX.length} pendência(s) desta sessão{pendX.some(z=>z.status!=="Concluída")?` (${pendX.filter(z=>z.status!=="Concluída").length} aberta(s))`:" — todas concluídas"}</div>}
             </div>
             <IsChip t={x.resultado} sm/>
           </div>
-          {campo("Conteúdo previsto",x.conteudoPrevisto)}
+          {x.conteudoPrevisto&&<div style={{fontSize:12,color:C.oliva,marginTop:3,whiteSpace:"pre-line"}}><b style={{color:C.cafe}}>Conteúdo previsto:</b> {x.conteudoPrevisto}</div>}
           <div style={{fontSize:12,color:C.oliva,marginTop:6}}>
             {x.categoria?`🏷 ${x.categoria}  `:""}
             {x.horaInicio&&x.horaFim?`🕐 ${x.horaInicio}–${x.horaFim}  `:""}
-            {Number(x.horasPrevistas)>0?`⏱ previsto ${x.horasPrevistas}h`:""}{Number(x.horasUtilizadas)>0?` · usado ${x.horasUtilizadas}h`:""}
+            {Number(x.horasPrevistas)>0?`⏱ previsto ${fmtH(x.horasPrevistas)}`:""}{Number(x.horasUtilizadas)>0?` · usado ${fmtH(x.horasUtilizadas)}`:""}
             {Number(x.horasUtilizadas)>Number(x.horasPrevistas)&&x.motivoDiferenca?` · motivo: ${x.motivoDiferenca}`:""}
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
@@ -7879,7 +8030,9 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             })}
           </div>
           <div style={{display:"flex",gap:6,marginTop:10}}>
-            <Btn sm v="ghost" onClick={()=>{setForm({...x,horaInicio:x.horaInicio||"",horaFim:x.horaFim||""});setModal("sessao");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{setForm({...x,horaInicio:x.horaInicio||"",horaFim:x.horaFim||""});setPendSessao([]);setModal("sessao");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>isAbrirImprimir(docAtaSessao(p,x))}>🖨 Imprimir ATA</Btn>
+            {consultoria.length>0&&<Btn sm v="ghost" onClick={()=>abrirEnviarAtend(x)}>📤 Enviar p/ Pedido de atendimento</Btn>}
             <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta sessão?"))upd(pp=>isExcluirSessao(pp,x.id));}}>🗑</Btn>
           </div>
         </div>);})}
@@ -7934,9 +8087,9 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const maxCat=Math.max(1,...IS_CATEGORIA_HORA.map(c=>r.porCategoria[c]));
     return(<div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:14}}>
-        {cartao("Contratadas",contratadas>0?`${contratadas}h`:"—")}
-        {cartao("Utilizadas",`${r.realizadas}h`)}
-        {cartao("Saldo do contrato",contratadas>0?`${saldoContrato}h`:"—",contratadas>0?(saldoContrato<0?C.vermelho:C.verde):undefined)}
+        {cartao("Contratadas",contratadas>0?fmtH(contratadas):"—")}
+        {cartao("Utilizadas",fmtH(r.realizadas))}
+        {cartao("Saldo do contrato",contratadas>0?fmtH(saldoContrato):"—",contratadas>0?(saldoContrato<0?C.vermelho:C.verde):undefined)}
         {cartao("Sessões",r.total)}
       </div>
       <Divider label="Distribuição das horas por categoria"/>
@@ -7944,7 +8097,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         <div key={c} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <span style={{width:92,fontSize:11,color:C.oliva,flexShrink:0}}>{c}</span>
           <div style={{flex:1,background:"#EEE8F4",borderRadius:5,height:16,overflow:"hidden"}}><div style={{width:`${Math.round(r.porCategoria[c]/maxCat*100)}%`,height:"100%",background:cor.primaria}}/></div>
-          <span style={{width:38,fontSize:12,fontWeight:700,color:C.cafe,textAlign:"right",flexShrink:0}}>{r.porCategoria[c]}h</span>
+          <span style={{width:38,fontSize:12,fontWeight:700,color:C.cafe,textAlign:"right",flexShrink:0}}>{fmtH(r.porCategoria[c])}</span>
         </div>))}
       <Divider label="Previsto × realizado, por sessão"/>
       {lista.length===0&&<div style={{fontSize:12,color:C.oliva}}>Nenhuma sessão registrada ainda.</div>}
@@ -7954,9 +8107,9 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         <div key={x.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",fontSize:12,color:C.oliva,padding:"6px 0",borderBottom:`1px dashed ${C.areia}`}}>
           <span style={{minWidth:72,color:C.cafe,fontWeight:600}}>{fmtDate(x.data)}</span>
           <span style={{flex:1,minWidth:140}}>{x.objetivo}</span>
-          <span>{x.horasPrevistas||0}h prev.</span>
-          <span>{x.horasUtilizadas||0}h real.</span>
-          <span style={{fontWeight:700,color:variacao>0?C.vermelho:variacao<0?C.verde:C.oliva}}>{variacao>0?`+${variacao}h`:variacao<0?`${variacao}h`:"0h"}</span>
+          <span>{fmtH(x.horasPrevistas||0)} prev.</span>
+          <span>{fmtH(x.horasUtilizadas||0)} real.</span>
+          <span style={{fontWeight:700,color:variacao>0?C.vermelho:variacao<0?C.verde:C.oliva}}>{variacao>0?`+${fmtH(variacao)}`:variacao<0?fmtH(variacao):"0h"}</span>
           {variacao!==0&&x.motivoDiferenca&&<span>· {x.motivoDiferenca}</span>}
         </div>);})}
     </div>);
@@ -8051,7 +8204,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     return(<div>
       <div style={{fontSize:11,color:C.oliva,marginBottom:12}}>Visão técnica — para você e o desenvolvedor.</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:14}}>
-        {[["Etapas concluídas",`${et.filter(e=>e.ok).length}/${et.length}`],["Horas previstas",hs.previstas>0?`${hs.previstas}h`:"—"],["Horas utilizadas",`${hs.realizadas}h`],["Saldo",hs.previstas>0?`${hs.saldo}h`:"—"],["Pendências abertas",pr.abertas]].map(([r,v])=>(
+        {[["Etapas concluídas",`${et.filter(e=>e.ok).length}/${et.length}`],["Horas previstas",hs.previstas>0?fmtH(hs.previstas):"—"],["Horas utilizadas",fmtH(hs.realizadas)],["Saldo",hs.previstas>0?fmtH(hs.saldo):"—"],["Pendências abertas",pr.abertas]].map(([r,v])=>(
           <div key={r} style={{background:C.linho,borderRadius:8,padding:"9px 11px"}}><div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{r}</div><div style={{fontSize:15,fontWeight:700,color:C.cafe,marginTop:2}}>{v}</div></div>
         ))}
       </div>
@@ -8074,7 +8227,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {IS_RESP_PEND.map(r=>(<div key={r} style={{background:C.linho,borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:9,fontWeight:700,color:C.oliva,textTransform:"uppercase"}}>{r}</div><div style={{fontSize:14,fontWeight:700,color:porResp[r]>0?C.vermelho:C.cafe}}>{porResp[r]}</div></div>))}
       </div>
       <Divider label="Horas por categoria"/>
-      {IS_CATEGORIA_HORA.map(c=>(<div key={c} style={{fontSize:12,color:C.oliva,marginBottom:3}}><b style={{color:C.cafe}}>{c}:</b> {hs.porCategoria[c]}h</div>))}
+      {IS_CATEGORIA_HORA.map(c=>(<div key={c} style={{fontSize:12,color:C.oliva,marginBottom:3}}><b style={{color:C.cafe}}>{c}:</b> {fmtH(hs.porCategoria[c])}</div>))}
     </div>);
   };
 
@@ -8190,7 +8343,7 @@ const Consultoria=(props)=>{
         <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients} projetosContinua={props.projetosContinua||[]} setProjetosContinua={props.setProjetosContinua}/>
       </div>}
       {visitouImplant&&<div style={{display:aba==="implant"?"block":"none"}}>
-        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients} config={props.config}/>
+        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients} config={props.config} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria}/>
       </div>}
     </div>
   );
@@ -11045,9 +11198,9 @@ function App() {
   const [personalCategorias, setPersonalCategorias]=useStorage("personalCategorias", INIT.personalCategorias);
   const [personalContas, setPersonalContas]=useStorage("personalContas", INIT.personalContas);
   const [personalFaturas, setPersonalFaturas]=useStorage("personalFaturas", INIT.personalFaturas);
-  const onRetiradaPessoal=({valor,data,desc})=>{
+  const onRetiradaPessoal=({valor,data,desc,contaId})=>{
     const catPl=(personalCategorias.receita||[]).find(c=>c.nome==="Pró-labore/Retirada do negócio");
-    setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today}]);
+    setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today,contaRecebimento:contaId||""}]);
   };
   // setters já vêm direto do useStorage acima
 
@@ -11126,7 +11279,7 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal}/>}
+          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal} personalContas={personalContas}/>}
           {view==="personal"    &&<PersonalFinance despesas={personalDespesas} setDespesas={setPersonalDespesas} receitas={personalReceitas} setReceitas={setPersonalReceitas} categorias={personalCategorias} setCategorias={setPersonalCategorias} contasPF={personalContas} setContasPF={setPersonalContas} faturas={personalFaturas} setFaturas={setPersonalFaturas}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
