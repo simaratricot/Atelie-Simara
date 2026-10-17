@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v47 · 2026-10-16 10:00";
+const APP_BUILD = "v49 · 2026-10-17 08:55";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -5220,6 +5220,17 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const togglePago=(f)=>setFinance(prev=>prev.map(x=>x.id===f.id?{...x,pago:!x.pago}:x));
   const excluirLanc=(f)=>{if(window.confirm("Excluir este lançamento do financeiro?"))setFinance(prev=>prev.filter(x=>x.id!==f.id));};
 
+  // ── compromisso/agendamento (direto aqui, sem precisar ir na Agenda) ──
+  const novoCompromissoProjeto=()=>{setForm({desc:`Consultoria — ${p.clienteNome}`,data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");};
+  const salvarCompromissoProjeto=()=>{
+    if(!form.desc||!form.data){alert("Preencha a descrição e a data.");return;}
+    if(!setCompromissos)return;
+    setCompromissos(prev=>[...prev,{id:uid(),desc:form.desc,data:form.data,hora:form.hora||"09:00",prioridade:form.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",projetoId:p.id}]);
+    setModal(null);showSavedGlobal("Adicionado à Agenda!");
+  };
+  const toggleCompromissoProjeto=(c)=>{if(setCompromissos)setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x));};
+  const excluirCompromissoProjeto=(c)=>{if(!setCompromissos)return;if(window.confirm("Excluir este compromisso da Agenda?"))setCompromissos(prev=>prev.filter(x=>x.id!==c.id));};
+
   // ── encerramento ──
   const abrirEncerrar=()=>{setForm({resultados:(p.encerramento&&p.encerramento.resultados)||"",licoes:(p.encerramento&&p.encerramento.licoes)||"",recomendacoes:(p.encerramento&&p.encerramento.recomendacoes)||""});setModal("encerrar");};
   const salvarEncerramento=()=>{upd(pp=>pcEncerrar(pp,form));setModal(null);showSavedGlobal("Projeto encerrado!");};
@@ -5531,6 +5542,22 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       </div>
     </Modal>}
 
+    {modal==="comp"&&form&&<Modal title="📅 Agendar compromisso" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Descrição" value={form.desc} onChange={v=>F("desc",v)}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+          <Inp label="Horário" type="time" value={form.hora} onChange={v=>F("hora",v)}/>
+        </div>
+        <Sel label="Prioridade" value={form.prioridade} onChange={v=>F("prioridade",v)} options={["Alta","Normal","Baixa"]}/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10}}>Isso adiciona um compromisso na Agenda, já vinculado a este projeto — aparece aqui no Resumo também.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarCompromissoProjeto}>📅 Adicionar à Agenda</Btn>
+      </div>
+    </Modal>}
+
     {modal==="encerrar"&&form&&<Modal wide title="🏁 Encerrar projeto" onClose={()=>setModal(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <Inp label="Resultados finais" rows={3} value={form.resultados} onChange={v=>F("resultados",v)}/>
@@ -5693,7 +5720,20 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         {cartao("Valor recebido",fmtBRL(fin.recebido),C.verde)}
         {cartao("Valor pendente",fmtBRL(fin.pendente),fin.pendente>0?C.vermelho:C.verde)}
       </div>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={novoLanc}>💰 Lançar recebimento</Btn></div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <Btn sm v="ghost" onClick={novoCompromissoProjeto}>📅 Agendar compromisso</Btn>
+        <Btn sm onClick={novoLanc}>💰 Lançar recebimento</Btn>
+      </div>
+      {(compromissos||[]).filter(c=>c.projetoId===p.id&&c.status!=="Concluído").length>0&&<>
+        <Divider label="Próximos compromissos (Agenda)"/>
+        {(compromissos||[]).filter(c=>c.projetoId===p.id&&c.status!=="Concluído").slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).map(c=>(
+          <div key={c.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"7px 12px",marginBottom:6,fontSize:12}}>
+            <span style={{flex:1,minWidth:120,color:C.cafe,fontWeight:700}}>{fmtDate(c.data)}{c.hora?` · ${c.hora}`:""}</span>
+            <span style={{color:C.oliva}}>{c.desc}</span>
+            <Btn sm v="ghost" onClick={()=>toggleCompromissoProjeto(c)}>✓ Concluído</Btn>
+            <Btn sm v="ghost" onClick={()=>excluirCompromissoProjeto(c)}>🗑</Btn>
+          </div>))}
+      </>}
       {(finance||[]).filter(f=>f.projetoId===p.id).length>0&&<>
         <Divider label="Lançamentos"/>
         {(finance||[]).filter(f=>f.projetoId===p.id).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))).map(f=>(
@@ -11053,7 +11093,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
         {detTab==="medicoes"&&<div>
           <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Serviços soltos (sem medição): <b>{fmtBRL(servicosSoltos(sel).reduce((s,x)=>s+Number(x.valor||0),0))}</b></div>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={abrirFecharMedicao} disabled={servicosSoltos(sel).length===0}>🔒 Fechar medição</Btn></div>
+          {!medFormOpen&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={abrirFecharMedicao} disabled={servicosSoltos(sel).length===0}>🔒 Fechar medição</Btn></div>}
           {medFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
             <div style={{fontSize:12,fontWeight:700,color:CO.primaria}}>Selecione os serviços desta medição:</div>
             {servicosSoltos(sel).map(s=>(
@@ -11081,7 +11121,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <Inp label="Vencimento (opcional)" type="date" value={medForm.dataVencimento} onChange={v=>setMedForm(f=>({...f,dataVencimento:v}))}/>
             <Inp label="Valor total da medição (R$)" type="number" value={medForm.valor} onChange={v=>setMedForm(f=>({...f,valor:v}))}/>
             <Inp label="Observações" value={medForm.obs} onChange={v=>setMedForm(f=>({...f,obs:v}))} rows={2}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setMedFormOpen(false)}>Cancelar</Btn><Btn sm onClick={salvarMedicao}>Fechar medição</Btn></div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setMedFormOpen(false)}>Cancelar</Btn><Btn sm v="oliva" onClick={salvarMedicao}>✓ Confirmar fechamento da medição</Btn></div>
           </div>}
           {(sel.medicoes||[]).length===0?vazio("Nenhuma medição fechada ainda"):
           (sel.medicoes||[]).slice().reverse().map((m,i)=>{
@@ -11108,7 +11148,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
         </div>}
 
         {detTab==="recebimentos"&&<div>
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={()=>abrirNovoRecebimento()}>+ Lançar recebimento</Btn></div>
+          {!recFormOpen&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={()=>abrirNovoRecebimento()}>+ Lançar recebimento</Btn></div>}
           {recFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
             <Sel label="Vincular à medição" value={recForm.medicaoId} onChange={v=>{const m=(sel.medicoes||[]).find(x=>x.id===v);setRecForm(f=>({...f,medicaoId:v,valor:m?saldoMedicao(sel,m):f.valor}));}} options={[{v:"",l:"Avulso (sem medição)"},...((sel.medicoes||[]).filter(m=>m.status!=="Cancelada"&&saldoMedicao(sel,m)>0).map(m=>({v:m.id,l:`Medição ${fmtDate(m.data)} — saldo ${fmtBRL(saldoMedicao(sel,m))}`})))]}/>
             <Inp label="Valor recebido (R$)" type="number" value={recForm.valor} onChange={v=>setRecForm(f=>({...f,valor:v}))}/>
