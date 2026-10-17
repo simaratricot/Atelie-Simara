@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v50 · 2026-10-17 13:50";
+const APP_BUILD = "v51 · 2026-10-17 14:05";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1581,13 +1581,25 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
     ctx.fillText(p.img||"🧶",W/2,H*0.45);
   }
 
-  // ── Sombreado leve e gradual, só na base, pra garantir leitura do texto —
-  // nunca um bloco sólido cobrindo a foto inteira.
-  const gBot=ctx.createLinearGradient(0,H*0.42,0,H);
-  gBot.addColorStop(0,"rgba(16,11,9,0)");
-  gBot.addColorStop(0.45,"rgba(16,11,9,0.4)");
-  gBot.addColorStop(1,"rgba(12,8,7,0.82)");
-  ctx.fillStyle=gBot;ctx.fillRect(0,H*0.42,W,H*0.58);
+  // ── Sombreado ondulado na base — realça o texto sem virar um bloco reto
+  // cobrindo o produto inteiro. A "onda" sobe e desce ao longo da largura.
+  const waveBase=H*0.50,waveAmp=H*0.045,waveFreq=2.2;
+  ctx.beginPath();
+  ctx.moveTo(0,H);
+  ctx.lineTo(0,waveBase);
+  const waveSteps=60;
+  for(let i=0;i<=waveSteps;i++){
+    const wx=(i/waveSteps)*W;
+    const wy=waveBase+Math.sin((i/waveSteps)*Math.PI*waveFreq+1.1)*waveAmp;
+    ctx.lineTo(wx,wy);
+  }
+  ctx.lineTo(W,H);
+  ctx.closePath();
+  const gBot=ctx.createLinearGradient(0,waveBase-waveAmp,0,H);
+  gBot.addColorStop(0,"rgba(14,10,8,0)");
+  gBot.addColorStop(0.3,"rgba(14,10,8,0.62)");
+  gBot.addColorStop(1,"rgba(8,6,5,0.93)");
+  ctx.fillStyle=gBot;ctx.fill();
 
   const LILAS_CLARO="#D9C2E6";
   const padL=56,padR=56,maxW=W-padL-padR;
