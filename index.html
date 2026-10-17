@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v51 · 2026-10-17 14:05";
+const APP_BUILD = "v52 · 2026-10-17 14:35";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1610,15 +1610,33 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   const prefixoPreco=true; // "A partir de" sempre acompanha o preço, com o menor valor cadastrado
   const dispLabel=p.type==="pronta"?`PRONTA ENTREGA${p.stock?` · ${p.stock} UNID.`:""}`:"SOB ENCOMENDA";
 
-  // ── NOME — mede a quebra de linha já com a fonte real (bold itálico grande),
-  // não com a fonte padrão do canvas — senão o texto parece caber numa linha
-  // na hora de medir e depois é desenhado grande demais, cortando o nome.
+  // ── NOME — sempre quebrado de forma "harmônica": a 1ª linha fica só com
+  // 1 ou 2 palavras (bem curta) e o resto cai pra(s) linha(s) seguinte(s).
+  // A medição usa a fonte real (bold itálico grande), senão o texto parece
+  // caber numa linha na hora de medir e depois é desenhado grande demais,
+  // cortando o nome.
   const nomeTxt=p.name||"Produto";
+  const nomeWords=nomeTxt.trim().split(/\s+/).filter(Boolean);
   let nomeSize=76,nomeLines=[];
-  for(const sz of [76,64,54,46,40]){
+  for(const sz of [76,64,54,46,40,34]){
     ctx.font=`italic bold ${sz}px Georgia,serif`;
-    const ls=wrapLines(nomeTxt,maxW);
-    if(ls.length<=2||sz===40){nomeSize=sz;nomeLines=ls;break;}
+    let linha1="",resto="";
+    if(nomeWords.length<=1){
+      linha1=nomeWords.join(" ");
+    } else if(nomeWords[0].length<=4&&nomeWords.length>2){
+      linha1=nomeWords.slice(0,2).join(" ");resto=nomeWords.slice(2).join(" ");
+    } else {
+      linha1=nomeWords[0];resto=nomeWords.slice(1).join(" ");
+    }
+    // se mesmo a 1ª linha (curta) não couber, devolve palavra(s) pro resto
+    while(linha1.includes(" ")&&ctx.measureText(linha1).width>maxW){
+      const partes=linha1.split(" ");
+      resto=[partes.pop(),resto].filter(Boolean).join(" ");
+      linha1=partes.join(" ");
+    }
+    const restoLines=resto?wrapLines(resto,maxW):[];
+    const ls=[linha1,...restoLines];
+    if(ls.length<=3||sz===34){nomeSize=sz;nomeLines=ls;break;}
   }
 
   let y=H*0.54;
@@ -1657,21 +1675,21 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   if(camposTxt.length&&y<H-60){
     ctx.textAlign="left";
     ctx.fillStyle="rgba(253,250,255,0.88)";
-    const availH=Math.max(0,H-54-y);
+    const availH=Math.max(0,H-40-y);
     let fontSz=19,lineH=26,grupos=[];
-    for(const sz of [19,17,15,13,12]){
+    for(const sz of [19,17,15,13,12,11,10]){
       ctx.font=`italic ${sz}px Georgia,serif`;
-      lineH=Math.round(sz*1.35);
+      lineH=Math.round(sz*1.3);
       grupos=camposTxt.map(txt=>wrapLines(txt,maxW));
       const totalLinhas=grupos.reduce((a,g)=>a+g.length,0)+(grupos.length-1)*0.5;
-      if(totalLinhas*lineH<=availH||sz===12){fontSz=sz;break;}
+      if(totalLinhas*lineH<=availH||sz===10){fontSz=sz;break;}
     }
     ctx.font=`italic ${fontSz}px Georgia,serif`;
     let yy=y;
     grupos.forEach((linhas,gi)=>{
       if(gi>0)yy+=lineH*0.5;
       for(const l of linhas){
-        if(yy>H-54)return;
+        if(yy>H-40)return;
         ctx.fillText(l,padL,yy);yy+=lineH;
       }
     });
