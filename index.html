@@ -106,7 +106,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v49 · 2026-10-17 08:55";
+const APP_BUILD = "v50 · 2026-10-17 13:50";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1597,15 +1597,24 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
   const prefixoPreco=true; // "A partir de" sempre acompanha o preço, com o menor valor cadastrado
   const dispLabel=p.type==="pronta"?`PRONTA ENTREGA${p.stock?` · ${p.stock} UNID.`:""}`:"SOB ENCOMENDA";
-  const nomeLines=wrapLines(p.name||"Produto",maxW);
+
+  // ── NOME — mede a quebra de linha já com a fonte real (bold itálico grande),
+  // não com a fonte padrão do canvas — senão o texto parece caber numa linha
+  // na hora de medir e depois é desenhado grande demais, cortando o nome.
+  const nomeTxt=p.name||"Produto";
+  let nomeSize=76,nomeLines=[];
+  for(const sz of [76,64,54,46,40]){
+    ctx.font=`italic bold ${sz}px Georgia,serif`;
+    const ls=wrapLines(nomeTxt,maxW);
+    if(ls.length<=2||sz===40){nomeSize=sz;nomeLines=ls;break;}
+  }
 
   let y=H*0.54;
 
   // ── NOME — em evidência, bem maior ──
-  const nomeSize=nomeLines.length>1?58:76;
   ctx.font=`italic bold ${nomeSize}px Georgia,serif`;ctx.letterSpacing="-1px";
   ctx.fillStyle=CREME;
-  nomeLines.slice(0,2).forEach(l=>{y+=nomeSize*0.82;ctx.fillText(l,padL,y);});
+  nomeLines.slice(0,3).forEach(l=>{y+=nomeSize*0.82;ctx.fillText(l,padL,y);});
   ctx.letterSpacing="0px";
   y+=22;
 
@@ -1629,27 +1638,31 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   ctx.fillText(precoStr,padL,y);
   y+=38;
 
-  // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO — um pequeno texto fluido, sem rótulo,
-  // juntando um trechinho natural de cada campo preenchido (nunca os três blocos inteiros).
-  const fragmento=(txt,max=70)=>{
-    if(!txt)return "";
-    let t=String(txt).trim();
-    const corte=[",",".",";"].map(c=>t.indexOf(c)).filter(i=>i>10);
-    if(corte.length)t=t.slice(0,Math.min(...corte)).trim();
-    if(t.length>max)t=t.slice(0,max).trim().replace(/\s+\S*$/,"");
-    return t;
-  };
-  const textoFluido=[fragmento(p.caracteristicas),fragmento(p.beneficio),fragmento(p.sensacao)]
-    .filter(Boolean).join(" · ");
-  if(textoFluido&&y<H-60){
+  // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO — traz o texto completo dos três campos
+  // (nada de recorte por caractere), quebrando linha com base na fonte real,
+  // e encolhe a fonte até caber no espaço disponível, pra não perder informação.
+  const camposTxt=[p.caracteristicas,p.beneficio,p.sensacao].map(t=>String(t||"").trim()).filter(Boolean);
+  if(camposTxt.length&&y<H-60){
     ctx.textAlign="left";
-    ctx.fillStyle="rgba(253,250,255,0.88)";ctx.font="italic 19px Georgia,serif";
-    const lines=wrapLines(textoFluido,maxW);
-    let yy=y;
-    for(const l of lines.slice(0,3)){
-      if(yy>H-54)break;
-      ctx.fillText(l,padL,yy);yy+=26;
+    ctx.fillStyle="rgba(253,250,255,0.88)";
+    const availH=Math.max(0,H-54-y);
+    let fontSz=19,lineH=26,grupos=[];
+    for(const sz of [19,17,15,13,12]){
+      ctx.font=`italic ${sz}px Georgia,serif`;
+      lineH=Math.round(sz*1.35);
+      grupos=camposTxt.map(txt=>wrapLines(txt,maxW));
+      const totalLinhas=grupos.reduce((a,g)=>a+g.length,0)+(grupos.length-1)*0.5;
+      if(totalLinhas*lineH<=availH||sz===12){fontSz=sz;break;}
     }
+    ctx.font=`italic ${fontSz}px Georgia,serif`;
+    let yy=y;
+    grupos.forEach((linhas,gi)=>{
+      if(gi>0)yy+=lineH*0.5;
+      for(const l of linhas){
+        if(yy>H-54)return;
+        ctx.fillText(l,padL,yy);yy+=lineH;
+      }
+    });
   }
   ctx.shadowBlur=0;
 
@@ -2253,11 +2266,18 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
     return comDesc+Number(form.taxaEnvio||0);
   };
 
-  const addItem=()=>setForm(f=>({...f,itens:[...(f.itens||[]),{product:"",color:"",size:"",qty:1,price:0}]}));
+  const addItem=()=>setForm(f=>({...f,itens:[...(f.itens||[]),{product:"",color:"",size:"",qty:1,price:0,manual:false}]}));
+  const toggleManualItem=(idx)=>setForm(f=>{
+    const itens=[...(f.itens||[])];
+    const cur=itens[idx];
+    itens[idx]={...cur,manual:!cur.manual,product:"",color:"",size:"",price:cur.manual?cur.price:0};
+    const totalItens=itens.reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0);
+    return{...f,itens,price:totalItens};
+  });
   const updItem=(idx,field,val)=>setForm(f=>{
     const itens=[...(f.itens||[])];
     itens[idx]={...itens[idx],[field]:val};
-    if(field==="product"){
+    if(field==="product"&&!itens[idx].manual){
       const p=products.find(x=>x.name===val);
       itens[idx].price=p?.price||0;
       itens[idx].color="";itens[idx].size="";
@@ -2297,11 +2317,16 @@ const OrderForm = ({form,setForm,products,config,clients,onClose,onSave}) => {
             </div>
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,marginBottom:8}}>
               <div>
-                <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Produto</label>
-                <select value={item.product} onChange={e=>updItem(idx,"product",e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
-                  <option value="">Selecionar...</option>
-                  {products.map(p=><option key={p.id}>{p.name}</option>)}
-                </select>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                  <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase"}}>Produto</label>
+                  <button type="button" onClick={()=>toggleManualItem(idx)} style={{fontSize:9,background:"none",border:"none",color:C.cafe,textDecoration:"underline",cursor:"pointer",fontWeight:600,padding:0}}>{item.manual?"🔎 Buscar no catálogo":"✏️ Digitar manualmente"}</button>
+                </div>
+                {item.manual
+                  ?<input value={item.product} onChange={e=>updItem(idx,"product",e.target.value)} placeholder="Nome do produto (fora do catálogo)" style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+                  :<select value={item.product} onChange={e=>updItem(idx,"product",e.target.value)} style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,background:C.branco}}>
+                    <option value="">Selecionar...</option>
+                    {products.map(p=><option key={p.id}>{p.name}</option>)}
+                  </select>}
               </div>
               <div>
                 <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:3}}>Qtd</label>
