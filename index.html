@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#5C4033"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-title" content="Simara Lobui"/>
-  <title>Simara Lobui – Tricot, Amor & Arte</title>
+  <meta name="apple-mobile-web-app-title" content="CONTÍNUA"/>
+  <title>CONTÍNUA – Organização que gera resultado</title>
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -31,18 +31,22 @@
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     body{background:#FAF8F5;font-family:sans-serif;}
-    #loading{position:fixed;inset:0;background:#5C4033;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:9999;}
-    #loading h1{color:#FAF8F5;font-family:Georgia,serif;font-size:22px;font-style:italic;}
+    #loading{position:fixed;inset:0;background:#5C4033;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;z-index:9999;}
+    #loading .leaf{font-size:30px;line-height:1;margin-bottom:2px;}
+    #loading h1{color:#FAF8F5;font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:2px;}
     #loading p{color:#D8C3A5;font-size:14px;}
-    .spin{width:36px;height:36px;border:3px solid rgba(250,248,245,0.2);border-top-color:#B08D57;border-radius:50%;animation:spin 0.8s linear infinite;}
+    #loading .assinatura{color:#B08D57;font-size:12px;font-style:italic;margin-top:6px;}
+    .spin{width:36px;height:36px;border:3px solid rgba(250,248,245,0.2);border-top-color:#B08D57;border-radius:50%;animation:spin 0.8s linear infinite;margin-top:6px;}
     @keyframes spin{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
   <div id="loading">
+    <div class="leaf">🌿</div>
+    <h1>CONTÍNUA</h1>
+    <p>Organização que gera resultado</p>
+    <p class="assinatura">Simara Lobui</p>
     <div class="spin"></div>
-    <h1>Simara Lobui</h1>
-    <p>Tricot, Amor & Arte</p>
   </div>
   <div id="root"></div>
   <script type="text/babel">
@@ -106,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v52 · 2026-10-17 14:35";
+const APP_BUILD = "v55 · 2026-10-19 17:24";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1554,21 +1558,41 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
     if(line)lines.push(line);
     return lines;
   };
+  const roundRectPath=(x,y,w,h,r)=>{
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  };
+  const roundRectTopPath=(x,y,w,h,r)=>{
+    ctx.beginPath();
+    ctx.moveTo(x,y+h);
+    ctx.lineTo(x,y+r);
+    ctx.arcTo(x,y,x+r,y,r);
+    ctx.lineTo(x+w-r,y);
+    ctx.arcTo(x+w,y,x+w,y+r,r);
+    ctx.lineTo(x+w,y+h);
+    ctx.closePath();
+  };
 
-  const CAFE="#6B4530",DOURADO="#C9A063",LILAS="#5B3B7A",CREME="#FDFBF7",CREME2="#F2E6D3";
+  const CAFE="#6B4530",DOURADO="#C9A063",CREME="#FDFBF7";
+  const ROXO="#4F3561",ROXO_TXT="#6B4E7F",LILAS_CLARO="#D9C2E6",PAINEL_BG="#FBF3E8",TXT_ESCURO="#4A3B40";
 
   const tipoVisual=inferTipoVisualProduto(p);
   const heroImg=await loadImg(p.photos?.[0]);
   const foco=[0.5,0.3,0.68][(seed||0)%3]; // "gerar novamente" varia o enquadramento da foto
 
+  // ── FOTO — protagonista, ocupando o quadro inteiro (sem camada escura geral) ──
   if(heroImg){
     if(tipoVisual==="kit"){
       // Kits: nunca cortar — fundo desfocado da própria foto + foto inteira "contain"
       ctx.save();
-      ctx.filter="blur(60px) brightness(0.88)";
+      ctx.filter="blur(60px) brightness(0.9)";
       drawCover(heroImg,-40,-40,W+80,H+80);
       ctx.restore();
-      ctx.fillStyle="rgba(20,14,10,0.18)";ctx.fillRect(0,0,W,H);
       drawContain(heroImg,40,40,W-80,H-80);
     } else {
       drawCover(heroImg,0,0,W,H,foco);
@@ -1578,131 +1602,192 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
     g.addColorStop(0,DOURADO);g.addColorStop(1,CAFE);
     ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
     ctx.fillStyle="rgba(255,255,255,0.3)";ctx.font="200px serif";ctx.textAlign="center";
-    ctx.fillText(p.img||"🧶",W/2,H*0.45);
+    ctx.fillText(p.img||"🧶",W/2,H*0.4);
   }
 
-  // ── Sombreado ondulado na base — realça o texto sem virar um bloco reto
-  // cobrindo o produto inteiro. A "onda" sobe e desce ao longo da largura.
-  const waveBase=H*0.50,waveAmp=H*0.045,waveFreq=2.2;
-  ctx.beginPath();
-  ctx.moveTo(0,H);
-  ctx.lineTo(0,waveBase);
-  const waveSteps=60;
-  for(let i=0;i<=waveSteps;i++){
-    const wx=(i/waveSteps)*W;
-    const wy=waveBase+Math.sin((i/waveSteps)*Math.PI*waveFreq+1.1)*waveAmp;
-    ctx.lineTo(wx,wy);
-  }
-  ctx.lineTo(W,H);
-  ctx.closePath();
-  const gBot=ctx.createLinearGradient(0,waveBase-waveAmp,0,H);
-  gBot.addColorStop(0,"rgba(14,10,8,0)");
-  gBot.addColorStop(0.3,"rgba(14,10,8,0.62)");
-  gBot.addColorStop(1,"rgba(8,6,5,0.93)");
-  ctx.fillStyle=gBot;ctx.fill();
-
-  const LILAS_CLARO="#D9C2E6";
   const padL=56,padR=56,maxW=W-padL-padR;
-  ctx.textAlign="left";
-  ctx.shadowColor="rgba(0,0,0,0.5)";ctx.shadowBlur=12;
-
   const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
-  const prefixoPreco=true; // "A partir de" sempre acompanha o preço, com o menor valor cadastrado
   const dispLabel=p.type==="pronta"?`PRONTA ENTREGA${p.stock?` · ${p.stock} UNID.`:""}`:"SOB ENCOMENDA";
 
-  // ── NOME — sempre quebrado de forma "harmônica": a 1ª linha fica só com
-  // 1 ou 2 palavras (bem curta) e o resto cai pra(s) linha(s) seguinte(s).
-  // A medição usa a fonte real (bold itálico grande), senão o texto parece
-  // caber numa linha na hora de medir e depois é desenhado grande demais,
-  // cortando o nome.
+  // ═══ BLOCO SUPERIOR (sobre a foto) — marca, categoria/nome e um trechinho
+  // emocional (campo Sensação, se preenchido). Só um pequeno realce atrás do
+  // texto, nunca uma camada escura cobrindo a foto inteira. ═══
+  const topTxtMaxW=W*0.56;
+  ctx.save();
+  const vign=ctx.createRadialGradient(W*0.16,H*0.14,10,W*0.16,H*0.14,W*0.62);
+  vign.addColorStop(0,"rgba(18,12,10,0.55)");
+  vign.addColorStop(0.55,"rgba(18,12,10,0.28)");
+  vign.addColorStop(1,"rgba(18,12,10,0)");
+  ctx.fillStyle=vign;ctx.fillRect(0,0,W,H*0.62);
+  ctx.restore();
+
+  let ty=56;
+  ctx.textAlign="left";
+  ctx.shadowColor="rgba(0,0,0,0.45)";ctx.shadowBlur=10;
+
+  // Logo da marca (se cadastrado em Configurações) ou, na falta dele, a
+  // assinatura em texto — nunca um logotipo inventado.
+  const logoImg=await loadImg(config?.logoMarca);
+  if(logoImg){
+    const lh=46,lw=(logoImg.width/logoImg.height)*lh;
+    ctx.drawImage(logoImg,padL,ty,lw,lh);
+    ty+=lh+10;
+  } else {
+    ctx.font="italic bold 30px Georgia,serif";ctx.fillStyle=CREME;
+    ty+=28;ctx.fillText("Simara Lobui",padL,ty);
+    ty+=8;
+  }
+  ctx.font="bold 12px Arial,sans-serif";ctx.letterSpacing="3px";ctx.fillStyle=LILAS_CLARO;
+  ty+=18;ctx.fillText("TRICOT AMOR & ARTE",padL,ty);
+  ctx.letterSpacing="0px";
+  ty+=16;
+  ctx.strokeStyle="rgba(253,250,255,0.4)";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(padL,ty);ctx.lineTo(padL+90,ty);ctx.stroke();
+  ty+=34;
+
+  // Categoria curta (1ª palavra do nome, ou a categoria cadastrada se o nome
+  // tiver só uma palavra) + o restante do nome em destaque, com a última
+  // palavra em itálico lilás — sempre a partir dos dados reais do produto.
   const nomeTxt=p.name||"Produto";
   const nomeWords=nomeTxt.trim().split(/\s+/).filter(Boolean);
-  let nomeSize=76,nomeLines=[];
-  for(const sz of [76,64,54,46,40,34]){
-    ctx.font=`italic bold ${sz}px Georgia,serif`;
-    let linha1="",resto="";
-    if(nomeWords.length<=1){
-      linha1=nomeWords.join(" ");
-    } else if(nomeWords[0].length<=4&&nomeWords.length>2){
-      linha1=nomeWords.slice(0,2).join(" ");resto=nomeWords.slice(2).join(" ");
-    } else {
-      linha1=nomeWords[0];resto=nomeWords.slice(1).join(" ");
-    }
-    // se mesmo a 1ª linha (curta) não couber, devolve palavra(s) pro resto
-    while(linha1.includes(" ")&&ctx.measureText(linha1).width>maxW){
-      const partes=linha1.split(" ");
-      resto=[partes.pop(),resto].filter(Boolean).join(" ");
-      linha1=partes.join(" ");
-    }
-    const restoLines=resto?wrapLines(resto,maxW):[];
-    const ls=[linha1,...restoLines];
-    if(ls.length<=3||sz===34){nomeSize=sz;nomeLines=ls;break;}
+  const tagTxt=(nomeWords.length>1?nomeWords[0]:(p.category||"")).toUpperCase();
+  const tituloWords=nomeWords.length>1?nomeWords.slice(1):nomeWords;
+
+  if(tagTxt){
+    ctx.font="bold 15px Arial,sans-serif";ctx.letterSpacing="3px";ctx.fillStyle=LILAS_CLARO;
+    ctx.fillText(tagTxt,padL,ty);ctx.letterSpacing="0px";
+    ty+=10;
   }
 
-  let y=H*0.54;
-
-  // ── NOME — em evidência, bem maior ──
-  ctx.font=`italic bold ${nomeSize}px Georgia,serif`;ctx.letterSpacing="-1px";
-  ctx.fillStyle=CREME;
-  nomeLines.slice(0,3).forEach(l=>{y+=nomeSize*0.82;ctx.fillText(l,padL,y);});
-  ctx.letterSpacing="0px";
-  y+=22;
-
-  // ── DISPONIBILIDADE — pronta entrega ou sob encomenda, texto simples, sem caixa ──
-  ctx.font="bold 18px Arial,sans-serif";ctx.letterSpacing="2.5px";
-  ctx.fillStyle=LILAS_CLARO;
-  y+=30;
-  ctx.fillText(dispLabel,padL,y);
-  ctx.letterSpacing="0px";
-  y+=38;
-
-  // ── PREÇO — discreto e sutil, nunca maior que o produto ──
-  if(prefixoPreco){
-    ctx.font="13px Arial,sans-serif";ctx.letterSpacing="2px";
-    ctx.fillStyle="rgba(242,230,211,0.72)";
-    y+=22;ctx.fillText("A PARTIR DE",padL,y);ctx.letterSpacing="0px";
+  let tituloSize=60,linhasBranco=[],ultimaPalavra="";
+  for(const sz of [60,52,44,38,33]){
+    ctx.font=`bold ${sz}px Georgia,serif`;
+    const resto=tituloWords.slice(0,-1).join(" ");
+    const ls=resto?wrapLines(resto,topTxtMaxW):[];
+    if(ls.length<=2||sz===33){tituloSize=sz;linhasBranco=ls;ultimaPalavra=tituloWords[tituloWords.length-1]||"";break;}
   }
-  ctx.font="300 30px Georgia,serif";
-  ctx.fillStyle="rgba(253,250,247,0.9)";
-  y+=prefixoPreco?34:30;
-  ctx.fillText(precoStr,padL,y);
-  y+=38;
+  ctx.font=`bold ${tituloSize}px Georgia,serif`;ctx.fillStyle=CREME;
+  linhasBranco.forEach(l=>{ty+=tituloSize*0.86;ctx.fillText(l,padL,ty);});
+  if(ultimaPalavra){
+    ctx.font=`italic ${tituloSize}px Georgia,serif`;ctx.fillStyle=LILAS_CLARO;
+    ty+=tituloSize*0.86;ctx.fillText(ultimaPalavra,padL,ty);
+  }
+  ty+=28;
 
-  // ── CARACTERÍSTICAS / BENEFÍCIO / SENSAÇÃO — traz o texto completo dos três campos
-  // (nada de recorte por caractere), quebrando linha com base na fonte real,
-  // e encolhe a fonte até caber no espaço disponível, pra não perder informação.
-  const camposTxt=[p.caracteristicas,p.beneficio,p.sensacao].map(t=>String(t||"").trim()).filter(Boolean);
-  if(camposTxt.length&&y<H-60){
-    ctx.textAlign="left";
-    ctx.fillStyle="rgba(253,250,255,0.88)";
-    const availH=Math.max(0,H-40-y);
-    let fontSz=19,lineH=26,grupos=[];
-    for(const sz of [19,17,15,13,12,11,10]){
-      ctx.font=`italic ${sz}px Georgia,serif`;
-      lineH=Math.round(sz*1.3);
-      grupos=camposTxt.map(txt=>wrapLines(txt,maxW));
-      const totalLinhas=grupos.reduce((a,g)=>a+g.length,0)+(grupos.length-1)*0.5;
-      if(totalLinhas*lineH<=availH||sz===10){fontSz=sz;break;}
+  // Trechinho emocional — reaproveita o campo Sensação (ou Benefício/
+  // Características, na falta dele) como uma citação curta; o texto
+  // completo de cada campo aparece inteiro mais abaixo, no painel.
+  const taglineSrc=String(p.sensacao||p.beneficio||p.caracteristicas||"").trim();
+  if(taglineSrc){
+    let tagline=taglineSrc;
+    if(tagline.length>110){
+      tagline=tagline.slice(0,110);
+      tagline=tagline.replace(/\s+\S*$/,"")+"…";
     }
-    ctx.font=`italic ${fontSz}px Georgia,serif`;
-    let yy=y;
-    grupos.forEach((linhas,gi)=>{
-      if(gi>0)yy+=lineH*0.5;
-      for(const l of linhas){
-        if(yy>H-40)return;
-        ctx.fillText(l,padL,yy);yy+=lineH;
-      }
-    });
+    ctx.font="italic 21px Georgia,serif";ctx.fillStyle="rgba(253,250,255,0.92)";
+    const tLines=wrapLines(tagline,topTxtMaxW).slice(0,3);
+    tLines.forEach(l=>{ty+=28;ctx.fillText(l,padL,ty);});
+    ty+=8;
+    ctx.font="20px serif";ctx.fillStyle=LILAS_CLARO;
+    ty+=26;ctx.fillText("♥",padL,ty);
   }
   ctx.shadowBlur=0;
 
-  // ── Assinatura discreta, sempre embaixo ao centro ──
-  ctx.textAlign="center";
-  ctx.font="13px Arial,sans-serif";ctx.letterSpacing="2.5px";
-  ctx.fillStyle="rgba(253,250,255,0.75)";
-  ctx.shadowColor="rgba(0,0,0,0.4)";ctx.shadowBlur=6;
-  ctx.fillText("SIMARA LOBUI  ·  TRICOT AMOR & ARTE",W/2,H-26);
-  ctx.shadowBlur=0;ctx.letterSpacing="0px";
+  // ═══ PAINEL INFERIOR — fundo claro dedicado às informações comerciais,
+  // sempre com contraste garantido (nunca texto apagado sobre a foto). ═══
+  const camposCols=[
+    {label:"CARACTERÍSTICAS",icone:"✿",txt:p.caracteristicas},
+    {label:"SENSAÇÃO",icone:"♥",txt:p.sensacao},
+    {label:"BENEFÍCIOS",icone:"❧",txt:p.beneficio},
+  ].map(c=>({...c,txt:String(c.txt||"").trim()})).filter(c=>c.txt);
+
+  const panelPadX=48,panelPadTop=34,panelPadBottom=30,colGap=28;
+  const nCols=Math.max(1,camposCols.length);
+  const panelInnerW=W-panelPadX*2;
+  const colW=(panelInnerW-colGap*(nCols-1))/nCols;
+  const circleR=15,rowGap=10,labelH=16;
+
+  let colFontSz=15.5,colLineH=20,colsLinhas=[];
+  if(camposCols.length){
+    for(const sz of [15.5,14,13,12,11,10.5]){
+      ctx.font=`${sz}px Georgia,serif`;
+      colLineH=Math.round(sz*1.42);
+      colsLinhas=camposCols.map(c=>wrapLines(c.txt,colW));
+      const maxLinhas=Math.max(...colsLinhas.map(ls=>ls.length));
+      const colContentH=circleR*2+rowGap+labelH+6+maxLinhas*colLineH;
+      if(colContentH<=H*0.34||sz===10.5){colFontSz=sz;break;}
+    }
+  }
+  const maxLinhasFinal=colsLinhas.length?Math.max(...colsLinhas.map(ls=>ls.length)):0;
+  const colsBlockH=camposCols.length?(circleR*2+rowGap+labelH+6+maxLinhasFinal*colLineH):0;
+  const bottomRowH=64;
+  const dividerGap=camposCols.length?26:0;
+  const panelContentH=panelPadTop+colsBlockH+dividerGap+bottomRowH+panelPadBottom;
+  const panelMinH=H*0.26;
+  const panelH=Math.max(panelMinH,panelContentH);
+  const panelY=H-panelH;
+
+  ctx.fillStyle="rgba(20,14,12,0.12)";
+  ctx.fillRect(0,panelY-6,W,6);
+  roundRectTopPath(0,panelY,W,panelH+40,26);
+  ctx.fillStyle=PAINEL_BG;ctx.fill();
+
+  let cy=panelY+panelPadTop;
+  camposCols.forEach((c,i)=>{
+    const cx=panelPadX+i*(colW+colGap);
+    ctx.beginPath();ctx.arc(cx+circleR,cy+circleR,circleR,0,Math.PI*2);
+    ctx.fillStyle=ROXO;ctx.fill();
+    ctx.save();
+    ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.font="15px Georgia,serif";ctx.fillStyle=CREME;
+    ctx.fillText(c.icone,cx+circleR,cy+circleR+1);
+    ctx.restore();
+    ctx.textAlign="left";
+    ctx.font="bold 11px Arial,sans-serif";ctx.letterSpacing="1.2px";ctx.fillStyle=ROXO_TXT;
+    ctx.fillText(c.label,cx+circleR*2+10,cy+circleR+4);
+    ctx.letterSpacing="0px";
+    ctx.font=`${colFontSz}px Georgia,serif`;ctx.fillStyle=TXT_ESCURO;
+    let ly=cy+circleR*2+rowGap+labelH;
+    (colsLinhas[i]||[]).forEach(l=>{ctx.fillText(l,cx,ly);ly+=colLineH;});
+  });
+
+  // ── Linha-base: preço · disponibilidade · assinatura ──
+  const baseY=panelY+panelPadTop+colsBlockH+dividerGap;
+  if(camposCols.length){
+    ctx.strokeStyle="rgba(79,53,97,0.15)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(panelPadX,baseY-dividerGap/2);ctx.lineTo(W-panelPadX,baseY-dividerGap/2);ctx.stroke();
+  }
+
+  // Selo de preço (pílula arredondada, cor de destaque da marca)
+  ctx.font="bold 11px Arial,sans-serif";ctx.letterSpacing="1.5px";
+  const precoLabelW=ctx.measureText("A PARTIR DE").width;
+  ctx.font="26px Georgia,serif";
+  const precoValW=ctx.measureText(precoStr).width;
+  const pillW=Math.max(precoLabelW,precoValW)+44,pillH=58;
+  roundRectPath(panelPadX,baseY+2,pillW,pillH,14);
+  ctx.fillStyle=ROXO;ctx.fill();
+  ctx.textAlign="left";
+  ctx.font="bold 10px Arial,sans-serif";ctx.letterSpacing="1.5px";ctx.fillStyle="rgba(255,255,255,0.75)";
+  ctx.fillText("A PARTIR DE",panelPadX+20,baseY+22);
+  ctx.letterSpacing="0px";
+  ctx.font="26px Georgia,serif";ctx.fillStyle=CREME;
+  ctx.fillText(precoStr,panelPadX+20,baseY+48);
+
+  // Disponibilidade — ícone de sacola + rótulo real do cadastro
+  const dispX=panelPadX+pillW+26;
+  ctx.font="18px Arial,sans-serif";ctx.fillStyle=ROXO;
+  ctx.fillText("🛍",dispX,baseY+30);
+  ctx.font="bold 11px Arial,sans-serif";ctx.letterSpacing="1px";ctx.fillStyle=TXT_ESCURO;
+  ctx.fillText(dispLabel,dispX+26,baseY+30);
+  ctx.letterSpacing="0px";
+
+  // Assinatura da marca — discreta, alinhada à direita do painel
+  ctx.textAlign="right";
+  ctx.font="italic bold 19px Georgia,serif";ctx.fillStyle=ROXO;
+  ctx.fillText("Simara Lobui",W-panelPadX,baseY+26);
+  ctx.font="bold 10px Arial,sans-serif";ctx.letterSpacing="2px";ctx.fillStyle=ROXO_TXT;
+  ctx.fillText("TRICOT AMOR & ARTE",W-panelPadX,baseY+44);
+  ctx.letterSpacing="0px";
 
   return canvas;
 };
@@ -5016,6 +5101,12 @@ const pcAtendComps=(comps,p,a,proxOld)=>{
 };
 const pcAtendCompsExcluir=(comps,a)=>(comps||[]).filter(c=>c.id!==a.compromissoId&&(!a.proxCompromissoId||c.id!==a.proxCompromissoId));
 const pcHorasAtend=(p)=>(p.atendimentos||[]).reduce((s,a)=>s+(Number(a.duracaoMin)||0),0);
+// Numeração de ATA dos atendimentos — por ordem cronológica dentro do projeto (igual à ATA de sessão da Implantação de Sistema)
+const pcAtendAtaNumero=(p,atendId)=>{
+  const lista=(p.atendimentos||[]).slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))||String(a.hora||"").localeCompare(String(b.hora||""))||String(a.id).localeCompare(String(b.id)));
+  const idx=lista.findIndex(a=>a.id===atendId);
+  return idx>=0?idx+1:"—";
+};
 
 // ── indicadores ──
 const pcNum=(v)=>{const s=String(v===undefined||v===null?"":v).trim().replace(",",".");return s===""?NaN:Number(s);};
@@ -5356,6 +5447,25 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     ${pcRodape(config)}</body></html>`;
     return {html,arquivo:`Contrato ${p.nome} ${p.clienteNome}`,titulo:"Contrato do projeto",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o contrato do projeto "${p.nome}" em anexo. 🤎
 *Simara Lobui · Consultoria*`};
+  };
+  // ATA de um atendimento — mesmo modelo da ATA de sessão da Implantação de Sistema,
+  // numerada por ordem cronológica dentro do projeto (ATA nº 1, 2, 3...).
+  const docAtaAtendimento=(a)=>{
+    const ata=pcAtendAtaNumero(p,a.id);
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ATA ${ata} — ${p.clienteNome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,`ATA DE ATENDIMENTO Nº ${ata}`)}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <div class="campo"><b>Data:</b> ${fmtDate(a.data)}${a.hora?` · <b>Horário:</b> ${a.hora}${a.horaFim?`–${a.horaFim}`:""}`:""}${Number(a.duracaoMin)>0?` · <b>Duração:</b> ${pcFmtMin(a.duracaoMin)}`:""}</div>
+    <div class="campo"><b>Tipo:</b> ${a.tipo||"—"}</div>
+    <div class="campo"><b>Assunto:</b> ${a.assunto||"—"}</div>
+    ${a.realizado?`<div class="campo" style="white-space:pre-line"><b>O que foi realizado:</b><br>${a.realizado}</div>`:""}
+    ${a.orientacoes?`<div class="campo" style="white-space:pre-line"><b>Orientações:</b><br>${a.orientacoes}</div>`:""}
+    ${a.decisoes?`<div class="campo" style="white-space:pre-line"><b>Decisões tomadas:</b><br>${a.decisoes}</div>`:""}
+    ${a.proximos?`<div class="campo" style="white-space:pre-line"><b>Próximos passos:</b><br>${a.proximos}</div>`:""}
+    ${a.obs?`<div class="campo" style="white-space:pre-line"><b>Observações:</b><br>${a.obs}</div>`:""}
+    ${a.proxData?`<div class="campo"><b>Próximo atendimento agendado:</b> ${fmtDate(a.proxData)}${a.proxHora?` às ${a.proxHora}`:""}</div>`:""}
+    <div class="ass" style="margin-top:40px"><div class="ass-box">Simara Lobui<br>Consultoria</div><div class="ass-box">${p.clienteNome}<br>Cliente</div></div>
+    ${pcRodape(config)}</body></html>`;
   };
   const docDiagnostico=()=>{
     const dd=p.diagnostico||{};
@@ -6209,11 +6319,13 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         <span style={{fontSize:12,color:C.oliva}}>{lista.length} atendimento(s) · {pcFmtMin(pcHorasAtend(p))} realizadas</span>
       </div>
       {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13,lineHeight:1.6}}>Nenhum atendimento registrado.<br/>Cada atendimento fica ligado a este projeto e aparece na Agenda.</div>}
-      {lista.map(a=>(
+      {lista.map(a=>{
+        const ataNum=pcAtendAtaNumero(p,a.id);
+        return(
         <div key={a.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${PC_EV_COR.atendimento}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
           <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",alignItems:"flex-start"}}>
             <div style={{flex:1,minWidth:200}}>
-              <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>{fmtDate(a.data)}{a.hora?` · ${a.hora}${a.horaFim?`–${a.horaFim}`:""}`:""}{a.duracaoMin>0?` · ${pcFmtMin(a.duracaoMin)}`:""}</div>
+              <div style={{fontSize:11,color:C.oliva,fontWeight:700}}>ATA nº {ataNum} · {fmtDate(a.data)}{a.hora?` · ${a.hora}${a.horaFim?`–${a.horaFim}`:""}`:""}{a.duracaoMin>0?` · ${pcFmtMin(a.duracaoMin)}`:""}</div>
               <div style={{color:C.cafe,fontWeight:600,fontSize:14}}>{a.assunto}</div>
             </div>
             <span style={{background:"#E6F3F6",color:"#1F6F7A",borderRadius:20,padding:"3px 11px",fontSize:11,fontWeight:700}}>{a.tipo}</span>
@@ -6222,9 +6334,10 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           {a.proxData&&<div style={{fontSize:12,color:"#1F6F7A",marginTop:6,fontWeight:600}}>📅 Próximo agendado: {fmtDate(a.proxData)} {a.proxHora||""}</div>}
           <div style={{display:"flex",gap:6,marginTop:10}}>
             <Btn sm v="ghost" onClick={()=>{setForm({...a,duracaoMin:a.duracaoMin||"",hora:a.hora||"",horaFim:a.horaFim||"",proxData:a.proxData||"",proxHora:a.proxHora||"09:00",compromissoId:a.compromissoId||"",proxCompromissoId:a.proxCompromissoId||""});setModal("atend");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>pcAbrirImprimir(docAtaAtendimento(a))}>🖨 Imprimir ATA</Btn>
             <Btn sm v="ghost" onClick={()=>excluirAtend(a)}>🗑</Btn>
           </div>
-        </div>))}
+        </div>);})}
     </div>);
   };
 
