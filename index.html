@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v57 · 2026-10-20 11:18";
+const APP_BUILD = "v58 · 2026-10-20 21:16";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -336,6 +336,7 @@ const pfPainel = (despesas,receitas,mes) => {
 // ─── DADOS INICIAIS (só usados se não há nada salvo) ─────────────────────────
 const INIT = {
   products:[],
+  modelos:[],
   orders:[],
   clients:[],
   stockSup:[],
@@ -851,6 +852,7 @@ const NAV = [
   {k:"dashboard",i:"◈",l:"Início"},
   {k:"site",i:"✦",l:"Catálogo"},
   {k:"products",i:"☽",l:"Produtos"},
+  {k:"modelos",i:"📖",l:"Biblioteca de Modelos"},
   {k:"orders",i:"◎",l:"Encomendas"},
   {k:"production",i:"⟡",l:"Produção"},
   {k:"stock",i:"◇",l:"Estoque"},
@@ -871,7 +873,7 @@ const NAV = [
 const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
 const NAV_GROUPS=[
   {label:"Início",items:[NAV_BY_KEY.dashboard]},
-  {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
+  {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
   {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.personal,NAV_BY_KEY.reports]},
@@ -2108,7 +2110,160 @@ const ClienteSearch = ({value,onChange,onPhoneChange,clients}) => {
   );
 };
 
-const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
+// ─── BIBLIOTECA DE MODELOS ─────────────────────────────────────────────────────
+// Receitas por produto/tamanho: fio, medidas, peso, embalagem, tempo de produção
+// e o passo a passo carreira a carreira. Alimenta o checklist de produção na
+// Encomenda e o custo real pra sugerir o preço de venda.
+const MODELO_EMBALAGEM_PADRAO=["Embalagem de envio","Saquinho protetor","Papel seda","Perfume","Etiqueta"];
+const modeloKey=(produtoId,tamanho)=>`${produtoId||""}__${tamanho||""}`;
+const achaModelo=(modelos,produtoId,tamanho)=>(modelos||[]).find(m=>m.produtoId===produtoId&&String(m.tamanho||"")===String(tamanho||""));
+
+const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockSup=[],config}) => {
+  const [modal,setModal]=useState(null);
+  const [search,setSearch]=useState("");
+  const EF={id:null,nome:"",produtoId:"",tamanho:"",tipoLinha:"",marca:"",quantidadeLinha:"",peso:"",medidas:"",tempoProducaoMin:"",materiais:[],itensEmbalagem:MODELO_EMBALAGEM_PADRAO.map(nome=>({id:uid(),nome,custo:0})),etapas:[]};
+  const [form,setForm]=useState(EF);
+
+  const filtered=modelos.filter(m=>(m.nome||"").toLowerCase().includes(search.toLowerCase()));
+
+  const abrirNovo=()=>{setForm(EF);setModal("edit");};
+  const abrirEditar=(m)=>{setForm({...EF,...m,materiais:m.materiais||[],itensEmbalagem:m.itensEmbalagem?.length?m.itensEmbalagem:EF.itensEmbalagem,etapas:m.etapas||[]});setModal("edit");};
+  const excluir=(id)=>{if(window.confirm("Excluir esta receita?"))setModelos(prev=>prev.filter(m=>m.id!==id));};
+
+  const addMaterial=()=>setForm(f=>({...f,materiais:[...(f.materiais||[]),{itemId:"",qtd:0}]}));
+  const updMaterial=(idx,campo,v)=>setForm(f=>{const l=[...(f.materiais||[])];l[idx]={...l[idx],[campo]:v};return{...f,materiais:l};});
+  const rmMaterial=(idx)=>setForm(f=>({...f,materiais:(f.materiais||[]).filter((_,i)=>i!==idx)}));
+
+  const addEmb=()=>setForm(f=>({...f,itensEmbalagem:[...(f.itensEmbalagem||[]),{id:uid(),nome:"",custo:0}]}));
+  const updEmb=(id,campo,v)=>setForm(f=>({...f,itensEmbalagem:(f.itensEmbalagem||[]).map(i=>i.id===id?{...i,[campo]:v}:i)}));
+  const rmEmb=(id)=>setForm(f=>({...f,itensEmbalagem:(f.itensEmbalagem||[]).filter(i=>i.id!==id)}));
+
+  const addEtapa=()=>setForm(f=>({...f,etapas:[...(f.etapas||[]),{id:uid(),carreira:`Carreira ${(f.etapas||[]).length+1}`,pontos:""}]}));
+  const updEtapa=(id,campo,v)=>setForm(f=>({...f,etapas:(f.etapas||[]).map(e=>e.id===id?{...e,[campo]:v}:e)}));
+  const rmEtapa=(id)=>setForm(f=>({...f,etapas:(f.etapas||[]).filter(e=>e.id!==id)}));
+
+  const custoMateriais=(form.materiais||[]).reduce((s,m)=>{const it=stockSup.find(x=>x.id===m.itemId);return s+(it?.custoUnitario||0)*Number(m.qtd||0);},0);
+  const custoEmb=(form.itensEmbalagem||[]).reduce((s,i)=>s+Number(i.custo||0),0);
+  const custoTotal=custoMateriais+custoEmb;
+  const horas=Number(form.tempoProducaoMin||0)/60;
+  const custoMaoDeObra=horas*Number(config?.valorHora||0);
+  const precoSug=calcPreco(custoTotal,horas,Number(config?.valorHora||0),40);
+
+  const salvar=()=>{
+    if(!form.nome||!form.nome.trim()){alert("Dá um nome pra receita antes de salvar.");return;}
+    if(form.id) setModelos(prev=>prev.map(m=>m.id===form.id?{...form}:m));
+    else setModelos(prev=>[...prev,{...form,id:uid()}]);
+    setModal(null);
+    showSavedGlobal("Receita salva!");
+  };
+
+  const aplicarPreco=()=>{
+    if(!form.produtoId){alert("Vincule essa receita a um produto antes de aplicar o preço.");return;}
+    setProducts(prev=>prev.map(p=>{
+      if(p.id!==form.produtoId)return p;
+      if(form.tamanho&&(p.tamanhos||[]).includes(form.tamanho)){
+        const resto=(p.valorPorTamanho||[]).filter(x=>x.tamanho!==form.tamanho);
+        return {...p,valorPorTamanho:[...resto,{tamanho:form.tamanho,preco:precoSug}]};
+      }
+      return {...p,price:precoSug,cost:custoTotal,hours:Number(horas.toFixed(2))};
+    }));
+    showSavedGlobal("Preço aplicado no produto!");
+  };
+
+  return (
+    <div className="fade" style={{padding:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:10}}>
+        <div>
+          <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,color:C.cafe}}>📖 Biblioteca de Modelos</h2>
+          <div style={{fontSize:12,color:C.oliva}}>Suas receitas: fio, medidas, embalagem, passo a passo e custo real de cada produto/tamanho.</div>
+        </div>
+        <Btn onClick={abrirNovo}>+ Nova receita</Btn>
+      </div>
+      <Inp placeholder="Buscar receita..." value={search} onChange={setSearch}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:12,marginTop:14}}>
+        {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:C.oliva,padding:30,fontSize:13}}>Nenhuma receita cadastrada ainda.</div>}
+        {filtered.map(m=>{
+          const prod=products.find(p=>p.id===m.produtoId);
+          return (
+          <Card key={m.id} hover onClick={()=>abrirEditar(m)}>
+            <div style={{fontWeight:700,color:C.cafe,fontSize:14}}>{m.nome}</div>
+            {prod&&<div style={{fontSize:11,color:C.oliva,marginTop:2}}>Produto: {prod.name}{m.tamanho?` · ${m.tamanho}`:""}</div>}
+            <div style={{fontSize:11,color:C.oliva,marginTop:4}}>{(m.etapas||[]).length} carreira(s){Number(m.tempoProducaoMin)>0?` · ${pcFmtMin(Number(m.tempoProducaoMin))}`:""}</div>
+            <div style={{display:"flex",gap:6,marginTop:10}} onClick={e=>e.stopPropagation()}>
+              <Btn sm v="ghost" onClick={()=>excluir(m.id)}>🗑 Excluir</Btn>
+            </div>
+          </Card>);
+        })}
+      </div>
+
+      {modal==="edit"&&(
+        <Modal title={form.id?"✎ Editar receita":"+ Nova receita"} onClose={()=>setModal(null)} wide>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Nome da receita" value={form.nome} onChange={v=>setForm(f=>({...f,nome:v}))} placeholder="Ex: Sousplat Bloom 40x40"/>
+            <Sel label="Produto vinculado" value={form.produtoId} onChange={v=>setForm(f=>({...f,produtoId:v}))} options={[{v:"",l:"— Selecione —"},...products.map(p=>({v:p.id,l:p.name}))]}/>
+            <Inp label="Tamanho (se houver)" value={form.tamanho} onChange={v=>setForm(f=>({...f,tamanho:v}))} placeholder="Ex: 40x40, P, M..."/>
+            <Inp label="Tempo de produção (minutos)" type="number" value={form.tempoProducaoMin} onChange={v=>setForm(f=>({...f,tempoProducaoMin:v}))}/>
+            <Inp label="Tipo de linha/fio" value={form.tipoLinha} onChange={v=>setForm(f=>({...f,tipoLinha:v}))}/>
+            <Inp label="Marca" value={form.marca} onChange={v=>setForm(f=>({...f,marca:v}))}/>
+            <Inp label="Quantidade de linha" value={form.quantidadeLinha} onChange={v=>setForm(f=>({...f,quantidadeLinha:v}))} placeholder="Ex: 2 novelos"/>
+            <Inp label="Peso" value={form.peso} onChange={v=>setForm(f=>({...f,peso:v}))} placeholder="Ex: 180g"/>
+            <div style={{gridColumn:"1/-1"}}><Inp label="Medidas" value={form.medidas} onChange={v=>setForm(f=>({...f,medidas:v}))} placeholder="Ex: 40x40cm"/></div>
+          </div>
+
+          <Divider label="Materiais do estoque (opcional)"/>
+          {(form.materiais||[]).map((m,idx)=>(
+            <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
+              <div style={{flex:1}}><Sel label="Item" value={m.itemId} onChange={v=>updMaterial(idx,"itemId",v)} options={[{v:"",l:"— Selecione —"},...stockSup.map(s=>({v:s.id,l:s.nome}))]}/></div>
+              <div style={{width:90}}><Inp label="Qtd" type="number" value={m.qtd} onChange={v=>updMaterial(idx,"qtd",v)}/></div>
+              <Btn sm v="ghost" onClick={()=>rmMaterial(idx)}>🗑</Btn>
+            </div>
+          ))}
+          <Btn sm v="ghost" onClick={addMaterial}>+ Adicionar material do estoque</Btn>
+
+          <Divider label="Embalagem"/>
+          {(form.itensEmbalagem||[]).map(i=>(
+            <div key={i.id} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
+              <div style={{flex:1}}><Inp label="Item" value={i.nome} onChange={v=>updEmb(i.id,"nome",v)}/></div>
+              <div style={{width:110}}><Inp label="Custo (R$)" type="number" value={i.custo} onChange={v=>updEmb(i.id,"custo",v)}/></div>
+              <Btn sm v="ghost" onClick={()=>rmEmb(i.id)}>🗑</Btn>
+            </div>
+          ))}
+          <Btn sm v="ghost" onClick={addEmb}>+ Adicionar item de embalagem</Btn>
+
+          <Divider label="Passo a passo (carreiras)"/>
+          {(form.etapas||[]).map(e=>(
+            <div key={e.id} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
+              <div style={{width:130}}><Inp label="Carreira" value={e.carreira} onChange={v=>updEtapa(e.id,"carreira",v)}/></div>
+              <div style={{flex:1}}><Inp label="Pontos / instrução" value={e.pontos} onChange={v=>updEtapa(e.id,"pontos",v)}/></div>
+              <Btn sm v="ghost" onClick={()=>rmEtapa(e.id)}>🗑</Btn>
+            </div>
+          ))}
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <Btn sm v="ghost" onClick={addEtapa}>+ Nova carreira</Btn>
+          </div>
+
+          <div style={{background:C.linho,borderRadius:4,padding:"10px 14px",marginTop:14}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:5}}>Custo real desta receita</div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,marginBottom:4}}>
+              <span>Materiais: <b>{fmtBRL(custoMateriais)}</b></span>
+              <span>Embalagem: <b>{fmtBRL(custoEmb)}</b></span>
+              <span>Mão de obra ({horas.toFixed(1)}h): <b>{fmtBRL(custoMaoDeObra)}</b></span>
+            </div>
+            <div style={{fontSize:14,fontWeight:700,color:C.dourado}}>Preço sugerido: {fmtBRL(precoSug)}</div>
+            <Btn sm v="oliva" style={{marginTop:8}} onClick={aplicarPreco}>✓ Aplicar esse preço no produto</Btn>
+          </div>
+
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16}}>
+            <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={salvar}>💾 Salvar receita</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
+const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
   const [filter,setFilter]=useState("Ativos");
   const [modal,setModal]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
@@ -2317,7 +2472,18 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
         </Modal>
       )}
 
-      {detail&&(
+      {detail&&(()=>{
+        const itensDetail=detail.itens?.length>0?detail.itens:[{product:detail.product,color:detail.color,size:detail.size,qty:1,price:detail.price}];
+        const toggleEtapa=(itemIdx,etapaId)=>{
+          const checklist={...(detail.producaoChecklist||{})};
+          const doItem={...(checklist[itemIdx]||{})};
+          doItem[etapaId]=!doItem[etapaId];
+          checklist[itemIdx]=doItem;
+          const atualizado={...detail,producaoChecklist:checklist};
+          setOrders(prev=>prev.map(o=>o.id===detail.id?atualizado:o));
+          setDetail(atualizado);
+        };
+        return(
         <Modal title={`Pedido ${detail.id}`} onClose={()=>setDetail(null)} wide>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             {[["Cliente",detail.client],["WhatsApp",detail.phone],["Como chegou",detail.origem],["Produto",detail.product],["Cor",detail.color],["Tamanho",detail.size],["Medidas",detail.measures],["Pagamento",detail.payment],["Data compra",fmtDate(detail.dataCompra)],["Entrega",fmtDate(detail.delivery)]].map(([l,v])=>(
@@ -2331,13 +2497,50 @@ const Orders = ({orders,setOrders,products,config,onFicha,clients,setClients,fin
               <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",fontWeight:600,marginBottom:1}}>Total / Pago / Saldo</div><div style={{fontSize:13,fontWeight:700}}>{fmtBRL(detail.precoFinal||detail.price)} / {fmtBRL(detail.valorPago||0)} / <span style={{color:C.vermelho}}>{fmtBRL(Math.max(0,(detail.precoFinal||detail.price)-(detail.valorPago||0)))}</span></div></div>
             </div>
           </div>
+
+          {itensDetail.map((item,idx)=>{
+            const prod=products.find(p=>p.name===item.product);
+            const receita=prod?achaModelo(modelos,prod.id,item.size):null;
+            if(!receita)return null;
+            const etapas=receita.etapas||[];
+            const feitas=detail.producaoChecklist?.[idx]||{};
+            const nFeitas=etapas.filter(e=>feitas[e.id]).length;
+            return(
+              <div key={idx} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${C.dourado}`,borderRadius:6,padding:"12px 14px",marginBottom:10}}>
+                <div style={{fontWeight:700,color:C.cafe,fontSize:13,marginBottom:2}}>📖 {receita.nome}{item.size?` · ${item.size}`:""}</div>
+                <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>
+                  {receita.tipoLinha&&`Fio: ${receita.tipoLinha}${receita.marca?` (${receita.marca})`:""} · `}
+                  {receita.quantidadeLinha&&`Qtd: ${receita.quantidadeLinha} · `}
+                  {receita.peso&&`Peso: ${receita.peso} · `}
+                  {receita.medidas&&`Medidas: ${receita.medidas}`}
+                </div>
+                {etapas.length>0&&<>
+                  <div style={{fontSize:11,fontWeight:700,color:C.oliva,marginBottom:4}}>{nFeitas}/{etapas.length} carreiras concluídas</div>
+                  <PBar pct={etapas.length?Math.round(nFeitas/etapas.length*100):0}/>
+                  <div style={{marginTop:8,maxHeight:180,overflowY:"auto"}}>
+                    {etapas.map(e=>(
+                      <label key={e.id} style={{display:"flex",gap:8,alignItems:"center",padding:"4px 0",fontSize:12,cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!feitas[e.id]} onChange={()=>toggleEtapa(idx,e.id)}/>
+                        <span style={{textDecoration:feitas[e.id]?"line-through":"none",color:feitas[e.id]?C.oliva:C.cafe}}><b>{e.carreira}:</b> {e.pontos}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>}
+                {(receita.itensEmbalagem||[]).some(i=>i.nome)&&<div style={{fontSize:11,color:C.oliva,marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.areia}`}}>
+                  <b>Embalagem:</b> {(receita.itensEmbalagem||[]).filter(i=>i.nome).map(i=>i.nome).join(" · ")}
+                </div>}
+              </div>
+            );
+          })}
+
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <Btn v="oliva" onClick={()=>sendWA(detail)}>💬 WhatsApp</Btn>
             <Btn v="ghost" onClick={()=>{setDetail(null);openEdit(detail);}}>✎ Editar</Btn>
             {onFicha&&<Btn v="gold" onClick={()=>{setDetail(null);onFicha(detail);}}>📋 Ficha</Btn>}
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {modal&&<OrderForm form={form} setForm={setForm} products={products} config={config} clients={clients} onClose={()=>setModal(null)} onSave={save}/>}
     </div>
@@ -11378,6 +11581,7 @@ function App() {
 
   // Todos os dados — Firebase é a fonte principal
   const [products,  setProducts  ]=useStorage("products",   INIT.products);
+  const [modelos,   setModelos   ]=useStorage("modelos",    INIT.modelos);
   const [orders,    setOrders    ]=useStorage("orders",      INIT.orders);
   const [clients,   setClients   ]=useStorage("clients",     INIT.clients);
   const [stockSup,  setStockSup  ]=useStorage("stockSup",    INIT.stockSup);
@@ -11485,7 +11689,8 @@ function App() {
           {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} subcategories={subcategories} config={config} stockSup={stockSup}/>}
-          {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
+          {view==="modelos"     &&<BibliotecaModelos modelos={modelos} setModelos={setModelos} products={products} setProducts={setProducts} stockSup={stockSup} config={config}/>}
+          {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal} personalContas={personalContas}/>}
