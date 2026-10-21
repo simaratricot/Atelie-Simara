@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v59 · 2026-10-21 08:00";
+const APP_BUILD = "v60 · 2026-10-21 20:40";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -495,7 +495,49 @@ if (typeof window !== "undefined") {
     if (_fbPendentes > 0) { e.preventDefault(); e.returnValue = ""; }
   });
 }
+// Chaves cujo valor é um array que pode crescer demais pra caber num único
+// documento do Firestore (limite de ~1MB por documento, por causa das fotos).
+// Essas usam 1 documento POR ITEM, numa subcoleção própria, em vez de um
+// documento só com o array inteiro — assim o tamanho de um produto nunca
+// compromete o salvamento dos outros.
+const COLECAO_POR_ITEM = new Set(["products"]);
+
+const fbSaveColecao = (key, arrayValue) => {
+  const anterior = _fbQueues[key] || Promise.resolve();
+  _fbPendentes++;
+  const atual = anterior.catch(() => {}).then(async () => {
+    try {
+      const colRef = db.collection("atelie_col_" + key);
+      const snap = await colRef.get();
+      const idsAntigos = new Set(snap.docs.map(d => d.id));
+      const idsNovos = new Set();
+      for (const item of (arrayValue || [])) {
+        if (!item || typeof item !== "object" || item.id === undefined || item.id === null) continue;
+        const docId = String(item.id);
+        idsNovos.add(docId);
+        const c = {...item};
+        if (c.photos?.length) c.photos = await Promise.all(c.photos.map(p => comprimirParaFirebase(p)));
+        if (c.cores?.length) c.cores = await Promise.all(c.cores.map(async cor => ({...cor, foto: cor.foto ? await comprimirParaFirebase(cor.foto) : cor.foto})));
+        if (c.foto) c.foto = await comprimirParaFirebase(c.foto);
+        const json = JSON.stringify(c);
+        if (json.length > 900000) {
+          showSaveError(`⚠ "${c.name||docId}" ficou grande demais pra salvar na nuvem (muitas fotos). Apague fotos antigas/duplicadas dele — senão o que você mudar por último nele pode não ficar salvo.`);
+        }
+        await colRef.doc(docId).set({value: json, updated: Date.now()});
+      }
+      const remover = [...idsAntigos].filter(id => !idsNovos.has(id));
+      await Promise.all(remover.map(id => colRef.doc(id).delete()));
+    } catch(e) {
+      showSaveError(`⚠ Não consegui salvar "${key}" na nuvem (${(e&&e.message)||"erro desconhecido"}). Ficou salvo neste aparelho, mas confira sua internet e tente de novo — ou abra em outro aparelho pra ver se já chegou.`);
+    }
+    finally { _fbPendentes--; }
+  });
+  _fbQueues[key] = atual;
+  return atual;
+};
+
 const fbSave = (key, value) => {
+  if (COLECAO_POR_ITEM.has(key) && Array.isArray(value)) return fbSaveColecao(key, value);
   const anterior = _fbQueues[key] || Promise.resolve();
   _fbPendentes++;
   const atual = anterior.catch(() => {}).then(async () => {
@@ -598,6 +640,32 @@ const useStorage = (key, initial) => {
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
+
+    if (COLECAO_POR_ITEM.has(key)) {
+      // Lê a subcoleção (1 documento por item) em vez de um documento único.
+      db.collection("atelie_col_" + key).get().then(snap => {
+        const local = _lerLocal(K);
+        const cloudArr = snap.docs.map(d => { try { return JSON.parse(d.data().value); } catch { return null; } }).filter(Boolean);
+        const cloudTs = snap.docs.reduce((m,d) => Math.max(m, d.data().updated||0), 0);
+        if (local && local.ts > cloudTs) {
+          // Este aparelho tem algo mais novo (ou a subcoleção ainda nem existe na
+          // nuvem, caso deste aparelho seja o primeiro a sincronizar com o formato
+          // novo) — mantém e reenvia, item por item, pra nuvem.
+          setVal(local.value);
+          lastTs.current = local.ts;
+          fbSave(key, local.value);
+        } else {
+          setVal(cloudArr);
+          lastTs.current = cloudTs;
+          _gravarLocal(K, cloudArr);
+        }
+      }).catch(() => {
+        const local = _lerLocal(K);
+        if (local) { setVal(local.value); lastTs.current = local.ts; }
+      });
+      return;
+    }
+
     db.collection("atelie").doc(key).get().then(doc => {
       const local = _lerLocal(K);
       if (doc.exists) {
@@ -1849,7 +1917,7 @@ const ArteDivulgacaoV2Preview=({produto,config})=>{
   );
 };
 
-const Products = ({products,setProducts,categories,subcategories,config,stockSup}) => {
+const Products = ({products,setProducts,categories,subcategories,config,stockSup,modelos=[]}) => {
   const [search,setSearch]=useState("");
   const [catF,setCatF]=useState("Todos");
   const [modal,setModal]=useState(null);
@@ -1961,6 +2029,7 @@ const Products = ({products,setProducts,categories,subcategories,config,stockSup
               <div style={{display:"flex",gap:5,marginTop:"auto",flexWrap:"wrap"}}>
                 <Btn sm v="ghost" onClick={()=>{setForm({...EF,...p,materiais:p.materiais||[],tamanhos:p.tamanhos||[],cores:p.cores||[],photos:p.photos||[],valorPorTamanho:p.valorPorTamanho||[]});setModal("edit");}}>✎</Btn>
                 <Btn sm v="ghost" onClick={()=>compartilharProduto(p)} title="Compartilhar">📤</Btn>
+                <Btn sm v="ghost" onClick={()=>{navigator.clipboard?.writeText(`${window.location.origin}/?loja=1&produto=${p.id}`).then(()=>showSavedGlobal("Link do produto copiado!"));}} title="Copiar link direto do produto">🔗</Btn>
                 <button onClick={()=>setProducts(prev=>prev.map(x=>x.id===p.id?{...x,nocatalogo:x.nocatalogo===false?undefined:false}:x))}
                   title={p.nocatalogo===false?"Oculto do catálogo":"Visível no catálogo"}
                   style={{fontSize:11,padding:"3px 7px",borderRadius:4,border:`1px solid ${p.nocatalogo===false?"#FF6B6B":C.oliva}`,background:p.nocatalogo===false?"#FEE":"#EDF7ED",cursor:"pointer",color:p.nocatalogo===false?"#c0392b":C.oliva}}>
@@ -2011,62 +2080,32 @@ const Products = ({products,setProducts,categories,subcategories,config,stockSup
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {form.tamanhos.map(t=>{
                 const vt=(form.valorPorTamanho||[]).find(x=>x.tamanho===t);
+                const receitaLigada=achaModelo(modelos,form.id,t);
                 return(
-                  <div key={t} style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontSize:13,fontWeight:700,width:36,color:C.cafe,flexShrink:0}}>{t}</span>
-                    <input type="number" placeholder="R$ 0,00" value={vt?.preco||""} onChange={e=>{
-                      const preco=Number(e.target.value);
-                      setForm(f=>{const prev=(f.valorPorTamanho||[]).filter(x=>x.tamanho!==t);return{...f,valorPorTamanho:preco>0?[...prev,{tamanho:t,preco}]:prev};});
-                    }} style={{flex:1,padding:"6px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
-                    {vt?.preco&&<span style={{fontSize:12,color:C.dourado,fontWeight:700,flexShrink:0}}>{fmtBRL(vt.preco)}</span>}
+                  <div key={t} style={{display:"flex",flexDirection:"column",gap:2}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:13,fontWeight:700,width:36,color:C.cafe,flexShrink:0}}>{t}</span>
+                      <input type="number" placeholder="R$ 0,00" value={vt?.preco||""} onChange={e=>{
+                        const preco=Number(e.target.value);
+                        setForm(f=>{const prev=(f.valorPorTamanho||[]).filter(x=>x.tamanho!==t);return{...f,valorPorTamanho:preco>0?[...prev,{tamanho:t,preco}]:prev};});
+                      }} style={{flex:1,padding:"6px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe}}/>
+                      {vt?.preco&&<span style={{fontSize:12,color:C.dourado,fontWeight:700,flexShrink:0}}>{fmtBRL(vt.preco)}</span>}
+                    </div>
+                    <div style={{fontSize:11,paddingLeft:44,color:receitaLigada?C.oliva:"#b9796a"}}>
+                      {receitaLigada?`📖 Receita vinculada: ${receitaLigada.nome||"sem nome"}`:"⚠ Sem receita na Biblioteca de Modelos pra esse tamanho"}
+                    </div>
                   </div>
                 );
               })}
             </div>
           </>}
 
-          <Divider label="Materiais do estoque"/>
-          <div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Vincular materiais permite baixa automática no estoque ao produzir.</div>
-          {(form.materiais||[]).map((m,idx)=>{
-            const it=stockSup.find(s=>s.id===m.itemId);
-            return(
-              <div key={idx} style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:6,flexWrap:"wrap"}}>
-                <div style={{flex:2,minWidth:120}}>
-                  <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:2}}>Material</label>
-                  <select value={m.itemId} onChange={e=>setForm(f=>{const n=[...f.materiais];n[idx]={...n[idx],itemId:e.target.value};return{...f,materiais:n};})} style={{width:"100%",padding:"7px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:C.branco}}>
-                    <option value="">Selecionar...</option>
-                    {stockSup.map(s=><option key={s.id} value={s.id}>{s.nome} ({s.qty} {s.unidade})</option>)}
-                  </select>
-                </div>
-                <div style={{width:80}}>
-                  <label style={{fontSize:10,fontWeight:600,color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:2}}>Qtd</label>
-                  <input type="number" value={m.qtd} onChange={e=>setForm(f=>{const n=[...f.materiais];n[idx]={...n[idx],qtd:e.target.value};return{...f,materiais:n};})} style={{width:"100%",padding:"7px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>
-                </div>
-                <Btn sm v="danger" onClick={()=>setForm(f=>({...f,materiais:f.materiais.filter((_,i)=>i!==idx)}))}>✕</Btn>
-              </div>
-            );
-          })}
-          <Btn sm v="ghost" onClick={()=>setForm(f=>({...f,materiais:[...(f.materiais||[]),{itemId:"",qtd:1}]}))}>+ Material</Btn>
-
-          <Divider label="Precificação"/>
+          <Divider label="Preço e prazo"/>
+          <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Custo, materiais, tempo de produção e preço sugerido agora ficam na 📖 Biblioteca de Modelos, junto com a receita de cada produto/tamanho.</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            {(!form.materiais?.length)&&<Inp label="Custo materiais (R$)" type="number" value={form.cost} onChange={v=>setForm(f=>({...f,cost:v}))}/>}
-            <Inp label="Horas de produção" type="number" value={form.hours} onChange={v=>setForm(f=>({...f,hours:v}))}/>
-            <Inp label="Margem de lucro (%)" type="number" value={form.margem} onChange={v=>setForm(f=>({...f,margem:v}))}/>
-            <Inp label="Preço final (0 = sugerido)" type="number" value={form.price} onChange={v=>setForm(f=>({...f,price:v}))}/>
+            <Inp label="Preço (sem tamanho, ou preço base)" type="number" value={form.price} onChange={v=>setForm(f=>({...f,price:v}))}/>
             <Inp label="Buffer de dias extras" type="number" value={form.buffer} onChange={v=>setForm(f=>({...f,buffer:v}))}/>
           </div>
-          {(custoFinal>0||Number(form.hours)>0)&&(
-            <div style={{background:C.linho,borderRadius:4,padding:"10px 14px",marginTop:10}}>
-              <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:5}}>Precificação inteligente</div>
-              <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,marginBottom:4}}>
-                <span>Materiais: <b>{fmtBRL(custoFinal)}</b></span>
-                <span>Mão de obra: <b>{fmtBRL(Number(form.hours||0)*config.valorHora)}</b></span>
-                <span>Margem: <b>{form.margem||40}%</b></span>
-              </div>
-              <div style={{fontSize:14,fontWeight:700,color:C.dourado}}>Preço sugerido: {fmtBRL(precoSug)}</div>
-            </div>
-          )}
           <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
             <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
             <Btn onClick={save}>Salvar produto</Btn>
@@ -2306,11 +2345,122 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
   );
 };
 
+// ─── DOCUMENTOS DE ENVIO (declaração de conteúdo + etiqueta) ──────────────────
+// Gera e imprime, a partir dos dados já cadastrados (remetente em Configurações,
+// destinatário no cadastro do cliente ou num endereço próprio da encomenda, e os
+// produtos/quantidades/valores da própria encomenda). Nada aqui inventa dado nem
+// altera o cadastro original — é só leitura, formatada pra impressão.
+const ENVIO_CAMPOS_OBRIG=[["nome","Nome"],["cep","CEP"],["endereco","Endereço"],["numero","Número"],["bairro","Bairro"],["cidade","Cidade"],["estado","Estado"]];
+const envioFaltando=(end)=>ENVIO_CAMPOS_OBRIG.filter(([k])=>!String((end||{})[k]||"").trim()).map(([,l])=>l);
+const envioLinhaEndereco=(e)=>`${e.endereco||""}, ${e.numero||"s/n"}${e.complemento?` - ${e.complemento}`:""} — ${e.bairro||""}, ${e.cidade||""}/${e.estado||""} — CEP ${e.cep||""}`;
+const evAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
+
+const evDeclaracaoStyles=`
+  .decl{max-width:100%;}
+  .decl h1{font-size:18px;text-align:center;letter-spacing:1px;margin:0 0 4px;}
+  .decl .sub{text-align:center;font-size:10.5px;color:#666;margin-bottom:18px;}
+  .decl .cols{display:flex;gap:18px;margin-bottom:16px;}
+  .decl .bloco{flex:1;border:1px solid #bbb;border-radius:4px;padding:10px 12px;}
+  .decl .bloco h3{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7a5a8c;margin:0 0 8px;border-bottom:1px solid #eee;padding-bottom:4px;}
+  .decl .bloco div{margin-bottom:2px;}
+  .decl table{width:100%;border-collapse:collapse;margin:14px 0;}
+  .decl th,.decl td{border:1px solid #bbb;padding:7px 8px;font-size:12px;text-align:left;}
+  .decl th{background:#f3f0f6;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;}
+  .decl td.num,.decl th.num{text-align:right;}
+  .decl tr{page-break-inside:avoid;}
+  .decl .total-row td{font-weight:bold;background:#faf8fc;}
+  .decl .rodape{margin-top:26px;font-size:10.5px;color:#555;}
+  .decl .assin{margin-top:46px;display:flex;gap:30px;}
+  .decl .assin .linha{flex:1;border-top:1px solid #333;padding-top:5px;text-align:center;font-size:11px;}
+  .decl .aviso{margin-top:18px;font-size:10px;color:#777;border-top:1px dashed #ccc;padding-top:10px;}
+`;
+const evDeclaracaoBody=({numero,remetente,destinatario,itens,local,data})=>{
+  const linhas=(itens||[]).map(i=>({desc:i.product||"Item",qtd:Number(i.qty||1),unit:Number(i.price||0)}));
+  const total=linhas.reduce((a,i)=>a+i.qtd*i.unit,0);
+  return `<div class="decl">
+  <h1>Declaração de Conteúdo</h1>
+  <div class="sub">${numero?`Encomenda ${numero} · `:""}Emitida em ${new Date().toLocaleDateString("pt-BR")}</div>
+  <div class="cols">
+    <div class="bloco"><h3>Remetente</h3>
+      <div><b>${remetente.nome||""}</b></div>
+      ${remetente.cpfCnpj?`<div>CPF/CNPJ: ${remetente.cpfCnpj}</div>`:""}
+      <div>${envioLinhaEndereco(remetente)}</div>
+      ${remetente.telefone?`<div>Tel: ${remetente.telefone}</div>`:""}
+    </div>
+    <div class="bloco"><h3>Destinatário</h3>
+      <div><b>${destinatario.nome||""}</b></div>
+      ${destinatario.cpfCnpj?`<div>CPF/CNPJ: ${destinatario.cpfCnpj}</div>`:""}
+      <div>${envioLinhaEndereco(destinatario)}</div>
+      ${destinatario.telefone?`<div>Tel: ${destinatario.telefone}</div>`:""}
+    </div>
+  </div>
+  <table><thead><tr><th>Descrição do produto</th><th class="num">Qtd.</th><th class="num">Valor unit.</th><th class="num">Valor total</th></tr></thead>
+  <tbody>
+  ${linhas.map(i=>`<tr><td>${i.desc}</td><td class="num">${i.qtd}</td><td class="num">${fmtBRL(i.unit)}</td><td class="num">${fmtBRL(i.qtd*i.unit)}</td></tr>`).join("")}
+  <tr class="total-row"><td colspan="3">Valor total declarado</td><td class="num">${fmtBRL(total)}</td></tr>
+  </tbody></table>
+  <div class="rodape">${local||""}, ${data?new Date(data+"T12:00:00").toLocaleDateString("pt-BR"):new Date().toLocaleDateString("pt-BR")}.</div>
+  <div class="assin"><div class="linha">Assinatura do remetente</div></div>
+  <div class="aviso">Declaro que as informações acima são verdadeiras. Esta declaração de conteúdo não substitui a Nota Fiscal, quando esta for obrigatória por lei, e está sujeita às regras vigentes dos Correios para postagem.</div>
+  </div>`;
+};
+
+const evEtiquetaStyles=`
+  .corte{text-align:center;color:#9a8cb8;font-size:11px;margin:4px 0;letter-spacing:1px;}
+  .etq{border:1.5px dashed #b9a8d6;border-radius:6px;padding:14px 18px;margin-bottom:4px;display:flex;flex-direction:column;justify-content:space-around;}
+  .etq.p1{min-height:230mm;}
+  .etq.p2{min-height:110mm;}
+  .etq-lado{padding:10px 4px;}
+  .etq-tag{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:#7a5a8c;font-weight:bold;margin-bottom:6px;}
+  .etq-nome{font-size:15px;font-weight:bold;margin-bottom:4px;}
+  .etq-lado div{margin-bottom:2px;line-height:1.5;}
+  .etq-sep{text-align:center;color:#b9a8d6;font-size:11px;margin:10px 0;letter-spacing:1px;}
+`;
+const evEtiquetaBoxHtml=(remetente,destinatario,cls)=>`<div class="etq ${cls}">
+  <div class="etq-lado"><div class="etq-tag">Remetente</div>
+    <div class="etq-nome">${remetente.nome||""}</div>
+    <div>${remetente.endereco||""}, ${remetente.numero||"s/n"}${remetente.complemento?` - ${remetente.complemento}`:""}</div>
+    <div>${remetente.bairro||""} — ${remetente.cidade||""}/${remetente.estado||""}</div>
+    <div>CEP ${remetente.cep||""}${remetente.telefone?` · Tel: ${remetente.telefone}`:""}</div>
+  </div>
+  <div class="etq-sep"><span>✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</span></div>
+  <div class="etq-lado"><div class="etq-tag">Destinatário</div>
+    <div class="etq-nome">${destinatario.nome||""}</div>
+    <div>${destinatario.endereco||""}, ${destinatario.numero||"s/n"}${destinatario.complemento?` - ${destinatario.complemento}`:""}</div>
+    <div>${destinatario.bairro||""} — ${destinatario.cidade||""}/${destinatario.estado||""}</div>
+    <div>CEP ${destinatario.cep||""}${destinatario.telefone?` · Tel: ${destinatario.telefone}`:""}</div>
+  </div>
+</div>`;
+const evEtiquetaBody=({remetente,destinatario,porFolha})=>{
+  const n=porFolha===2?2:1;
+  const cls=n===1?"p1":"p2";
+  const caixas=Array.from({length:n},()=>evEtiquetaBoxHtml(remetente,destinatario,cls)).join(`<div class="corte"><span>✂ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span></div>`);
+  return `<div class="etqwrap">${caixas}</div>`;
+};
+
+// Monta o documento final (um ou dois conteúdos, cada um em sua página) e já
+// abre a janela de impressão.
+const evMontarEImprimir=({incluirDeclaracao,incluirEtiqueta,declParams,etqParams})=>{
+  const partes=[];
+  if(incluirDeclaracao)partes.push(evDeclaracaoBody(declParams));
+  if(incluirEtiqueta)partes.push(evEtiquetaBody(etqParams));
+  const corpo=partes.map((p,i)=>i>0?`<div style="page-break-before:always;">${p}</div>`:p).join("");
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Documentos de envio</title><style>
+  @page{size:A4;margin:14mm;}
+  *{box-sizing:border-box;}
+  body{font-family:Arial,Helvetica,sans-serif;color:#222;background:#fff;font-size:13px;margin:0;}
+  ${evDeclaracaoStyles}
+  ${evEtiquetaStyles}
+  </style></head><body>${corpo}</body></html>`;
+  return html;
+};
+
 const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
   const [filter,setFilter]=useState("Ativos");
   const [modal,setModal]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
   const [detail,setDetail]=useState(null);
+  const [envioModal,setEnvioModal]=useState(null);
   const EF={client:"",phone:"",origem:"WhatsApp",itens:[{product:"",color:"",size:"",qty:1,price:0}],measures:"",price:0,desconto:0,tipoDesc:"valor",precoFinal:0,dataCompra:today,delivery:"",status:"Pedido recebido",valorPago:0,note:"",tracking:"",payment:"PIX",condicao:"À vista",entrada:0,dataEntradaPag:today,dataSaldo:"",parcelas:[],qtdParcelas:2,position:1};
   const [form,setForm]=useState(EF);
 
@@ -2604,13 +2754,122 @@ const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,co
             <Btn v="oliva" onClick={()=>sendWA(detail)}>💬 WhatsApp</Btn>
             <Btn v="ghost" onClick={()=>{setDetail(null);openEdit(detail);}}>✎ Editar</Btn>
             {onFicha&&<Btn v="gold" onClick={()=>{setDetail(null);onFicha(detail);}}>📋 Ficha</Btn>}
+            {detail.status!=="Cancelado"&&<Btn v="ghost" onClick={()=>setEnvioModal(detail)}>📮 Imprimir documentos de envio</Btn>}
           </div>
         </Modal>
         );
       })()}
 
+      {envioModal&&<EnvioDocsModal order={envioModal} client={clients.find(c=>c.name===envioModal.client)} config={config} setOrders={setOrders} onClose={()=>setEnvioModal(null)}/>}
+
       {modal&&<OrderForm form={form} setForm={setForm} products={products} config={config} clients={clients} onClose={()=>setModal(null)} onSave={save}/>}
     </div>
+  );
+};
+
+// ─── MODAL: DOCUMENTOS DE ENVIO (declaração de conteúdo + etiqueta) ───────────
+const EnvioDocsModal = ({order,client,config,setOrders,onClose}) => {
+  const temOverride=!!(order.enderecoEnvio&&Object.keys(order.enderecoEnvio).length);
+  const [origemEnd,setOrigemEnd]=useState(temOverride?"proprio":"cliente");
+  const baseCliente=client?.enderecoEntrega||{};
+  const EFD={nome:client?.name||order.client||"",cpfCnpj:"",telefone:client?.phone||order.phone||"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:client?.city||"",estado:""};
+  const [destForm,setDestForm]=useState(temOverride?{...EFD,...order.enderecoEnvio}:(Object.keys(baseCliente).some(k=>baseCliente[k])?{...EFD,...baseCliente}:EFD));
+  const [incluir,setIncluir]=useState({declaracao:true,etiqueta:true});
+  const [porFolha,setPorFolha]=useState(1);
+  const [localDecl,setLocalDecl]=useState(client?.city||"");
+  const [dataDecl,setDataDecl]=useState(today);
+  const [preview,setPreview]=useState("");
+
+  const remetente=config.remetente||{};
+  const itens=order.itens?.length>0?order.itens:[{product:order.product,qty:1,price:order.precoFinal||order.price}];
+  const faltandoRem=envioFaltando(remetente);
+  const faltandoDest=envioFaltando(destForm);
+
+  const carregarDoCadastro=()=>{setOrigemEnd("cliente");setDestForm(Object.keys(baseCliente).some(k=>baseCliente[k])?{...EFD,...baseCliente}:EFD);};
+  const salvarNestaEncomenda=()=>{
+    setOrigemEnd("proprio");
+    setOrders(prev=>prev.map(o=>o.id===order.id?{...o,enderecoEnvio:destForm}:o));
+    showSavedGlobal("Endereço salvo só nesta encomenda!");
+  };
+  const removerOverride=()=>{
+    setOrders(prev=>prev.map(o=>o.id===order.id?{...o,enderecoEnvio:null}:o));
+    carregarDoCadastro();
+    showSavedGlobal("Voltou a usar o endereço do cadastro do cliente.");
+  };
+
+  const montar=()=>evMontarEImprimir({
+    incluirDeclaracao:incluir.declaracao,incluirEtiqueta:incluir.etiqueta,
+    declParams:{numero:order.id,remetente,destinatario:destForm,itens,local:localDecl,data:dataDecl},
+    etqParams:{remetente,destinatario:destForm,porFolha},
+  });
+  const gerarPreview=()=>setPreview(montar());
+  const imprimir=()=>{
+    if(!incluir.declaracao&&!incluir.etiqueta){window.alert("Escolha ao menos um documento pra imprimir.");return;}
+    if(faltandoRem.length){window.alert(`Falta completar no endereço de origem (Configurações): ${faltandoRem.join(", ")}`);return;}
+    if(faltandoDest.length){window.alert(`Falta completar no endereço de destino: ${faltandoDest.join(", ")}`);return;}
+    evAbrirImprimir(montar());
+  };
+
+  return(
+    <Modal title={`Imprimir documentos de envio — ${order.id}`} onClose={onClose} wide>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {faltandoRem.length>0&&<div style={{background:"#FDEAEA",border:"1px solid #c0392b",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#c0392b"}}>⚠ Falta completar no endereço de origem (Configurações → Endereço de origem das encomendas): {faltandoRem.join(", ")}</div>}
+
+        <Card style={{padding:"12px 14px"}}>
+          <Divider label="📦 Endereço de destino (destinatário)"/>
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+            <button onClick={carregarDoCadastro} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${origemEnd==="cliente"?C.cafe:C.areia}`,background:origemEnd==="cliente"?C.cafe:"transparent",color:origemEnd==="cliente"?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>Endereço do cadastro do cliente</button>
+            <button onClick={()=>setOrigemEnd("proprio")} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${origemEnd==="proprio"?C.cafe:C.areia}`,background:origemEnd==="proprio"?C.cafe:"transparent",color:origemEnd==="proprio"?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>Outro, só pra esta encomenda</button>
+          </div>
+          {faltandoDest.length>0&&<div style={{fontSize:11,color:"#c0392b",marginBottom:8}}>⚠ Falta completar: {faltandoDest.join(", ")}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Nome do destinatário" value={destForm.nome||""} onChange={v=>setDestForm(f=>({...f,nome:v}))}/>
+            <Inp label="CPF/CNPJ" value={destForm.cpfCnpj||""} onChange={v=>setDestForm(f=>({...f,cpfCnpj:v}))}/>
+            <Inp label="Telefone" value={destForm.telefone||""} onChange={v=>setDestForm(f=>({...f,telefone:v}))}/>
+            <Inp label="CEP" value={destForm.cep||""} onChange={v=>setDestForm(f=>({...f,cep:v}))} placeholder="00000-000"/>
+            <Inp label="Endereço (rua/av.)" value={destForm.endereco||""} onChange={v=>setDestForm(f=>({...f,endereco:v}))}/>
+            <Inp label="Número" value={destForm.numero||""} onChange={v=>setDestForm(f=>({...f,numero:v}))}/>
+            <Inp label="Complemento" value={destForm.complemento||""} onChange={v=>setDestForm(f=>({...f,complemento:v}))}/>
+            <Inp label="Bairro" value={destForm.bairro||""} onChange={v=>setDestForm(f=>({...f,bairro:v}))}/>
+            <Inp label="Cidade" value={destForm.cidade||""} onChange={v=>setDestForm(f=>({...f,cidade:v}))}/>
+            <Inp label="Estado (UF)" value={destForm.estado||""} onChange={v=>setDestForm(f=>({...f,estado:v}))} placeholder="SP"/>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+            <Btn sm v="ghost" onClick={salvarNestaEncomenda}>💾 Salvar este endereço só nesta encomenda</Btn>
+            {temOverride&&<Btn sm v="ghost" onClick={removerOverride}>↺ Voltar a usar o endereço do cadastro</Btn>}
+          </div>
+        </Card>
+
+        <Card style={{padding:"12px 14px"}}>
+          <Divider label="🖨️ O que imprimir"/>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={incluir.declaracao} onChange={e=>setIncluir(x=>({...x,declaracao:e.target.checked}))}/> Declaração de conteúdo</label>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={incluir.etiqueta} onChange={e=>setIncluir(x=>({...x,etiqueta:e.target.checked}))}/> Etiqueta de envio</label>
+          </div>
+          {incluir.declaracao&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <Inp label="Local (cidade da declaração)" value={localDecl} onChange={setLocalDecl}/>
+            <Inp label="Data" type="date" value={dataDecl} onChange={setDataDecl}/>
+          </div>}
+          {incluir.etiqueta&&<div style={{marginBottom:4}}>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Etiquetas por folha A4</label>
+            <div style={{display:"flex",gap:8}}>
+              {[1,2].map(n=>(
+                <button key={n} onClick={()=>setPorFolha(n)} style={{padding:"4px 14px",borderRadius:20,border:`1.5px solid ${porFolha===n?C.cafe:C.areia}`,background:porFolha===n?C.cafe:"transparent",color:porFolha===n?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{n} por folha</button>
+              ))}
+            </div>
+          </div>}
+        </Card>
+
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <Btn v="ghost" onClick={gerarPreview}>👁️ Pré-visualizar</Btn>
+          <Btn onClick={imprimir}>🖨️ Imprimir</Btn>
+        </div>
+
+        {preview&&<div style={{border:`1px solid ${C.areia}`,borderRadius:6,overflow:"hidden"}}>
+          <iframe title="Pré-visualização" srcDoc={preview} style={{width:"100%",height:480,border:"none",background:"#fff"}}/>
+        </div>}
+      </div>
+    </Modal>
   );
 };
 
@@ -4170,7 +4429,7 @@ const Clients = ({clients,setClients,orders,config}) => {
   const [modal,setModal]=useState(null);
   const [form,setForm]=useState({name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente"});
   const [filtroTipo,setFiltroTipo]=useState("todos");
-  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:"",segmento:""};
+  const EF2={name:"",phone:"",email:"",city:"",vip:false,origem:"WhatsApp",nascimento:"",tipo:"cliente",cpfCnpj:"",empresa:"",segmento:"",enderecoEntrega:{nome:"",cpfCnpj:"",telefone:"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:"",estado:""}};
 
   const save=()=>{
     if(modal==="edit") setClients(prev=>prev.map(x=>x.id===form.id?{...x,...form}:x).sort((a,b)=>a.name.localeCompare(b.name,"pt")));
@@ -4245,6 +4504,22 @@ const Clients = ({clients,setClients,orders,config}) => {
           {(form.tipo||"cliente")==="cliente"&&<Inp label="Data de nascimento (DD/MM/AAAA)" value={form.nascimento||""} onChange={v=>setForm(f=>({...f,nascimento:v}))} placeholder="Ex: 15/03/1990"/>}
           <Sel label="Como chegou" value={form.origem||"WhatsApp"} onChange={v=>setForm(f=>({...f,origem:v}))} options={ORIGENS}/>
           {(form.tipo||"cliente")==="cliente"&&<label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={form.vip||false} onChange={e=>setForm(f=>({...f,vip:e.target.checked}))} style={{width:16,height:16,accentColor:C.dourado}}/>✦ Cliente VIP</label>}
+          {(form.tipo||"cliente")==="cliente"&&<>
+            <Divider label="📦 Endereço de entrega"/>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:4}}>Usado automaticamente como destinatário nas declarações e etiquetas de envio desse cliente.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Nome do destinatário" value={form.enderecoEntrega?.nome||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),nome:v}}))} placeholder={form.name||""}/>
+              <Inp label="CPF/CNPJ" value={form.enderecoEntrega?.cpfCnpj||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),cpfCnpj:v}}))}/>
+              <Inp label="Telefone" value={form.enderecoEntrega?.telefone||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),telefone:v}}))} placeholder={form.phone||""}/>
+              <Inp label="CEP" value={form.enderecoEntrega?.cep||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),cep:v}}))} placeholder="00000-000"/>
+              <Inp label="Endereço (rua/av.)" value={form.enderecoEntrega?.endereco||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),endereco:v}}))}/>
+              <Inp label="Número" value={form.enderecoEntrega?.numero||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),numero:v}}))}/>
+              <Inp label="Complemento" value={form.enderecoEntrega?.complemento||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),complemento:v}}))}/>
+              <Inp label="Bairro" value={form.enderecoEntrega?.bairro||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),bairro:v}}))}/>
+              <Inp label="Cidade" value={form.enderecoEntrega?.cidade||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),cidade:v}}))} placeholder={form.city||""}/>
+              <Inp label="Estado (UF)" value={form.enderecoEntrega?.estado||""} onChange={v=>setForm(f=>({...f,enderecoEntrega:{...(f.enderecoEntrega||{}),estado:v}}))} placeholder="SP"/>
+            </div>
+          </>}
         </div>
         <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
           {modal==="edit"&&<Btn v="danger" onClick={()=>{if(window.confirm("Excluir?"))setClients(prev=>prev.filter(x=>x.id!==form.id));setModal(null);}}>Excluir</Btn>}
@@ -10220,6 +10495,22 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
           </div>
         </Card>
         <Card style={{marginBottom:14}}>
+          <Divider label="📮 Endereço de origem das encomendas (remetente)"/>
+          <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:10}}>Usado automaticamente como remetente em toda declaração de conteúdo e etiqueta de envio.</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Nome completo ou razão social" value={config.remetente?.nome||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),nome:v}}))} placeholder="Simara Ap. de Souza Lobui"/>
+            <Inp label="CPF/CNPJ" value={config.remetente?.cpfCnpj||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),cpfCnpj:v}}))} placeholder="000.000.000-00"/>
+            <Inp label="Telefone" value={config.remetente?.telefone||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),telefone:v}}))} placeholder="(19) 99999-9999"/>
+            <Inp label="CEP" value={config.remetente?.cep||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),cep:v}}))} placeholder="00000-000"/>
+            <Inp label="Endereço (rua/av.)" value={config.remetente?.endereco||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),endereco:v}}))}/>
+            <Inp label="Número" value={config.remetente?.numero||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),numero:v}}))}/>
+            <Inp label="Complemento" value={config.remetente?.complemento||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),complemento:v}}))}/>
+            <Inp label="Bairro" value={config.remetente?.bairro||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),bairro:v}}))}/>
+            <Inp label="Cidade" value={config.remetente?.cidade||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),cidade:v}}))}/>
+            <Inp label="Estado (UF)" value={config.remetente?.estado||""} onChange={v=>setConfig(c=>({...c,remetente:{...(c.remetente||{}),estado:v}}))} placeholder="SP"/>
+          </div>
+        </Card>
+        <Card style={{marginBottom:14}}>
           <Divider label="Produção e precificação"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Valor da hora (R$)" type="number" value={config.valorHora} onChange={v=>setConfig(c=>({...c,valorHora:Number(v)}))}/>
@@ -10550,6 +10841,16 @@ const SitePublico = ({products=[],banners=[],depoimentos=[],categories=[],config
   const [rastrear,setRastrear]=useState(false);
   const [destIdx,setDestIdx]=useState(0);
   const [filtCat,setFiltCat]=useState("Todos");
+
+  // Link direto de um produto (ex: ?loja=1&produto=ID) — ao clicar, a cliente já
+  // cai direto na ficha do produto, sem precisar navegar pela loja toda.
+  useEffect(()=>{
+    if(typeof window==="undefined")return;
+    const pid=new URLSearchParams(window.location.search).get("produto");
+    if(!pid)return;
+    const alvo=products.find(p=>String(p.id)===pid);
+    if(alvo)setCompraModal(alvo);
+  },[products]);
 
   // Paleta do logo
   const P={roxo:"#A563A2",marinho:"#23355A",lilas:"#D8B4CE",branco:"#FDFAFF",lilasClaro:"#F3EAF5",texto:"#1A1A2E"};
@@ -11755,7 +12056,7 @@ function App() {
         <div style={{flex:1,overflowY:"auto"}}>
           {view==="dashboard"   &&<Dashboard orders={orders} finance={finance} stockSup={stockSup} frases={frases} clients={clients} config={config} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} cartas={cartas} volumes={volumes} setCartas={setCartas} setFrases={setFrases} setView={setView} focoDia={focoDia} setFocoDia={setFocoDia}/>}
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
-          {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} subcategories={subcategories} config={config} stockSup={stockSup}/>}
+          {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} subcategories={subcategories} config={config} stockSup={stockSup} modelos={modelos}/>}
           {view==="modelos"     &&<BibliotecaModelos modelos={modelos} setModelos={setModelos} products={products} setProducts={setProducts} stockSup={stockSup} config={config}/>}
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} stockSup={stockSup} setStockSup={setStockSup} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
