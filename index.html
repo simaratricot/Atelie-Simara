@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v58 · 2026-10-20 21:16";
+const APP_BUILD = "v59 · 2026-10-21 08:00";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -2117,17 +2117,38 @@ const ClienteSearch = ({value,onChange,onPhoneChange,clients}) => {
 const MODELO_EMBALAGEM_PADRAO=["Embalagem de envio","Saquinho protetor","Papel seda","Perfume","Etiqueta"];
 const modeloKey=(produtoId,tamanho)=>`${produtoId||""}__${tamanho||""}`;
 const achaModelo=(modelos,produtoId,tamanho)=>(modelos||[]).find(m=>m.produtoId===produtoId&&String(m.tamanho||"")===String(tamanho||""));
+// Resolve uma receita "de verdade": se ela é baseada em outra (ex: kit de sousplat = a mesma
+// receita de 1 peça, × a quantidade do kit), traz os materiais/tempo já multiplicados e o
+// mesmo passo a passo da receita base — sem precisar duplicar nada. Se não for baseada em
+// nenhuma outra, devolve ela mesma.
+const receitaEfetiva=(modelos,receita)=>{
+  if(!receita)return null;
+  const base=receita.baseReceitaId?(modelos||[]).find(m=>m.id===receita.baseReceitaId):null;
+  if(!base)return {...receita,multiplicador:1,baseNome:""};
+  const mult=Number(receita.multiplicador||1)||1;
+  return {
+    ...base,
+    id:receita.id,nome:receita.nome,produtoId:receita.produtoId,tamanho:receita.tamanho,
+    itensEmbalagem:(receita.itensEmbalagem||[]).some(i=>i.nome)?receita.itensEmbalagem:(base.itensEmbalagem||[]),
+    materiais:(base.materiais||[]).map(m=>({...m,qtd:Number(m.qtd||0)*mult})),
+    tempoProducaoMin:Number(base.tempoProducaoMin||0)*mult,
+    multiplicador:mult,baseNome:base.nome,
+    etapas:base.etapas||[],
+  };
+};
 
 const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockSup=[],config}) => {
   const [modal,setModal]=useState(null);
   const [search,setSearch]=useState("");
-  const EF={id:null,nome:"",produtoId:"",tamanho:"",tipoLinha:"",marca:"",quantidadeLinha:"",peso:"",medidas:"",tempoProducaoMin:"",materiais:[],itensEmbalagem:MODELO_EMBALAGEM_PADRAO.map(nome=>({id:uid(),nome,custo:0})),etapas:[]};
+  const EF={id:null,nome:"",produtoId:"",tamanho:"",tipoLinha:"",marca:"",quantidadeLinha:"",peso:"",medidas:"",tempoProducaoMin:"",materiais:[],itensEmbalagem:MODELO_EMBALAGEM_PADRAO.map(nome=>({id:uid(),nome,custo:0})),etapas:[],baseReceitaId:"",multiplicador:1};
   const [form,setForm]=useState(EF);
+  const ehBaseada=!!form.baseReceitaId;
+  const efetiva=ehBaseada?receitaEfetiva(modelos,form):null;
 
   const filtered=modelos.filter(m=>(m.nome||"").toLowerCase().includes(search.toLowerCase()));
 
   const abrirNovo=()=>{setForm(EF);setModal("edit");};
-  const abrirEditar=(m)=>{setForm({...EF,...m,materiais:m.materiais||[],itensEmbalagem:m.itensEmbalagem?.length?m.itensEmbalagem:EF.itensEmbalagem,etapas:m.etapas||[]});setModal("edit");};
+  const abrirEditar=(m)=>{setForm({...EF,...m,materiais:m.materiais||[],itensEmbalagem:m.itensEmbalagem?.length?m.itensEmbalagem:EF.itensEmbalagem,etapas:m.etapas||[],baseReceitaId:m.baseReceitaId||"",multiplicador:m.multiplicador||1});setModal("edit");};
   const excluir=(id)=>{if(window.confirm("Excluir esta receita?"))setModelos(prev=>prev.filter(m=>m.id!==id));};
 
   const addMaterial=()=>setForm(f=>({...f,materiais:[...(f.materiais||[]),{itemId:"",qtd:0}]}));
@@ -2142,10 +2163,13 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
   const updEtapa=(id,campo,v)=>setForm(f=>({...f,etapas:(f.etapas||[]).map(e=>e.id===id?{...e,[campo]:v}:e)}));
   const rmEtapa=(id)=>setForm(f=>({...f,etapas:(f.etapas||[]).filter(e=>e.id!==id)}));
 
-  const custoMateriais=(form.materiais||[]).reduce((s,m)=>{const it=stockSup.find(x=>x.id===m.itemId);return s+(it?.custoUnitario||0)*Number(m.qtd||0);},0);
-  const custoEmb=(form.itensEmbalagem||[]).reduce((s,i)=>s+Number(i.custo||0),0);
+  const materiaisCalc=ehBaseada?(efetiva?.materiais||[]):(form.materiais||[]);
+  const embCalc=ehBaseada?(efetiva?.itensEmbalagem||[]):(form.itensEmbalagem||[]);
+  const tempoCalc=ehBaseada?(efetiva?.tempoProducaoMin||0):Number(form.tempoProducaoMin||0);
+  const custoMateriais=materiaisCalc.reduce((s,m)=>{const it=stockSup.find(x=>x.id===m.itemId);return s+(it?.custoUnitario||0)*Number(m.qtd||0);},0);
+  const custoEmb=embCalc.reduce((s,i)=>s+Number(i.custo||0),0);
   const custoTotal=custoMateriais+custoEmb;
-  const horas=Number(form.tempoProducaoMin||0)/60;
+  const horas=tempoCalc/60;
   const custoMaoDeObra=horas*Number(config?.valorHora||0);
   const precoSug=calcPreco(custoTotal,horas,Number(config?.valorHora||0),40);
 
@@ -2184,11 +2208,13 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
         {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:C.oliva,padding:30,fontSize:13}}>Nenhuma receita cadastrada ainda.</div>}
         {filtered.map(m=>{
           const prod=products.find(p=>p.id===m.produtoId);
+          const ef=m.baseReceitaId?receitaEfetiva(modelos,m):null;
           return (
           <Card key={m.id} hover onClick={()=>abrirEditar(m)}>
             <div style={{fontWeight:700,color:C.cafe,fontSize:14}}>{m.nome}</div>
             {prod&&<div style={{fontSize:11,color:C.oliva,marginTop:2}}>Produto: {prod.name}{m.tamanho?` · ${m.tamanho}`:""}</div>}
-            <div style={{fontSize:11,color:C.oliva,marginTop:4}}>{(m.etapas||[]).length} carreira(s){Number(m.tempoProducaoMin)>0?` · ${pcFmtMin(Number(m.tempoProducaoMin))}`:""}</div>
+            {ef?<div style={{fontSize:11,color:C.oliva,marginTop:4}}>Kit · {m.multiplicador||1}× "{ef.baseNome}"</div>
+              :<div style={{fontSize:11,color:C.oliva,marginTop:4}}>{(m.etapas||[]).length} carreira(s){Number(m.tempoProducaoMin)>0?` · ${pcFmtMin(Number(m.tempoProducaoMin))}`:""}</div>}
             <div style={{display:"flex",gap:6,marginTop:10}} onClick={e=>e.stopPropagation()}>
               <Btn sm v="ghost" onClick={()=>excluir(m.id)}>🗑 Excluir</Btn>
             </div>
@@ -2210,15 +2236,27 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
             <div style={{gridColumn:"1/-1"}}><Inp label="Medidas" value={form.medidas} onChange={v=>setForm(f=>({...f,medidas:v}))} placeholder="Ex: 40x40cm"/></div>
           </div>
 
-          <Divider label="Materiais do estoque (opcional)"/>
-          {(form.materiais||[]).map((m,idx)=>(
-            <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
-              <div style={{flex:1}}><Sel label="Item" value={m.itemId} onChange={v=>updMaterial(idx,"itemId",v)} options={[{v:"",l:"— Selecione —"},...stockSup.map(s=>({v:s.id,l:s.nome}))]}/></div>
-              <div style={{width:90}}><Inp label="Qtd" type="number" value={m.qtd} onChange={v=>updMaterial(idx,"qtd",v)}/></div>
-              <Btn sm v="ghost" onClick={()=>rmMaterial(idx)}>🗑</Btn>
-            </div>
-          ))}
-          <Btn sm v="ghost" onClick={addMaterial}>+ Adicionar material do estoque</Btn>
+          <Divider label="Kit / múltiplo de outra receita (opcional)"/>
+          <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>Pra kits com várias unidades da mesma peça (ex: kit de 2, 4, 6, 8 sousplats), escolha a receita da peça única aqui — o passo a passo e os materiais são reaproveitados, só multiplicados pela quantidade.</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 140px",gap:10,marginBottom:10}}>
+            <Sel label="Baseada na receita de" value={form.baseReceitaId} onChange={v=>setForm(f=>({...f,baseReceitaId:v}))} options={[{v:"",l:"— Receita própria (não é kit) —"},...modelos.filter(m=>m.id!==form.id&&!m.baseReceitaId).map(m=>({v:m.id,l:m.nome}))]}/>
+            {ehBaseada&&<Inp label="Quantidade (multiplicador)" type="number" value={form.multiplicador} onChange={v=>setForm(f=>({...f,multiplicador:v}))}/>}
+          </div>
+
+          {!ehBaseada&&<>
+            <Divider label="Materiais do estoque (opcional)"/>
+            {(form.materiais||[]).map((m,idx)=>(
+              <div key={idx} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
+                <div style={{flex:1}}><Sel label="Item" value={m.itemId} onChange={v=>updMaterial(idx,"itemId",v)} options={[{v:"",l:"— Selecione —"},...stockSup.map(s=>({v:s.id,l:s.nome}))]}/></div>
+                <div style={{width:90}}><Inp label="Qtd" type="number" value={m.qtd} onChange={v=>updMaterial(idx,"qtd",v)}/></div>
+                <Btn sm v="ghost" onClick={()=>rmMaterial(idx)}>🗑</Btn>
+              </div>
+            ))}
+            <Btn sm v="ghost" onClick={addMaterial}>+ Adicionar material do estoque</Btn>
+          </>}
+          {ehBaseada&&<div style={{background:C.linho,borderRadius:4,padding:"10px 14px",fontSize:12}}>
+            <b>Materiais (já × {form.multiplicador||1}):</b> {(efetiva?.materiais||[]).length===0?"— nenhum material na receita base —":(efetiva?.materiais||[]).map((m,i)=>{const it=stockSup.find(s=>s.id===m.itemId);return <div key={i}>{it?.nome||"item"}: {m.qtd}</div>;})}
+          </div>}
 
           <Divider label="Embalagem"/>
           {(form.itensEmbalagem||[]).map(i=>(
@@ -2230,17 +2268,22 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
           ))}
           <Btn sm v="ghost" onClick={addEmb}>+ Adicionar item de embalagem</Btn>
 
-          <Divider label="Passo a passo (carreiras)"/>
-          {(form.etapas||[]).map(e=>(
-            <div key={e.id} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
-              <div style={{width:130}}><Inp label="Carreira" value={e.carreira} onChange={v=>updEtapa(e.id,"carreira",v)}/></div>
-              <div style={{flex:1}}><Inp label="Pontos / instrução" value={e.pontos} onChange={v=>updEtapa(e.id,"pontos",v)}/></div>
-              <Btn sm v="ghost" onClick={()=>rmEtapa(e.id)}>🗑</Btn>
+          {!ehBaseada&&<>
+            <Divider label="Passo a passo (carreiras)"/>
+            {(form.etapas||[]).map(e=>(
+              <div key={e.id} style={{display:"flex",gap:8,marginBottom:6,alignItems:"flex-end"}}>
+                <div style={{width:130}}><Inp label="Carreira" value={e.carreira} onChange={v=>updEtapa(e.id,"carreira",v)}/></div>
+                <div style={{flex:1}}><Inp label="Pontos / instrução" value={e.pontos} onChange={v=>updEtapa(e.id,"pontos",v)}/></div>
+                <Btn sm v="ghost" onClick={()=>rmEtapa(e.id)}>🗑</Btn>
+              </div>
+            ))}
+            <div style={{display:"flex",justifyContent:"flex-end"}}>
+              <Btn sm v="ghost" onClick={addEtapa}>+ Nova carreira</Btn>
             </div>
-          ))}
-          <div style={{display:"flex",justifyContent:"flex-end"}}>
-            <Btn sm v="ghost" onClick={addEtapa}>+ Nova carreira</Btn>
-          </div>
+          </>}
+          {ehBaseada&&<div style={{background:C.linho,borderRadius:4,padding:"10px 14px",fontSize:12}}>
+            <b>Passo a passo:</b> o mesmo da receita "{efetiva?.baseNome}" — repita {form.multiplicador||1}x na produção.
+          </div>}
 
           <div style={{background:C.linho,borderRadius:4,padding:"10px 14px",marginTop:14}}>
             <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginBottom:5}}>Custo real desta receita</div>
@@ -2263,7 +2306,7 @@ const BibliotecaModelos = ({modelos=[],setModelos,products=[],setProducts,stockS
   );
 };
 
-const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
+const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
   const [filter,setFilter]=useState("Ativos");
   const [modal,setModal]=useState(null);
   const [baixaModal,setBaixaModal]=useState(null);
@@ -2483,6 +2526,22 @@ const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,set
           setOrders(prev=>prev.map(o=>o.id===detail.id?atualizado:o));
           setDetail(atualizado);
         };
+        // Desconta do estoque os materiais da receita (já multiplicados, se for kit),
+        // vezes a quantidade pedida desse item. Só pode ser feito uma vez por item —
+        // evita descontar duas vezes se a pessoa clicar de novo sem querer.
+        const baixarEstoque=(itemIdx,efetiva,qtyPedido)=>{
+          if(!window.confirm("Confirma a baixa desses materiais do estoque?"))return;
+          const materiaisNecessarios=(efetiva.materiais||[]).map(m=>({itemId:m.itemId,qtd:Number(m.qtd||0)*Number(qtyPedido||1)}));
+          setStockSup&&setStockSup(prev=>prev.map(s=>{
+            const falta=materiaisNecessarios.find(m=>m.itemId===s.id);
+            return falta?{...s,qty:Math.max(0,Number(s.qty||0)-falta.qtd)}:s;
+          }));
+          const baixados={...(detail.materiaisBaixados||{}),[itemIdx]:true};
+          const atualizado={...detail,materiaisBaixados:baixados};
+          setOrders(prev=>prev.map(o=>o.id===detail.id?atualizado:o));
+          setDetail(atualizado);
+          showSavedGlobal("Materiais baixados do estoque!");
+        };
         return(
         <Modal title={`Pedido ${detail.id}`} onClose={()=>setDetail(null)} wide>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -2500,14 +2559,17 @@ const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,set
 
           {itensDetail.map((item,idx)=>{
             const prod=products.find(p=>p.name===item.product);
-            const receita=prod?achaModelo(modelos,prod.id,item.size):null;
-            if(!receita)return null;
+            const receitaBruta=prod?achaModelo(modelos,prod.id,item.size):null;
+            if(!receitaBruta)return null;
+            const receita=receitaEfetiva(modelos,receitaBruta);
             const etapas=receita.etapas||[];
             const feitas=detail.producaoChecklist?.[idx]||{};
             const nFeitas=etapas.filter(e=>feitas[e.id]).length;
+            const jaBaixado=!!detail.materiaisBaixados?.[idx];
+            const temMateriais=(receita.materiais||[]).length>0;
             return(
               <div key={idx} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${C.dourado}`,borderRadius:6,padding:"12px 14px",marginBottom:10}}>
-                <div style={{fontWeight:700,color:C.cafe,fontSize:13,marginBottom:2}}>📖 {receita.nome}{item.size?` · ${item.size}`:""}</div>
+                <div style={{fontWeight:700,color:C.cafe,fontSize:13,marginBottom:2}}>📖 {receita.nome}{item.size?` · ${item.size}`:""}{receita.multiplicador>1?` · kit ${receita.multiplicador}× "${receita.baseNome}"`:""}</div>
                 <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>
                   {receita.tipoLinha&&`Fio: ${receita.tipoLinha}${receita.marca?` (${receita.marca})`:""} · `}
                   {receita.quantidadeLinha&&`Qtd: ${receita.quantidadeLinha} · `}
@@ -2515,7 +2577,7 @@ const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,set
                   {receita.medidas&&`Medidas: ${receita.medidas}`}
                 </div>
                 {etapas.length>0&&<>
-                  <div style={{fontSize:11,fontWeight:700,color:C.oliva,marginBottom:4}}>{nFeitas}/{etapas.length} carreiras concluídas</div>
+                  <div style={{fontSize:11,fontWeight:700,color:C.oliva,marginBottom:4}}>{nFeitas}/{etapas.length} carreiras concluídas{receita.multiplicador>1?` (repetir ${receita.multiplicador}x)`:""}</div>
                   <PBar pct={etapas.length?Math.round(nFeitas/etapas.length*100):0}/>
                   <div style={{marginTop:8,maxHeight:180,overflowY:"auto"}}>
                     {etapas.map(e=>(
@@ -2528,6 +2590,11 @@ const Orders = ({orders,setOrders,products,modelos=[],config,onFicha,clients,set
                 </>}
                 {(receita.itensEmbalagem||[]).some(i=>i.nome)&&<div style={{fontSize:11,color:C.oliva,marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.areia}`}}>
                   <b>Embalagem:</b> {(receita.itensEmbalagem||[]).filter(i=>i.nome).map(i=>i.nome).join(" · ")}
+                </div>}
+                {temMateriais&&<div style={{marginTop:10,paddingTop:8,borderTop:`1px dashed ${C.areia}`}}>
+                  {jaBaixado
+                    ? <span style={{fontSize:11,color:C.verde,fontWeight:700}}>✓ Materiais já baixados do estoque</span>
+                    : <Btn sm v="ghost" onClick={()=>baixarEstoque(idx,receita,item.qty||1)}>📦 Baixar materiais do estoque{item.qty>1?` (×${item.qty})`:""}</Btn>}
                 </div>}
               </div>
             );
@@ -11690,7 +11757,7 @@ function App() {
           {view==="site"        &&<SitePublico products={products} banners={banners} depoimentos={depoimentos} categories={categories} config={config} contas={contas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="products"    &&<Products products={products} setProducts={setProducts} categories={categories} subcategories={subcategories} config={config} stockSup={stockSup}/>}
           {view==="modelos"     &&<BibliotecaModelos modelos={modelos} setModelos={setModelos} products={products} setProducts={setProducts} stockSup={stockSup} config={config}/>}
-          {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
+          {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} stockSup={stockSup} setStockSup={setStockSup} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
           {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal} personalContas={personalContas}/>}
