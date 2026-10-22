@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v60 · 2026-10-21 20:40";
+const APP_BUILD = "v61 · 2026-10-22 02:50";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -2355,104 +2355,187 @@ const envioFaltando=(end)=>ENVIO_CAMPOS_OBRIG.filter(([k])=>!String((end||{})[k]
 const envioLinhaEndereco=(e)=>`${e.endereco||""}, ${e.numero||"s/n"}${e.complemento?` - ${e.complemento}`:""} — ${e.bairro||""}, ${e.cidade||""}/${e.estado||""} — CEP ${e.cep||""}`;
 const evAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),600);}};
 
+// Converte um peso informado em texto/número para kg — aceita "150g", "0,3kg", "300", etc.
+const evParsePesoKg=(s)=>{
+  if(s===null||s===undefined||s==="")return null;
+  const str=String(s).trim().toLowerCase().replace(",",".");
+  const m=str.match(/^([\d.]+)\s*(kg|g)?$/);
+  if(!m)return null;
+  const n=Number(m[1]);if(!isFinite(n))return null;
+  return m[2]==="g"?n/1000:n;
+};
+const evFmtPesoKg=(kg)=>kg==null?"—":`${kg.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:3})} kg`;
+
+// ── Declaração de Conteúdo — segue o modelo oficial dos Correios (campos e texto legal) ──
 const evDeclaracaoStyles=`
-  .decl{max-width:100%;}
-  .decl h1{font-size:18px;text-align:center;letter-spacing:1px;margin:0 0 4px;}
-  .decl .sub{text-align:center;font-size:10.5px;color:#666;margin-bottom:18px;}
-  .decl .cols{display:flex;gap:18px;margin-bottom:16px;}
-  .decl .bloco{flex:1;border:1px solid #bbb;border-radius:4px;padding:10px 12px;}
-  .decl .bloco h3{font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;color:#7a5a8c;margin:0 0 8px;border-bottom:1px solid #eee;padding-bottom:4px;}
-  .decl .bloco div{margin-bottom:2px;}
-  .decl table{width:100%;border-collapse:collapse;margin:14px 0;}
-  .decl th,.decl td{border:1px solid #bbb;padding:7px 8px;font-size:12px;text-align:left;}
-  .decl th{background:#f3f0f6;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;}
+  .decl{max-width:100%;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;}
+  .decl .decl-hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #1a1a1a;padding-bottom:10px;margin-bottom:16px;}
+  .decl .decl-hdr-marca{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#555;font-weight:bold;}
+  .decl .decl-hdr h1{font-size:22px;margin:0;font-weight:700;}
+  .decl .box{border:1.5px solid #1a1a1a;margin-bottom:10px;}
+  .decl .linha{padding:7px 10px;border-bottom:1px solid #1a1a1a;font-size:12.5px;}
+  .decl .linha:last-child{border-bottom:none;}
+  .decl .linha b{font-weight:700;}
+  .decl .linha-dupla{display:flex;}
+  .decl .linha-dupla .metade{flex:1;padding:7px 10px;font-size:12.5px;}
+  .decl .linha-dupla .metade:first-child{border-right:1px solid #1a1a1a;}
+  .decl table{width:100%;border-collapse:collapse;margin:14px 0 0;}
+  .decl .tit-tabela{background:#d9d9d9;text-align:center;font-weight:700;font-size:12px;letter-spacing:0.5px;padding:6px;border:1.5px solid #1a1a1a;border-bottom:none;}
+  .decl th,.decl td{border:1px solid #1a1a1a;padding:7px 8px;font-size:12px;text-align:center;}
+  .decl th{background:#f0f0f0;text-transform:uppercase;font-size:10.5px;}
+  .decl td.desc{text-align:left;}
   .decl td.num,.decl th.num{text-align:right;}
   .decl tr{page-break-inside:avoid;}
-  .decl .total-row td{font-weight:bold;background:#faf8fc;}
-  .decl .rodape{margin-top:26px;font-size:10.5px;color:#555;}
-  .decl .assin{margin-top:46px;display:flex;gap:30px;}
-  .decl .assin .linha{flex:1;border-top:1px solid #333;padding-top:5px;text-align:center;font-size:11px;}
-  .decl .aviso{margin-top:18px;font-size:10px;color:#777;border-top:1px dashed #ccc;padding-top:10px;}
+  .decl .total-row td{font-weight:bold;background:#f5f5f5;}
+  .decl .decl-texto{border:1.5px solid #1a1a1a;border-top:none;padding:12px 14px;font-size:11px;line-height:1.6;color:#222;}
+  .decl .decl-texto .tit{text-align:center;font-weight:700;font-size:12px;letter-spacing:0.5px;margin-bottom:8px;}
+  .decl .assin{margin-top:22px;font-size:11.5px;}
+  .decl .assin .campo{border-bottom:1px solid #1a1a1a;display:inline-block;min-width:110px;}
+  .decl .assin .linha-ass{border-top:1px solid #1a1a1a;margin-top:30px;padding-top:4px;text-align:center;font-size:11px;max-width:320px;margin-left:auto;margin-right:auto;}
+  .decl .atencao{border:1.5px solid #1a1a1a;border-top:none;padding:8px 14px;font-size:11px;}
+  .decl .obs{border:1.5px solid #1a1a1a;border-top:none;padding:10px 14px;font-size:10px;line-height:1.6;color:#333;margin-bottom:6px;}
+  .decl .obs b{display:block;margin-bottom:4px;}
+  .decl .obs-item{display:flex;gap:6px;margin-bottom:6px;}
+  .decl .obs-item span.num{flex-shrink:0;font-weight:700;}
 `;
 const evDeclaracaoBody=({numero,remetente,destinatario,itens,local,data})=>{
-  const linhas=(itens||[]).map(i=>({desc:i.product||"Item",qtd:Number(i.qty||1),unit:Number(i.price||0)}));
+  const linhas=(itens||[]).map(i=>({desc:i.product||"Item",qtd:Number(i.qty||1),unit:Number(i.price||0),pesoKg:evParsePesoKg(i.peso)}));
   const total=linhas.reduce((a,i)=>a+i.qtd*i.unit,0);
+  const pesoTotal=linhas.some(i=>i.pesoKg!=null)?linhas.reduce((a,i)=>a+(i.pesoKg||0)*i.qtd,0):null;
   return `<div class="decl">
-  <h1>Declaração de Conteúdo</h1>
-  <div class="sub">${numero?`Encomenda ${numero} · `:""}Emitida em ${new Date().toLocaleDateString("pt-BR")}</div>
-  <div class="cols">
-    <div class="bloco"><h3>Remetente</h3>
-      <div><b>${remetente.nome||""}</b></div>
-      ${remetente.cpfCnpj?`<div>CPF/CNPJ: ${remetente.cpfCnpj}</div>`:""}
-      <div>${envioLinhaEndereco(remetente)}</div>
-      ${remetente.telefone?`<div>Tel: ${remetente.telefone}</div>`:""}
-    </div>
-    <div class="bloco"><h3>Destinatário</h3>
-      <div><b>${destinatario.nome||""}</b></div>
-      ${destinatario.cpfCnpj?`<div>CPF/CNPJ: ${destinatario.cpfCnpj}</div>`:""}
-      <div>${envioLinhaEndereco(destinatario)}</div>
-      ${destinatario.telefone?`<div>Tel: ${destinatario.telefone}</div>`:""}
+  <div class="decl-hdr"><div class="decl-hdr-marca">${numero?`Encomenda ${numero}`:""}</div><h1>Declaração de Conteúdo</h1><div class="decl-hdr-marca">${new Date().toLocaleDateString("pt-BR")}</div></div>
+  <div class="box">
+    <div class="linha"><b>REMETENTE:</b> ${remetente.nome||""}</div>
+    <div class="linha"><b>CPF/CNPJ:</b> ${remetente.cpfCnpj||""}</div>
+    <div class="linha"><b>ENDEREÇO:</b> ${remetente.endereco||""}${remetente.numero?`, ${remetente.numero}`:""}${remetente.complemento?` - ${remetente.complemento}`:""}${remetente.bairro?` - ${remetente.bairro}`:""}</div>
+    <div class="linha-dupla"><div class="metade"><b>CIDADE/UF:</b> ${remetente.cidade||""}${remetente.estado?` - ${remetente.estado}`:""}</div><div class="metade"><b>CEP:</b> ${remetente.cep||""}</div></div>
+  </div>
+  <div class="box">
+    <div class="linha"><b>DESTINATÁRIO:</b> ${destinatario.nome||""}</div>
+    <div class="linha"><b>CPF/CNPJ:</b> ${destinatario.cpfCnpj||""}</div>
+    <div class="linha"><b>ENDEREÇO:</b> ${destinatario.endereco||""}${destinatario.numero?`, ${destinatario.numero}`:""}${destinatario.complemento?` - ${destinatario.complemento}`:""}${destinatario.bairro?` - ${destinatario.bairro}`:""}</div>
+    <div class="linha-dupla"><div class="metade"><b>CIDADE/UF:</b> ${destinatario.cidade||""}${destinatario.estado?` - ${destinatario.estado}`:""}</div><div class="metade"><b>CEP:</b> ${destinatario.cep||""}</div></div>
+  </div>
+  <div class="tit-tabela">IDENTIFICAÇÃO DOS BENS</div>
+  <table><thead><tr><th class="desc">DISCRIMINAÇÃO DO CONTEÚDO</th><th>QUANTIDADE</th><th>PESO</th><th>VALOR</th></tr></thead>
+  <tbody>
+  ${linhas.map(i=>`<tr><td class="desc">${i.desc}</td><td>${i.qtd}</td><td>${evFmtPesoKg(i.pesoKg)}</td><td>${fmtBRL(i.unit*i.qtd)}</td></tr>`).join("")}
+  <tr class="total-row"><td class="desc">TOTAL</td><td>${linhas.reduce((a,i)=>a+i.qtd,0)}</td><td>${evFmtPesoKg(pesoTotal)}</td><td>${fmtBRL(total)}</td></tr>
+  </tbody></table>
+  <div class="decl-texto">
+    <div class="tit">DECLARAÇÃO</div>
+    <p>Declaro, não ser pessoa física ou jurídica, que realize, com habitualidade ou em volume que caracterize intuito comercial, operações de circulação de mercadoria, ainda que estas se iniciem no exterior, que o conteúdo declarado não está sujeito à tributação, e que sou o único responsável por eventuais penalidades ou danos decorrentes de informações inverídicas.</p>
+    <p>Declaro ainda que não estou postando conteúdo inflamável, explosivo, causador de combustão espontânea, tóxico, corrosivo, gás ou qualquer outro conteúdo que constitua perigo, conforme o art. 13 da Lei Postal nº 6.538/78.</p>
+    <div class="assin">
+      <span class="campo">${local||""}</span>, ______ de ________________ de ______
+      <div class="linha-ass">Assinatura do Declarante/Remetente</div>
     </div>
   </div>
-  <table><thead><tr><th>Descrição do produto</th><th class="num">Qtd.</th><th class="num">Valor unit.</th><th class="num">Valor total</th></tr></thead>
-  <tbody>
-  ${linhas.map(i=>`<tr><td>${i.desc}</td><td class="num">${i.qtd}</td><td class="num">${fmtBRL(i.unit)}</td><td class="num">${fmtBRL(i.qtd*i.unit)}</td></tr>`).join("")}
-  <tr class="total-row"><td colspan="3">Valor total declarado</td><td class="num">${fmtBRL(total)}</td></tr>
-  </tbody></table>
-  <div class="rodape">${local||""}, ${data?new Date(data+"T12:00:00").toLocaleDateString("pt-BR"):new Date().toLocaleDateString("pt-BR")}.</div>
-  <div class="assin"><div class="linha">Assinatura do remetente</div></div>
-  <div class="aviso">Declaro que as informações acima são verdadeiras. Esta declaração de conteúdo não substitui a Nota Fiscal, quando esta for obrigatória por lei, e está sujeita às regras vigentes dos Correios para postagem.</div>
+  <div class="atencao"><b>Atenção:</b> O declarante/remetente é responsável exclusivamente pelas informações declaradas.</div>
+  <div class="obs">
+    <b>OBSERVAÇÕES:</b>
+    <div class="obs-item"><span class="num">I.</span><span>É Contribuinte de ICMS qualquer pessoa física ou jurídica, que realize, com habitualidade ou em volume que caracterize intuito comercial, operações de circulação de mercadoria ou prestações de serviços de transportes interestadual e intermunicipal e de comunicação, ainda que as operações e prestações se iniciem no exterior (Lei Complementar nº 87/96 Art. 4º).</span></div>
+    <div class="obs-item"><span class="num">II.</span><span>Constitui crime contra a ordem tributária suprimir ou reduzir tributo, ou contribuição social e qualquer acessório (Lei 8.137/90 Art. 1º, V).</span></div>
+    <div class="obs-item"><span class="num">III.</span><span>Esta declaração de conteúdo não substitui a Nota Fiscal, quando esta for obrigatória por lei, e está sujeita às regras vigentes dos Correios para postagem.</span></div>
+  </div>
   </div>`;
 };
 
+// ── Etiqueta de envio — caixas com borda sólida (como a da declaração), texto em
+// caixa alta, separadas por linha pontilhada com tesourinha pra recortar ──
 const evEtiquetaStyles=`
-  .corte{text-align:center;color:#9a8cb8;font-size:11px;margin:4px 0;letter-spacing:1px;}
-  .etq{border:1.5px dashed #b9a8d6;border-radius:6px;padding:14px 18px;margin-bottom:4px;display:flex;flex-direction:column;justify-content:space-around;}
-  .etq.p1{min-height:230mm;}
-  .etq.p2{min-height:110mm;}
-  .etq-lado{padding:10px 4px;}
-  .etq-tag{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:#7a5a8c;font-weight:bold;margin-bottom:6px;}
-  .etq-nome{font-size:15px;font-weight:bold;margin-bottom:4px;}
-  .etq-lado div{margin-bottom:2px;line-height:1.5;}
-  .etq-sep{text-align:center;color:#b9a8d6;font-size:11px;margin:10px 0;letter-spacing:1px;}
+  .etqwrap{font-family:Arial,Helvetica,sans-serif;}
+  .corte{text-align:center;color:#8a76ad;font-size:11px;margin:10px 0;letter-spacing:1px;}
+  .etqpar{margin-bottom:4px;}
+  .etqpar.p2{max-height:128mm;overflow:hidden;}
+  .etqbox{border:1.5px solid #1a1a1a;border-radius:4px;padding:12px 16px;margin-bottom:10px;}
+  .etqbox .etq-tag{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:#7a5a8c;font-weight:bold;margin-bottom:6px;border-bottom:1px solid #e5d9e8;padding-bottom:4px;}
+  .etqbox .etq-nome{font-size:15px;font-weight:bold;margin-bottom:4px;text-transform:uppercase;}
+  .etqbox .etq-linha{font-size:12px;margin-bottom:2px;line-height:1.5;text-transform:uppercase;color:#1a1a1a;}
 `;
-const evEtiquetaBoxHtml=(remetente,destinatario,cls)=>`<div class="etq ${cls}">
-  <div class="etq-lado"><div class="etq-tag">Remetente</div>
-    <div class="etq-nome">${remetente.nome||""}</div>
-    <div>${remetente.endereco||""}, ${remetente.numero||"s/n"}${remetente.complemento?` - ${remetente.complemento}`:""}</div>
-    <div>${remetente.bairro||""} — ${remetente.cidade||""}/${remetente.estado||""}</div>
-    <div>CEP ${remetente.cep||""}${remetente.telefone?` · Tel: ${remetente.telefone}`:""}</div>
-  </div>
-  <div class="etq-sep"><span>✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -</span></div>
-  <div class="etq-lado"><div class="etq-tag">Destinatário</div>
-    <div class="etq-nome">${destinatario.nome||""}</div>
-    <div>${destinatario.endereco||""}, ${destinatario.numero||"s/n"}${destinatario.complemento?` - ${destinatario.complemento}`:""}</div>
-    <div>${destinatario.bairro||""} — ${destinatario.cidade||""}/${destinatario.estado||""}</div>
-    <div>CEP ${destinatario.cep||""}${destinatario.telefone?` · Tel: ${destinatario.telefone}`:""}</div>
-  </div>
+const evEtiquetaBoxHtml=(dados,tag)=>`<div class="etqbox">
+  <div class="etq-tag">${tag}</div>
+  <div class="etq-nome">${dados.nome||""}</div>
+  <div class="etq-linha">${dados.endereco||""}, ${dados.numero||"s/n"}${dados.complemento?` - ${dados.complemento}`:""}</div>
+  <div class="etq-linha">${dados.bairro||""} — ${dados.cidade||""}/${dados.estado||""}</div>
+  <div class="etq-linha">CEP ${dados.cep||""}${dados.telefone?` · TEL: ${dados.telefone}`:""}</div>
+</div>`;
+const evCorteLinha=`<div class="corte"><span>✂ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span></div>`;
+const evEtiquetaParHtml=(remetente,destinatario,cls)=>`<div class="etqpar ${cls}">
+  ${evEtiquetaBoxHtml(remetente,"Remetente")}
+  ${evCorteLinha}
+  ${evEtiquetaBoxHtml(destinatario,"Destinatário")}
 </div>`;
 const evEtiquetaBody=({remetente,destinatario,porFolha})=>{
   const n=porFolha===2?2:1;
   const cls=n===1?"p1":"p2";
-  const caixas=Array.from({length:n},()=>evEtiquetaBoxHtml(remetente,destinatario,cls)).join(`<div class="corte"><span>✂ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─</span></div>`);
-  return `<div class="etqwrap">${caixas}</div>`;
+  const pares=Array.from({length:n},()=>evEtiquetaParHtml(remetente,destinatario,cls)).join(evCorteLinha);
+  return `<div class="etqwrap">${pares}</div>`;
 };
 
-// Monta o documento final (um ou dois conteúdos, cada um em sua página) e já
-// abre a janela de impressão.
-const evMontarEImprimir=({incluirDeclaracao,incluirEtiqueta,declParams,etqParams})=>{
+// ── Cartinha de agradecimento (texto editável, grafia manuscrita via fonte Caveat) ──
+const evCartinhaStyles=`
+  .cart{border:2px solid #cbb6e0;border-radius:16px;padding:42px 48px;max-width:520px;margin:0 auto;background:#fffaf5;}
+  .cart .cart-tit{font-family:'Caveat',cursive;font-size:36px;color:#7a5a8c;text-align:center;margin-bottom:18px;}
+  .cart .cart-texto{font-family:'Caveat',cursive;font-size:23px;line-height:1.85;color:#3b2a1d;white-space:pre-line;}
+`;
+const evCartinhaBody=({texto})=>`<div class="cart">
+  <div class="cart-tit">💌</div>
+  <div class="cart-texto">${(texto||"").replace(/&/g,"&amp;").replace(/</g,"&lt;")}</div>
+</div>`;
+
+// Monta o documento final (um ou mais conteúdos, cada um em sua página).
+const evMontarHtml=({incluirDeclaracao,incluirEtiqueta,incluirCartinha,declParams,etqParams,cartinhaParams})=>{
   const partes=[];
   if(incluirDeclaracao)partes.push(evDeclaracaoBody(declParams));
   if(incluirEtiqueta)partes.push(evEtiquetaBody(etqParams));
+  if(incluirCartinha)partes.push(evCartinhaBody(cartinhaParams));
   const corpo=partes.map((p,i)=>i>0?`<div style="page-break-before:always;">${p}</div>`:p).join("");
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Documentos de envio</title><style>
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Documentos de envio</title>
+  ${incluirCartinha?`<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap">`:""}
+  <style>
   @page{size:A4;margin:14mm;}
   *{box-sizing:border-box;}
   body{font-family:Arial,Helvetica,sans-serif;color:#222;background:#fff;font-size:13px;margin:0;}
   ${evDeclaracaoStyles}
   ${evEtiquetaStyles}
+  ${incluirCartinha?evCartinhaStyles:""}
   </style></head><body>${corpo}</body></html>`;
   return html;
+};
+const evMontarEImprimir=(params)=>evMontarHtml(params);
+
+// ── Gerar PDF/imagem (mesmo padrão já usado nos documentos de Consultoria) ──
+const evCarregarScript=(src,teste)=>new Promise((res,rej)=>{if(teste())return res();const s=document.createElement("script");s.src=src;s.onload=()=>teste()?res():rej(new Error("biblioteca não iniciou"));s.onerror=()=>rej(new Error("sem conexão"));document.head.appendChild(s);});
+const evHtmlParaCanvas=async(html)=>{
+  const fr=document.createElement("iframe");fr.setAttribute("aria-hidden","true");
+  fr.style.cssText="position:fixed;left:-10000px;top:0;width:794px;height:1200px;border:0;";
+  document.body.appendChild(fr);
+  try{
+    await new Promise(res=>{fr.onload=()=>res();fr.srcdoc=html;});
+    const doc=fr.contentDocument;if(doc.fonts&&doc.fonts.ready)await doc.fonts.ready;
+    await new Promise(r=>setTimeout(r,250));
+    const h=Math.max(doc.body.scrollHeight,doc.documentElement.scrollHeight);fr.style.height=h+"px";
+    return await window.html2canvas(doc.body,{scale:2,backgroundColor:"#ffffff",useCORS:true,windowWidth:794,windowHeight:h});
+  } finally { document.body.removeChild(fr); }
+};
+const evGerarArquivo=async(html,saida,baseNome)=>{
+  await evCarregarScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",()=>!!window.html2canvas);
+  if(saida==="pdf")await evCarregarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",()=>!!(window.jspdf&&window.jspdf.jsPDF));
+  const canvas=await evHtmlParaCanvas(html);
+  const base=String(baseNome).normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  let file;
+  if(saida==="pdf"){
+    const pdf=new window.jspdf.jsPDF({unit:"pt",format:"a4",compress:true});
+    const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
+    const imgH=canvas.height*pw/canvas.width;const img=canvas.toDataURL("image/jpeg",0.92);
+    let y=0,pg=0;while(y<imgH-2){if(pg>0)pdf.addPage();pdf.addImage(img,"JPEG",0,-y,pw,imgH);y+=ph;pg++;}
+    file=new File([pdf.output("blob")],`${base}.pdf`,{type:"application/pdf"});
+  } else {
+    const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+    file=new File([blob],`${base}.png`,{type:"image/png"});
+  }
+  return {file,prev:canvas.toDataURL("image/jpeg",0.75)};
 };
 
 const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,config,onFicha,clients,setClients,finance,setFinance,contas,setContas}) => {
@@ -2774,14 +2857,22 @@ const EnvioDocsModal = ({order,client,config,setOrders,onClose}) => {
   const baseCliente=client?.enderecoEntrega||{};
   const EFD={nome:client?.name||order.client||"",cpfCnpj:"",telefone:client?.phone||order.phone||"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:client?.city||"",estado:""};
   const [destForm,setDestForm]=useState(temOverride?{...EFD,...order.enderecoEnvio}:(Object.keys(baseCliente).some(k=>baseCliente[k])?{...EFD,...baseCliente}:EFD));
-  const [incluir,setIncluir]=useState({declaracao:true,etiqueta:true});
+  const [incluir,setIncluir]=useState({declaracao:true,etiqueta:true,cartinha:false});
   const [porFolha,setPorFolha]=useState(1);
   const [localDecl,setLocalDecl]=useState(client?.city||"");
   const [dataDecl,setDataDecl]=useState(today);
   const [preview,setPreview]=useState("");
+  const [docBusy,setDocBusy]=useState(false);
+  const [docPrev,setDocPrev]=useState(null);
 
   const remetente=config.remetente||{};
-  const itens=order.itens?.length>0?order.itens:[{product:order.product,qty:1,price:order.precoFinal||order.price}];
+  const itensBase=order.itens?.length>0?order.itens:[{product:order.product,qty:1,price:order.precoFinal||order.price}];
+  // Peso não existe na encomenda — fica editável só aqui, pra declaração, sem alterar o pedido original.
+  const [pesos,setPesos]=useState(()=>itensBase.map(()=>""));
+  const itens=itensBase.map((it,i)=>({...it,peso:pesos[i]}));
+  const primeiroNome=(destForm.nome||client?.name||order.client||"").split(" ")[0]||"";
+  const [textoCartinha,setTextoCartinha]=useState(`Querida ${primeiroNome},\n\nMuito obrigada por escolher minhas peças feitas à mão! Cada ponto foi feito com carinho pensando em você.\n\nEspero que goste tanto quanto eu gostei de fazer. 🌿\n\nCom todo carinho,\nSimara Lobui`);
+
   const faltandoRem=envioFaltando(remetente);
   const faltandoDest=envioFaltando(destForm);
 
@@ -2797,18 +2888,30 @@ const EnvioDocsModal = ({order,client,config,setOrders,onClose}) => {
     showSavedGlobal("Voltou a usar o endereço do cadastro do cliente.");
   };
 
-  const montar=()=>evMontarEImprimir({
-    incluirDeclaracao:incluir.declaracao,incluirEtiqueta:incluir.etiqueta,
+  const montar=()=>evMontarHtml({
+    incluirDeclaracao:incluir.declaracao,incluirEtiqueta:incluir.etiqueta,incluirCartinha:incluir.cartinha,
     declParams:{numero:order.id,remetente,destinatario:destForm,itens,local:localDecl,data:dataDecl},
     etqParams:{remetente,destinatario:destForm,porFolha},
+    cartinhaParams:{texto:textoCartinha},
   });
-  const gerarPreview=()=>setPreview(montar());
-  const imprimir=()=>{
-    if(!incluir.declaracao&&!incluir.etiqueta){window.alert("Escolha ao menos um documento pra imprimir.");return;}
-    if(faltandoRem.length){window.alert(`Falta completar no endereço de origem (Configurações): ${faltandoRem.join(", ")}`);return;}
-    if(faltandoDest.length){window.alert(`Falta completar no endereço de destino: ${faltandoDest.join(", ")}`);return;}
-    evAbrirImprimir(montar());
+  const validar=()=>{
+    if(!incluir.declaracao&&!incluir.etiqueta&&!incluir.cartinha){window.alert("Escolha ao menos um documento.");return false;}
+    if((incluir.declaracao||incluir.etiqueta)&&faltandoRem.length){window.alert(`Falta completar no endereço de origem (Configurações): ${faltandoRem.join(", ")}`);return false;}
+    if((incluir.declaracao||incluir.etiqueta)&&faltandoDest.length){window.alert(`Falta completar no endereço de destino: ${faltandoDest.join(", ")}`);return false;}
+    return true;
   };
+  const gerarPreview=()=>{if(!validar())return;setPreview(montar());};
+  const imprimir=()=>{if(!validar())return;evAbrirImprimir(montar());};
+  const gerarArquivo=async(saida)=>{
+    if(!validar())return;
+    setDocBusy(true);
+    try{
+      const {file,prev}=await evGerarArquivo(montar(),saida,`Envio ${order.id} ${destForm.nome||""}`);
+      setDocPrev({file,prev});
+    }catch(e){window.alert("Não consegui gerar o arquivo ("+((e&&e.message)||"erro")+"). Confira a internet ou use Imprimir.");}
+    setDocBusy(false);
+  };
+  const baixarDocPrev=()=>{if(!docPrev)return;const url=URL.createObjectURL(docPrev.file);const a=document.createElement("a");a.href=url;a.download=docPrev.file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);};
 
   return(
     <Modal title={`Imprimir documentos de envio — ${order.id}`} onClose={onClose} wide>
@@ -2841,16 +2944,28 @@ const EnvioDocsModal = ({order,client,config,setOrders,onClose}) => {
         </Card>
 
         <Card style={{padding:"12px 14px"}}>
-          <Divider label="🖨️ O que imprimir"/>
+          <Divider label="🖨️ O que gerar"/>
           <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={incluir.declaracao} onChange={e=>setIncluir(x=>({...x,declaracao:e.target.checked}))}/> Declaração de conteúdo</label>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={incluir.etiqueta} onChange={e=>setIncluir(x=>({...x,etiqueta:e.target.checked}))}/> Etiqueta de envio</label>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={incluir.cartinha} onChange={e=>setIncluir(x=>({...x,cartinha:e.target.checked}))}/> 💌 Cartinha de agradecimento</label>
           </div>
-          {incluir.declaracao&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <Inp label="Local (cidade da declaração)" value={localDecl} onChange={setLocalDecl}/>
-            <Inp label="Data" type="date" value={dataDecl} onChange={setDataDecl}/>
+          {incluir.declaracao&&<div style={{marginBottom:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+              <Inp label="Local (cidade da declaração)" value={localDecl} onChange={setLocalDecl}/>
+              <Inp label="Data" type="date" value={dataDecl} onChange={setDataDecl}/>
+            </div>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Peso por item (opcional, pra declaração)</label>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {itensBase.map((it,i)=>(
+                <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:12,flex:1,color:C.cafe}}>{it.product||"Item"}{it.qty>1?` ×${it.qty}`:""}</span>
+                  <input value={pesos[i]} onChange={e=>setPesos(p=>{const l=[...p];l[i]=e.target.value;return l;})} placeholder="ex: 150g ou 0,3kg" style={{width:120,padding:"5px 9px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>
+                </div>
+              ))}
+            </div>
           </div>}
-          {incluir.etiqueta&&<div style={{marginBottom:4}}>
+          {incluir.etiqueta&&<div style={{marginBottom:incluir.cartinha?10:4}}>
             <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Etiquetas por folha A4</label>
             <div style={{display:"flex",gap:8}}>
               {[1,2].map(n=>(
@@ -2858,16 +2973,32 @@ const EnvioDocsModal = ({order,client,config,setOrders,onClose}) => {
               ))}
             </div>
           </div>}
+          {incluir.cartinha&&<div>
+            <label style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",display:"block",marginBottom:6}}>Texto da cartinha (editável)</label>
+            <Inp value={textoCartinha} onChange={setTextoCartinha} rows={6}/>
+          </div>}
         </Card>
 
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          <Btn v="ghost" onClick={gerarPreview}>👁️ Pré-visualizar</Btn>
-          <Btn onClick={imprimir}>🖨️ Imprimir</Btn>
+          <Btn v="ghost" disabled={docBusy} onClick={gerarPreview}>👁️ Pré-visualizar</Btn>
+          <Btn disabled={docBusy} onClick={imprimir}>🖨️ Imprimir</Btn>
+          <Btn v="ghost" disabled={docBusy} onClick={()=>gerarArquivo("pdf")}>📄 Gerar PDF</Btn>
+          <Btn v="ghost" disabled={docBusy} onClick={()=>gerarArquivo("img")}>🖼️ Gerar imagem</Btn>
         </div>
+        {docBusy&&<div style={{fontSize:12,fontWeight:700,color:C.cafe}}>⏳ Preparando o arquivo…</div>}
 
         {preview&&<div style={{border:`1px solid ${C.areia}`,borderRadius:6,overflow:"hidden"}}>
           <iframe title="Pré-visualização" srcDoc={preview} style={{width:"100%",height:480,border:"none",background:"#fff"}}/>
         </div>}
+
+        {docPrev&&<Card style={{padding:"12px 14px"}}>
+          <Divider label="Arquivo gerado"/>
+          <div style={{maxHeight:"42vh",overflow:"auto",border:`1px solid ${C.areia}`,borderRadius:6,background:"#fff",marginBottom:8}}>
+            <img src={docPrev.prev} alt="Prévia do arquivo" style={{width:"100%",display:"block"}}/>
+          </div>
+          <div style={{fontSize:11,color:C.oliva,marginBottom:8}}>📎 {docPrev.file.name}</div>
+          <Btn sm onClick={baixarDocPrev}>⬇ Baixar</Btn>
+        </Card>}
       </div>
     </Modal>
   );
