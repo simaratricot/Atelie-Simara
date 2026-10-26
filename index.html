@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v61 · 2026-10-22 02:50";
+const APP_BUILD = "v62 · 2026-10-24 08:55";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -925,7 +925,6 @@ const NAV = [
   {k:"production",i:"⟡",l:"Produção"},
   {k:"stock",i:"◇",l:"Estoque"},
   {k:"finance",i:"◉",l:"Financeiro"},
-  {k:"personal",i:"👛",l:"Contas Pessoais"},
   {k:"metas",i:"🎯",l:"Metas"},
   {k:"clients",i:"◈",l:"Cadastros"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
@@ -944,7 +943,7 @@ const NAV_GROUPS=[
   {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
-  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.personal,NAV_BY_KEY.reports]},
+  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.reports]},
   {label:"Cadastros",items:[NAV_BY_KEY.clients]},
   {label:"Minha Rotina",items:[NAV_BY_KEY.agenda,NAV_BY_KEY.metas,NAV_BY_KEY.diario,NAV_BY_KEY.projects]},
   {label:"Sistema",items:[NAV_BY_KEY.config]},
@@ -2564,7 +2563,7 @@ const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,co
 
   const gerarLancamentos=(o,newId,itens,pF,prodDesc)=>{
     const cat=products.find(p=>p.name===itens[0]?.product)?.category||"Moda";
-    const base={type:"receita",category:cat,centrocusto:"Vendas",
+    const base={type:"receita",category:cat,centrocusto:"Vendas",tipoNegocio:"Artesanato",
       orderId:newId,clientName:o.client,payment:o.payment,
       dataLancamento:o.dataCompra,pago:false}; // SEMPRE pendente
 
@@ -2667,7 +2666,7 @@ const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,co
     const pF=order.precoFinal||order.price;
     const saldo=Math.max(0,pF-novoPago);
     setOrders(prev=>prev.map(o=>o.id===order.id?{...o,valorPago:novoPago,paid:saldo<=0,historicoPagamentos:[...(o.historicoPagamentos||[]),{data,valor:Number(valor),contaId}]}:o));
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${order.id} – Baixa – ${order.client}`,value:Number(valor),date:data,category:"Moda",centrocusto:"Vendas",pago:true,contaId,orderId:order.id,clientName:order.client,dataLancamento:today,dataVencimento:data}]);
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${order.id} – Baixa – ${order.client}`,value:Number(valor),date:data,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",pago:true,contaId,orderId:order.id,clientName:order.client,dataLancamento:today,dataVencimento:data}]);
     if(contaId)setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+Number(valor)}:c));
     setBaixaModal(null);
   };
@@ -3463,8 +3462,11 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   );
 };
 
-const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetiradaPessoal,personalContas=[]}) => {
+const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categorias={despesa:[],receita:[]},setCategorias,faturas=[],setFaturas}) => {
   const [tab,setTab]=useState("lanc");
+  const [filtTipoNeg,setFiltTipoNeg]=useState("todos");
+  const [catModal,setCatModal]=useState(null); // {tipo:"despesa"|"receita"}
+  const [catForm,setCatForm]=useState({tipo:"despesa",id:"",nome:""});
   const [mostrarSaldos,setMostrarSaldos]=useState(()=>{try{return localStorage.getItem("atelie_mostrarSaldos")==="1";}catch{return false;}});
   const toggleMostrarSaldos=()=>setMostrarSaldos(v=>{const nv=!v;try{localStorage.setItem("atelie_mostrarSaldos",nv?"1":"0");}catch{}return nv;});
   const maskBRL=v=>mostrarSaldos?fmtBRL(v):"R$ ••••••";
@@ -3477,18 +3479,65 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
   const [ano,setAno]=useState(today.slice(0,4));
   const [filtStatus,setFiltStatus]=useState("todos");
   const [buscaFin,setBuscaFin]=useState("");
-  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
-  const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});
+  const [mostrarFiltros,setMostrarFiltros]=useState(false);
+  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
+  const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,diaFechamento:1,diaVencimento:10});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
   const MESES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const TIPOS_NEGOCIO=["Artesanato","Consultoria","Obras","Pessoal"];
+  const TIPO_NEGOCIO_COR={Artesanato:{bg:"#F3E3DD",c:"#A6553C"},Consultoria:{bg:"#EFE7DA",c:"#8A6D1F"},Obras:{bg:"#EAE3DD",c:"#6B4530"},Pessoal:{bg:"#F7E3E6",c:"#B5455B"}};
+  const cartoes=contas.filter(c=>c.tipo==="Cartão de crédito");
 
   const isVencido=f=>!f.pago&&f.dataVencimento&&f.dataVencimento<today;
   const getStatus=f=>{if(f.pago)return "pago";if(f.pagoParcial)return "parcial";if(isVencido(f))return "vencido";return "pendente";};
 
   const inPer=f=>{if(per==="dia")return f.date===today||f.dataVencimento===today;if(per==="mes")return f.date?.startsWith(mes)||f.dataVencimento?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano)||f.dataVencimento?.startsWith(ano);return true;};
   const filtraBusca=f=>!buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase());
-  const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f));
+  const filtraTipoNeg=f=>filtTipoNeg==="todos"||(f.tipoNegocio||"Artesanato")===filtTipoNeg;
+  const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f)&&filtraTipoNeg(f));
   const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
+
+  // Categorias unificadas (despesa/receita), só as ativas — usadas no formulário de lançamento
+  const catsAtivas=(tipo)=>(categorias?.[tipo]||[]).filter(c=>c.ativa);
+  const abrirNovaCat=(tipo)=>{setCatForm({tipo,id:"",nome:""});setCatModal(tipo);};
+  const saveCatFin=()=>{
+    const nome=(catForm.nome||"").trim();
+    if(!nome||!setCategorias)return;
+    setCategorias(prev=>{
+      const lista=prev[catForm.tipo]||[];
+      const nova=catForm.id?lista.map(c=>c.id===catForm.id?{...c,nome}:c):[...lista,{id:uid(),nome,ativa:true}];
+      return {...prev,[catForm.tipo]:nova};
+    });
+    setCatModal(null);
+    setForm(f=>({...f,category:nome}));
+    showSavedGlobal("Categoria salva!");
+  };
+
+  // ── Cartão de crédito: competência/fatura (mesma lógica da antiga Contas Pessoais, adaptada pro Financeiro) ──
+  const fcItensFatura=(cartaoContaId,competencia)=>finance.filter(f=>f.type==="despesa"&&f.formaPagamento==="Cartão de crédito"&&f.cartaoContaId===cartaoContaId&&f.competencia===competencia&&!f.faturaId);
+  const fcLimiteUsado=(cartaoContaId)=>finance.filter(f=>f.type==="despesa"&&f.formaPagamento==="Cartão de crédito"&&f.cartaoContaId===cartaoContaId&&!f.pago).reduce((a,f)=>a+Number(f.value||0),0);
+  const fecharFatura=(cartao,competencia)=>{
+    const itens=fcItensFatura(cartao.id,competencia);
+    if(!itens.length||!setFaturas)return;
+    const valorTotal=itens.reduce((a,f)=>a+Number(f.value||0),0);
+    const faturaId=uid();
+    const vencimento=pfVencimentoFatura(cartao.diaVencimento||10,cartao.diaFechamento||1,competencia);
+    setFaturas(prev=>[...prev,{id:faturaId,cartaoContaId:cartao.id,cartaoNome:cartao.nome,competencia,vencimento,valorTotal,itensIds:itens.map(i=>i.id),status:"Fechada",dataPagamento:""}]);
+    setFinance(prev=>prev.map(f=>itens.some(i=>i.id===f.id)?{...f,faturaId,dataVencimento:vencimento}:f));
+    showSavedGlobal("Fatura fechada!");
+  };
+  const pagarFatura=(f,contaId)=>{
+    if(!setFaturas)return;
+    setFaturas(prev=>prev.map(x=>x.id===f.id?{...x,status:"Paga",dataPagamento:today}:x));
+    setFinance(prev=>prev.map(x=>f.itensIds.includes(x.id)?{...x,pago:true,dataPagamento:today,contaId:contaId||x.contaId}:x));
+    if(contaId)setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)-f.valorTotal}:c));
+    showSavedGlobal("Fatura paga! Limite liberado.");
+  };
+  const reabrirFatura=(f)=>{
+    if(!setFaturas)return;
+    setFaturas(prev=>prev.filter(x=>x.id!==f.id));
+    setFinance(prev=>prev.map(x=>f.itensIds.includes(x.id)?{...x,faturaId:""}:x));
+  };
   // Transferências entre contas próprias são só movimentação — não contam como receita/despesa de verdade nos totais abaixo (mas continuam aparecendo no extrato de cada conta e na lista de lançamentos).
   const financeReal=finance.filter(f=>!f.isTransferencia);
   const filtPerReal=filtPer.filter(f=>!f.isTransferencia);
@@ -3536,7 +3585,29 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
   };
 
   const saveForm=()=>{
-    if(form.fixa&&form.type==="despesa"){
+    const ehCartao=form.type==="despesa"&&form.formaPagamento==="Cartão de crédito"&&form.cartaoContaId;
+    const cartao=ehCartao?contas.find(c=>c.id===form.cartaoContaId):null;
+
+    if(ehCartao&&form.parcelado&&Number(form.numParcelas)>1){
+      const n=Number(form.numParcelas);
+      const totalCent=Math.round(Number(form.value)*100);
+      const baseCent=Math.floor(totalCent/n);
+      const resto=totalCent-baseCent*n;
+      const compraBase=new Date((form.date||today)+"T00:00");
+      const compraId=uid();
+      const lancs=Array.from({length:n},(_,i)=>{
+        const dt=new Date(compraBase.getFullYear(),compraBase.getMonth()+i,compraBase.getDate());
+        const dataCompra=dt.toISOString().split("T")[0];
+        const centavos=baseCent+(i<resto?1:0);
+        const competencia=pfCompetencia(cartao?.diaFechamento||1,dataCompra);
+        const vencimento=pfVencimentoFatura(cartao?.diaVencimento||10,cartao?.diaFechamento||1,competencia);
+        return {...form,id:uid(),compraId,value:centavos/100,valorTotalCompra:Number(form.value),
+          date:dataCompra,dataVencimento:vencimento,competencia,faturaId:"",pago:false,
+          desc:`${form.desc} (${i+1}/${n})`};
+      });
+      setFinance(prev=>[...prev,...lancs]);
+      showSavedGlobal(`${n} parcelas criadas no cartão!`);
+    } else if(form.fixa&&form.type==="despesa"&&!ehCartao){
       const inicio=new Date(form.dataInicio||today);
       const lancs=[];
       for(let i=0;i<Number(form.qtdMeses||12);i++){
@@ -3548,17 +3619,26 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
       }
       setFinance(prev=>[...prev,...lancs]);
       showSavedGlobal(`${lancs.length} lançamentos criados!`);
+    } else if(ehCartao){
+      const competencia=pfCompetencia(cartao?.diaFechamento||1,form.date||today);
+      const vencimento=pfVencimentoFatura(cartao?.diaVencimento||10,cartao?.diaFechamento||1,competencia);
+      setFinance(prev=>[...prev,{...form,id:uid(),value:Number(form.value),pago:false,competencia,dataVencimento:vencimento,faturaId:""}]);
+      showSavedGlobal("Lançamento salvo!");
     } else {
       setFinance(prev=>[...prev,{...form,id:uid(),value:Number(form.value),pago:false}]);
       showSavedGlobal("Lançamento salvo!");
     }
-    if(form.type==="despesa"&&form.retiradaPessoal&&onRetiradaPessoal){
-      onRetiradaPessoal({valor:Number(form.value),data:form.date,desc:form.desc,contaId:form.retiradaContaId||""});
-      showSavedGlobal("Lançamento salvo! Entrada criada em Contas Pessoais.");
+    if(form.type==="despesa"&&form.retiradaPessoal){
+      setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`Retirada/pró-labore — ${form.desc}`,value:Number(form.value),date:form.date,dataVencimento:form.date,category:"Pró-labore/Retirada do negócio",tipoNegocio:"Pessoal",centrocusto:"Pessoal",pago:true,dataPagamento:form.date,contaId:form.retiradaContaId||""}]);
+      showSavedGlobal("Lançamento salvo! Entrada criada no Pessoal.");
     }
     setFormModal(false);
   };
-  const saveConta=()=>{if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?{...cForm,saldo:Number(cForm.saldo)}:c));else setContas(prev=>[...prev,{...cForm,id:uid(),saldo:Number(cForm.saldo)}]);setContaModal(false);showSavedGlobal("Conta salva!");};
+  const saveConta=()=>{
+    const dados={...cForm,saldo:Number(cForm.saldo)||0,limite:Number(cForm.limite)||0,diaFechamento:Number(cForm.diaFechamento)||1,diaVencimento:Number(cForm.diaVencimento)||10};
+    if(cForm.id)setContas(prev=>prev.map(c=>c.id===cForm.id?dados:c));else setContas(prev=>[...prev,{...dados,id:uid()}]);
+    setContaModal(false);showSavedGlobal("Conta salva!");
+  };
   const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.de,isTransferencia:true},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.para,isTransferencia:true}]);setTransModal(false);showSavedGlobal("Transferência feita — é só movimento entre contas, não entra no Lucro/Resultado.");};
 
   const StatusBtn=({f})=>{
@@ -3599,28 +3679,78 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-        <Tabs tabs={[{k:"lanc",l:"Lançamentos"},{k:"rec",l:"A Receber"},{k:"pag",l:"A Pagar"},{k:"bal",l:"Balanço"},{k:"cx",l:"Fluxo de Caixa"},{k:"div",l:"Divisão do Dia"}]} active={tab} set={setTab}/>
+        <Tabs tabs={[{k:"lanc",l:"Lançamentos"},{k:"rec",l:"A Receber"},{k:"pag",l:"A Pagar"},{k:"bal",l:"Balanço"},{k:"cx",l:"Fluxo de Caixa"},{k:"div",l:"Divisão do Dia"},{k:"contas",l:"💳 Contas"},{k:"cartao",l:"💳 Fatura do cartão"}]} active={tab} set={setTab}/>
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-          <Btn sm v="ghost" onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});setContaModal(true);}}>+ Conta</Btn>
           <Btn onClick={()=>setFormModal(true)}>+ Lançamento</Btn>
         </div>
       </div>
 
-      {contas.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.linho,borderRadius:8,padding:"10px 16px",marginBottom:10}}>
-        <span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>Saldo total das contas ({contas.length})</span>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{maskBRL(contas.reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
-          <button onClick={toggleMostrarSaldos} title={mostrarSaldos?"Ocultar saldos":"Mostrar saldos"} style={{background:"none",border:`1.5px solid ${C.areia}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",fontSize:13,color:C.cafe,display:"flex",alignItems:"center",gap:4}}>{mostrarSaldos?"🙈 Ocultar":"👁 Mostrar"}</button>
+      {tab==="contas"&&<div>
+        {contas.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.linho,borderRadius:8,padding:"10px 16px",marginBottom:10}}>
+          <span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>Saldo total das contas ({contas.length})</span>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{maskBRL(contas.filter(c=>c.tipo!=="Cartão de crédito").reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
+            <button onClick={toggleMostrarSaldos} title={mostrarSaldos?"Ocultar saldos":"Mostrar saldos"} style={{background:"none",border:`1.5px solid ${C.areia}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",fontSize:13,color:C.cafe,display:"flex",alignItems:"center",gap:4}}>{mostrarSaldos?"🙈 Ocultar":"👁 Mostrar"}</button>
+          </div>
+        </div>}
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+          {contas.map(c=>{
+            const ehCartao=c.tipo==="Cartão de crédito";
+            const usado=ehCartao?fcLimiteUsado(c.id):0;
+            return(
+            <div key={c.id} className="ch" onClick={()=>{setCForm({limite:0,diaFechamento:1,diaVencimento:10,...c});setContaModal(true);}} style={{flex:"1 1 150px",background:`linear-gradient(135deg,${c.cor||C.dourado},${c.cor||C.dourado}bb)`,borderRadius:8,padding:"12px 16px",cursor:"pointer"}}>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>{c.nome}</div>
+              {ehCartao?<>
+                <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(usado)} <span style={{fontSize:10,fontWeight:400,opacity:0.8}}>usado</span></div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",marginTop:2}}>Limite {maskBRL(c.limite||0)} · fecha dia {c.diaFechamento||1}, vence dia {c.diaVencimento||10}</div>
+              </>:<div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(c.saldo||0)}</div>}
+            </div>
+          );})}
+          <div onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,diaFechamento:1,diaVencimento:10});setContaModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.areia}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.oliva,fontWeight:600}}>+ Nova conta/cartão</div>
+          {contas.length>1&&<div onClick={()=>{setTForm({de:contas[0]?.id||"",para:contas[1]?.id||"",valor:0,data:today,nota:""});setTransModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.dourado}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.dourado,fontWeight:600}}>⇄ Transferir</div>}
         </div>
       </div>}
-      {contas.length>0&&<div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-        {contas.map(c=><div key={c.id} className="ch" onClick={()=>{setCForm({...c});setContaModal(true);}} style={{flex:"1 1 130px",background:`linear-gradient(135deg,${c.cor||C.dourado},${c.cor||C.dourado}bb)`,borderRadius:8,padding:"12px 16px",cursor:"pointer"}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
-          <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>{c.nome}</div>
-          <div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(c.saldo||0)}</div>
-        </div>)}
-        <div onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57"});setContaModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.areia}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.oliva,fontWeight:600}}>+ Nova conta</div>
-        <div onClick={()=>{setTForm({de:contas[0]?.id||"",para:contas[1]?.id||"",valor:0,data:today,nota:""});setTransModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.dourado}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.dourado,fontWeight:600}}>⇄ Transferir</div>
+
+      {tab==="cartao"&&<div>
+        {cartoes.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum cartão de crédito cadastrado ainda — crie um na aba 💳 Contas ✦</div>:
+        cartoes.map(cartao=>{
+          const competencias=[...new Set(finance.filter(f=>f.type==="despesa"&&f.formaPagamento==="Cartão de crédito"&&f.cartaoContaId===cartao.id).map(f=>f.competencia).filter(Boolean))].sort();
+          const faturasDoCartao=faturas.filter(f=>f.cartaoContaId===cartao.id).sort((a,b)=>b.competencia.localeCompare(a.competencia));
+          return(
+          <Card key={cartao.id} style={{marginBottom:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <h3 style={{fontSize:15}}>💳 {cartao.nome}</h3>
+              <div style={{fontSize:11,color:C.oliva}}>Limite usado: <b>{maskBRL(fcLimiteUsado(cartao.id))}</b> / {maskBRL(cartao.limite||0)}</div>
+            </div>
+            {competencias.filter(comp=>fcItensFatura(cartao.id,comp).length>0).map(comp=>{
+              const itens=fcItensFatura(cartao.id,comp);
+              const total=itens.reduce((a,f)=>a+Number(f.value||0),0);
+              return(
+                <div key={comp} style={{background:C.linho,borderRadius:6,padding:"10px 14px",marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <span style={{fontSize:12,fontWeight:700}}>{pfCompetenciaLabel(comp)} — {itens.length} lançamento{itens.length!==1?"s":""}</span>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:C.dourado}}>{maskBRL(total)}</span>
+                      <Btn sm onClick={()=>fecharFatura(cartao,comp)}>Fechar fatura</Btn>
+                    </div>
+                  </div>
+                  {itens.map(f=><div key={f.id} style={{fontSize:11,color:C.oliva,display:"flex",justifyContent:"space-between",padding:"2px 0"}}><span>{f.desc}</span><span>{fmtBRL(f.value)}</span></div>)}
+                </div>
+              );
+            })}
+            {faturasDoCartao.map(f=>(
+              <div key={f.id} style={{border:`1px solid ${C.areia}`,borderRadius:6,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700}}>Fatura {pfCompetenciaLabel(f.competencia)} {(()=>{const s=f.status==="Paga"?"Pago":(f.vencimento&&f.vencimento<today?"Atrasado":"Pendente");const cor=s==="Pago"?{bg:"#D4E8D4",c:"#2E6B2E"}:s==="Atrasado"?{bg:"#FEE",c:C.vermelho}:{bg:"#FEF3E9",c:C.dourado};return <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:cor.bg,color:cor.c}}>{s}</span>;})()}</div>
+                  <div style={{fontSize:11,color:C.oliva}}>Vence {fmtDate(f.vencimento)} · {maskBRL(f.valorTotal)}</div>
+                </div>
+                {f.status==="Paga"?<Btn sm v="ghost" onClick={()=>reabrirFatura(f)}>↩ Reabrir</Btn>:
+                  <Sel value="" onChange={contaId=>contaId&&pagarFatura(f,contaId)} options={[{v:"",l:"Pagar com..."},...contas.filter(c=>c.tipo!=="Cartão de crédito").map(c=>({v:c.id,l:c.nome}))]}/>}
+              </div>
+            ))}
+          </Card>
+        );})}
       </div>}
 
       {tab==="lanc"&&<>
@@ -3629,10 +3759,24 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
           {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
           {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
           <div style={{flex:1,minWidth:160}}><Inp value={buscaFin} onChange={setBuscaFin} placeholder="Buscar cliente/fornecedor..."/></div>
+          <button onClick={()=>setMostrarFiltros(v=>!v)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${(filtTipoNeg!=="todos"||filtStatus!=="todos")?C.dourado:C.areia}`,background:(filtTipoNeg!=="todos"||filtStatus!=="todos")?"rgba(176,141,87,0.1)":"transparent",color:C.cafe,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            ⚙ Filtros{(filtTipoNeg!=="todos"||filtStatus!=="todos")?" •":""} {mostrarFiltros?"▲":"▼"}
+          </button>
         </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-          {[{k:"todos",l:"Todos"},{k:"pendente",l:"⏳ Pendentes"},{k:"pago",l:"✓ Pagos"},{k:"parcial",l:"◑ Parciais"},{k:"vencido",l:"⚠ Vencidos"}].map(s=><button key={s.k} onClick={()=>setFiltStatus(s.k)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtStatus===s.k?C.cafe:C.areia}`,background:filtStatus===s.k?C.cafe:"transparent",color:filtStatus===s.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s.l}</button>)}
-        </div>
+        {mostrarFiltros&&<div style={{background:C.linho,borderRadius:6,padding:"10px 12px",marginBottom:12,display:"flex",flexDirection:"column",gap:8}}>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,marginBottom:5}}>Frente</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["todos",...TIPOS_NEGOCIO].map(t=><button key={t} onClick={()=>setFiltTipoNeg(t)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtTipoNeg===t?C.cafe:C.areia}`,background:filtTipoNeg===t?C.cafe:"transparent",color:filtTipoNeg===t?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{t==="todos"?"Todos":t}</button>)}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,marginBottom:5}}>Status</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[{k:"todos",l:"Todos"},{k:"pendente",l:"⏳ Pendentes"},{k:"pago",l:"✓ Pagos"},{k:"parcial",l:"◑ Parciais"},{k:"vencido",l:"⚠ Vencidos"}].map(s=><button key={s.k} onClick={()=>setFiltStatus(s.k)} style={{padding:"3px 11px",borderRadius:20,border:`1.5px solid ${filtStatus===s.k?C.cafe:C.areia}`,background:filtStatus===s.k?C.cafe:"transparent",color:filtStatus===s.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{s.l}</button>)}
+            </div>
+          </div>
+        </div>}
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
           {[{l:"Receitas",v:fmtBRL(rec),c:C.oliva},{l:"Despesas",v:fmtBRL(desp),c:C.vermelho},{l:"Lucro",v:fmtBRL(rec-desp),c:rec-desp>=0?C.dourado:C.vermelho},{l:"Margem",v:`${rec>0?Math.round(((rec-desp)/rec)*100):0}%`,c:C.cafe}].map(k=><Card key={k.l} style={{flex:"1 1 100px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:3,fontWeight:700}}>{k.l}</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div></Card>)}
         </div>
@@ -3645,7 +3789,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
                 <tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`,background:isVencido(f)?"rgba(192,57,43,0.03)":f.pagoParcial?"rgba(176,141,87,0.05)":"transparent"}}>
                   <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
                   <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.isTransferencia?"#EAE3DD":f.type==="receita"?"#D4E8D4":"#FEE",color:f.isTransferencia?C.cafe:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.isTransferencia?"⇄ TRANSF.":f.type==="receita"?"RECEITA":"DESPESA"}</span></td>
-                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}{f.category&&<span style={{fontSize:9,background:"#EAE3DD",color:C.cafe,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.category}</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
+                  <td style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:600}}>{f.desc}{!f.isTransferencia&&<span style={{fontSize:9,background:(TIPO_NEGOCIO_COR[f.tipoNegocio]||TIPO_NEGOCIO_COR.Artesanato).bg,color:(TIPO_NEGOCIO_COR[f.tipoNegocio]||TIPO_NEGOCIO_COR.Artesanato).c,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.tipoNegocio||"Artesanato"}</span>}{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}{f.formaPagamento==="Cartão de crédito"&&<span style={{fontSize:9,background:"#EDE3F5",color:"#7a5a8c",padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>💳{f.valorTotalCompra?" PARCELA":""}</span>}{f.category&&<span style={{fontSize:9,background:"#EAE3DD",color:C.cafe,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>{f.category}</span>}</div>{f.clientName&&<div style={{fontSize:10,color:C.oliva}}>{f.clientName}{f.orderId?` · ${f.orderId}`:""}</div>}</td>
                   <td style={{padding:"8px 10px",fontSize:13,fontWeight:700,color:f.type==="receita"?C.oliva:C.vermelho,whiteSpace:"nowrap"}}>{f.type==="receita"?"+":"-"}{fmtBRL(f.value)}</td>
                   <td style={{padding:"8px 10px",fontSize:11,color:isVencido(f)?C.vermelho:C.oliva,whiteSpace:"nowrap",fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}</td>
                   <td style={{padding:"8px 10px"}}><StatusBtn f={f}/></td>
@@ -3764,6 +3908,10 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
             <div style={{display:"flex",gap:8}}>{["receita","despesa"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,type:t,fixa:false}))} style={{flex:1,padding:"8px",borderRadius:4,border:`2px solid ${form.type===t?(t==="receita"?C.oliva:C.vermelho):C.areia}`,background:form.type===t?(t==="receita"?"#D4E8D4":"#FEE"):"transparent",fontSize:13,fontWeight:700,color:form.type===t?(t==="receita"?"#2E6B2E":C.vermelho):C.oliva,cursor:"pointer"}}>{t==="receita"?"+ Receita":"- Despesa"}</button>)}
             </div>
           </div>
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>De qual frente é esse lançamento?</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{TIPOS_NEGOCIO.map(t=><button key={t} onClick={()=>setForm(f=>({...f,tipoNegocio:t}))} style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${form.tipoNegocio===t?C.cafe:C.areia}`,background:form.tipoNegocio===t?C.cafe:"transparent",color:form.tipoNegocio===t?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>)}
+            </div>
+          </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
           <div style={{position:"relative"}}>
             <Inp label={form.type==="receita"?"Cliente (opcional)":"Fornecedor / Cliente"} value={form.clientName||""} onChange={v=>setForm(f=>({...f,clientName:v}))} placeholder={form.type==="receita"?"Nome da cliente...":"Nome do fornecedor ou cliente..."}/>
@@ -3783,20 +3931,33 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],onRetira
             <Inp label="Data de vencimento" type="date" value={form.dataVencimento} onChange={v=>setForm(f=>({...f,dataVencimento:v}))}/>
           </>}
           <Sel label="Centro de custo" value={form.centrocusto} onChange={v=>setForm(f=>({...f,centrocusto:v}))} options={CENTROS}/>
-          <Sel label="Categoria" value={form.category} onChange={v=>setForm(f=>({...f,category:v}))} options={CATS_FIN}/>
-          <Sel label="Conta" value={form.contaId} onChange={v=>setForm(f=>({...f,contaId:v}))} options={[{v:"",l:"Nenhuma"},...contas.map(c=>({v:c.id,l:c.nome}))]}/>
+          <div>
+            <Sel label="Categoria" value={form.category} onChange={v=>v==="__nova__"?abrirNovaCat(form.type):setForm(f=>({...f,category:v}))}
+              options={[...catsAtivas(form.type).map(c=>c.nome),{v:"__nova__",l:"+ nova categoria..."}]}/>
+          </div>
+          <Sel label="Conta" value={form.contaId} onChange={v=>setForm(f=>({...f,contaId:v}))} options={[{v:"",l:"Nenhuma"},...contas.filter(c=>c.tipo!=="Cartão de crédito").map(c=>({v:c.id,l:c.nome}))]}/>
           {form.type==="despesa"&&<>
+            <Sel label="Forma de pagamento" value={form.formaPagamento||"Dinheiro"} onChange={v=>setForm(f=>({...f,formaPagamento:v,cartaoContaId:v==="Cartão de crédito"?f.cartaoContaId:""}))} options={["Dinheiro","PIX","Cartão de débito","Cartão de crédito","Boleto","Transferência"]}/>
+            {form.formaPagamento==="Cartão de crédito"&&<div style={{background:"#EDE3F5",borderRadius:6,padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
+              <Sel label="Cartão" value={form.cartaoContaId||""} onChange={v=>setForm(f=>({...f,cartaoContaId:v}))}
+                options={[{v:"",l:cartoes.length?"Selecione...":"Nenhum cartão cadastrado — crie um na aba Contas"},...cartoes.map(c=>({v:c.id,l:c.nome}))]}/>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+                <input type="checkbox" checked={form.parcelado||false} onChange={e=>setForm(f=>({...f,parcelado:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
+                <span style={{fontWeight:600}}>Parcelado</span>
+              </label>
+              {form.parcelado&&<Inp label="Número de parcelas" type="number" value={form.numParcelas||2} onChange={v=>setForm(f=>({...f,numParcelas:Number(v)||2}))}/>}
+            </div>}
             <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
               <input type="checkbox" checked={form.fixa||false} onChange={e=>setForm(f=>({...f,fixa:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
               <span style={{fontWeight:600}}>📌 Conta fixa (recorrente)</span>
             </label>
             <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",background:"#F7E3E6",padding:"10px 12px",borderRadius:6}}>
               <input type="checkbox" checked={form.retiradaPessoal||false} onChange={e=>setForm(f=>({...f,retiradaPessoal:e.target.checked}))} style={{width:16,height:16,accentColor:C.oliva}}/>
-              <span style={{fontWeight:600,color:"#B5455B"}}>👛 Isto é retirada/pró-labore para mim — criar entrada em Contas Pessoais</span>
+              <span style={{fontWeight:600,color:"#B5455B"}}>👛 Isto é retirada/pró-labore para mim — cria também uma entrada Pessoal</span>
             </label>
             {form.retiradaPessoal&&<div style={{background:"#F7E3E6",borderRadius:6,padding:"0 12px 12px"}}>
-              <Sel label="Conta destino (em Contas Pessoais)" value={form.retiradaContaId||""} onChange={v=>setForm(f=>({...f,retiradaContaId:v}))}
-                options={[{v:"",l:personalContas.length?"Selecione...":"Nenhuma conta pessoal cadastrada ainda"},...personalContas.map(c=>({v:c.id,l:c.nome}))]}/>
+              <Sel label="Conta destino (dessa retirada)" value={form.retiradaContaId||""} onChange={v=>setForm(f=>({...f,retiradaContaId:v}))}
+                options={[{v:"",l:"Nenhuma"},...contas.filter(c=>c.tipo!=="Cartão de crédito").map(c=>({v:c.id,l:c.nome}))]}/>
             </div>}
             {form.fixa&&<div style={{background:C.linho,borderRadius:6,padding:"14px",display:"flex",flexDirection:"column",gap:12}}>
               <div>
@@ -7194,7 +7355,7 @@ const pcHdr=(p,titulo,extra)=>`<div class="hdr"><div><div class="hdr-nome">SIMAR
 const pcCliBloco=(p,cli)=>`<h2>Cliente</h2><div class="campo"><b>Nome:</b> ${p.clienteNome}</div>${(cli&&cli.cpfCnpj)?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}${p.empresa?`<div class="campo"><b>Empresa:</b> ${p.empresa}</div>`:""}${p.responsavel?`<div class="campo"><b>Responsável:</b> ${p.responsavel}</div>`:""}`;
 
 // ── financeiro do projeto ──
-const pcNovoLanc=(p,f,uid,today)=>({id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Projeto CONTÍNUA — ${p.nome} — ${p.clienteNome}${f.obs?` — ${f.obs}`:""}`,value:Number(f.valor)||0,date:today,dataVencimento:f.dataVencimento||today,formaPag:f.formaPag||"PIX",pago:false,category:"Consultoria",clientName:p.clienteNome,projetoId:p.id});
+const pcNovoLanc=(p,f,uid,today)=>({id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Projeto CONTÍNUA — ${p.nome} — ${p.clienteNome}${f.obs?` — ${f.obs}`:""}`,value:Number(f.valor)||0,date:today,dataVencimento:f.dataVencimento||today,formaPag:f.formaPag||"PIX",pago:false,category:"Consultoria",clientName:p.clienteNome,projetoId:p.id});
 
 // ── encerramento ──
 const pcEncerrar=(p,f)=>pcEv({...p,status:"Concluído",encerramento:{...(f||{}),data:pcHoje()}},"status",`Projeto encerrado${f&&f.resultados?": "+String(f.resultados).slice(0,80):""}`);
@@ -9348,7 +9509,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       setConsultoria(prev=>[...prev,novo]);
       // Só vai para o financeiro se você marcar "Lançar no financeiro agora"
       if(quer){
-        setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
+        setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
       }
     } else {
       setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo,atendimentos:x.atendimentos,medicoes:x.medicoes}:x));
@@ -9385,7 +9546,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     }
     if(lancar){
       // data = dia do lançamento (aparece no mês atual do Financeiro); vencimento = o escolhido
-      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:valFinal,date:today,dataVencimento:vencFin,formaPag:atendForm.formaPagFin||"PIX",pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:valFinal,date:today,dataVencimento:vencFin,formaPag:atendForm.formaPagFin||"PIX",pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     } else if(jaLanc){
       // já foi lançado antes: atualiza o mesmo lançamento (se ainda não foi pago) em vez de duplicar
       setFinance(prev=>prev.map(f=>f.id===finId&&!f.pago&&valFinal>0?{...f,value:valFinal,desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`}:f));
@@ -9415,7 +9576,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       atendimentos:(c.atendimentos||[]).map(a=>atends.find(x=>x.id===a.id)?{...a,valor:vRate(a,rate),medicaoId:medId}:a)
     }:c));
     if(quer){
-      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     }
     setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setSelAtends([]);setModal(null);
     showSavedGlobal(quer?"Medição fechada e lançada no financeiro!":"Medição salva no pedido (não foi para o financeiro).");
@@ -9426,7 +9587,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(!sel||!(Number(sel.valor)>0))return;
     if(!window.confirm(`Lançar ${fmtBRL(Number(sel.valor))} deste pedido no financeiro?`))return;
     const finId=uid();
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Consultoria — ${sel.clienteNome} — ${sel.servico}`,value:Number(sel.valor),date:today,dataVencimento:sel.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Consultoria — ${sel.clienteNome} — ${sel.servico}`,value:Number(sel.valor),date:today,dataVencimento:sel.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,lancado:true,financeiroId:finId}:c));
     showSavedGlobal("Pedido lançado no financeiro!");
   };
@@ -9437,7 +9598,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(!(Number(m.valor)>0)){alert("Esta medição está sem valor. Edite o valor (✎) antes de lançar.");return;}
     if(!window.confirm(`Lançar ${fmtBRL(m.valor)} desta medição no financeiro?`))return;
     const finId=uid();
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(m.horas)}`,value:Number(m.valor),date:today,dataVencimento:m.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(m.horas)}`,value:Number(m.valor),date:today,dataVencimento:m.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,medicoes:c.medicoes.map(x=>x.id===m.id?{...x,lancado:true,financeiroId:finId}:x)}:c));
     showSavedGlobal("Medição lançada no financeiro!");
   };
@@ -9453,7 +9614,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(jaTem&&!window.confirm(`Já existe um lançamento de mensalidade de ${mesLancar} para este cliente. Lançar de novo mesmo assim?`))return;
     if(enviar&&wppFmt==="texto"&&!telDe(sel)){alert("Cadastre o WhatsApp do cliente para enviar (ou escolha PDF/Imagem).");return;}
     const venc=`${mesLancar}-${String(diaLancar||22).padStart(2,"0")}`;
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome,pedidoId:sel.id}]);
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setModal(null);
     if(enviar){
       showSavedGlobal(wppFmt==="texto"?"Mensalidade lançada! Abrindo o WhatsApp…":"Mensalidade lançada! Preparando o documento…");
@@ -10341,9 +10502,12 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
   // transferências entre contas não são receita/despesa de verdade — ficam fora dos relatórios
   const financePer=finance.filter(f=>!f.isTransferencia&&inPerFin(f));
 
-  // ── uso pessoal (conta pessoal) — separado do negócio ──
-  const pessoalEntradas=personalReceitas.filter(inPerPessoalRec).reduce((a,r)=>a+Number(r.valor||0),0);
-  const pessoalSaidas=personalDespesas.filter(inPerPessoalDesp).reduce((a,d)=>a+Number(d.valor||0),0);
+  // ── uso pessoal — agora é só o Financeiro unificado filtrado por tipoNegocio "Pessoal"
+  // (personalReceitas/personalDespesas são só o histórico antigo, já migrado pra cá; manter
+  // os dois somados faria duplicar os valores depois da migração) ──
+  const pessoalPer=financePer.filter(f=>(f.tipoNegocio||"Artesanato")==="Pessoal");
+  const pessoalEntradas=pessoalPer.filter(f=>f.type==="receita").reduce((a,f)=>a+Number(f.value||0),0);
+  const pessoalSaidas=pessoalPer.filter(f=>f.type==="despesa").reduce((a,f)=>a+Number(f.value||0),0);
   const pessoalSaldo=pessoalEntradas-pessoalSaidas;
 
   // ── saldo das contas (Financeiro → Contas/Cartões, inclui "Saldo pessoal" se ela criar) ──
@@ -11799,7 +11963,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     const novo={...recForm,id:recForm.id||uid(),valor,financeiroId:finId};
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:[...(o.recebimentos||[]),novo]}:o));
     // Vai pro Financeiro geral como "a receber" (pendente) — a baixa (marcar pago + escolher a conta) é feita lá no Financeiro, igual Consultoria.
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",tipoNegocio:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setRecFormOpen(false);showSavedGlobal("Recebimento registrado! Agora é só ir em Financeiro → A Receber pra dar baixa e escolher a conta.");
   };
   const excluirRecebimento=r=>{
@@ -12110,11 +12274,83 @@ function App() {
   const [personalCategorias, setPersonalCategorias]=useStorage("personalCategorias", INIT.personalCategorias);
   const [personalContas, setPersonalContas]=useStorage("personalContas", INIT.personalContas);
   const [personalFaturas, setPersonalFaturas]=useStorage("personalFaturas", INIT.personalFaturas);
+  // setters já vêm direto do useStorage acima
+
+  // ── Unificação do Financeiro: migração única das Contas Pessoais pro Financeiro geral ──
+  // Roda uma vez só (marcada em config.finUnificadoMigrado), e: (1) identifica lançamentos
+  // antigos do Financeiro que ainda não têm "tipoNegocio" (Artesanato/Consultoria/Obras/Pessoal),
+  // (2) converte despesas/receitas pessoais em lançamentos do Financeiro com tipoNegocio "Pessoal",
+  // (3) junta as contas/cartões pessoais nas contas gerais, (4) junta as categorias padrão do
+  // Financeiro na lista de categorias (que passa a ser única, compartilhada por tudo).
+  // Refs sempre com o valor mais recente (o setTimeout abaixo dispara bem depois do
+  // primeiro render, então não pode depender de variáveis "congeladas" daquele render).
+  const pdRef=useRef(personalDespesas), prRef=useRef(personalReceitas), pcRef=useRef(personalContas);
+  pdRef.current=personalDespesas; prRef.current=personalReceitas; pcRef.current=personalContas;
+
+  const finMigRodou=useRef(false);
+  useEffect(()=>{
+    if(finMigRodou.current)return;
+    if(config.finUnificadoMigrado)return;
+    finMigRodou.current=true;
+    // Espera um pouco pra dar tempo dos dados chegarem do Firebase (evita migrar
+    // em cima de um array ainda vazio, antes da nuvem carregar) antes de rodar
+    // a migração única e marcar como feita.
+    const t=setTimeout(()=>{
+      const personalDespesasAtual=pdRef.current, personalReceitasAtual=prRef.current, personalContasAtual=pcRef.current;
+      setFinance(prev=>{
+        let out=prev.map(f=>{
+          if(f.tipoNegocio||f.isTransferencia)return f;
+          const inferido=f.tipoReceita==="Consultoria"?"Consultoria":f.tipoReceita==="Obras"?"Obras":f.category==="Consultoria"?"Consultoria":f.category==="Obras"?"Obras":"Artesanato";
+          return {...f,tipoNegocio:inferido};
+        });
+        const despMigradas=(personalDespesasAtual||[]).map(d=>({
+          id:d.id,type:"despesa",desc:d.descricao||"Despesa pessoal",category:d.categoria||"Outros",tipoNegocio:"Pessoal",
+          value:Number(d.valor)||0,date:d.dataCompra||d.vencimento||today,dataVencimento:d.vencimento||today,
+          pago:!!d.pago,dataPagamento:d.dataPagamento||"",contaId:d.contaPagamento||"",
+          formaPagamento:d.formaPagamento||"Dinheiro",cartaoContaId:"",competencia:d.competencia||"",faturaId:"",
+          fixa:d.tipo==="Fixa",centrocusto:"Pessoal",observacoes:d.observacoes||"",migradoDe:"personalDespesas",
+        }));
+        const recMigradas=(personalReceitasAtual||[]).map(r=>({
+          id:r.id,type:"receita",desc:r.descricao||"Receita pessoal",category:r.categoria||"Outras receitas",tipoNegocio:"Pessoal",
+          value:Number(r.valor)||0,date:r.data||today,dataVencimento:r.data||today,
+          pago:r.recebido!==false,dataPagamento:r.dataRecebimento||"",contaId:r.contaRecebimento||"",
+          formaPagamento:r.formaRecebimento||"Dinheiro",centrocusto:"Pessoal",observacoes:r.observacoes||"",migradoDe:"personalReceitas",
+        }));
+        const idsJaMigrados=new Set(out.filter(f=>f.migradoDe).map(f=>f.id));
+        const novas=[...despMigradas,...recMigradas].filter(f=>!idsJaMigrados.has(f.id));
+        return [...out,...novas];
+      });
+
+      if((personalContasAtual||[]).length){
+        setContas(prev=>{
+          const nomesExistentes=new Set(prev.map(c=>c.nome));
+          const novas=personalContasAtual.filter(c=>!nomesExistentes.has(c.nome)).map(c=>({
+            id:c.id,nome:c.nome,tipo:c.tipo==="Cartão"?"Cartão de crédito":(c.tipo||"Conta corrente"),
+            saldo:0,cor:c.tipo==="Cartão"?"#8E44AD":"#B08D57",
+            limite:Number(c.limite)||0,diaFechamento:Number(c.diaFechamento)||1,diaVencimento:Number(c.diaVencimento)||10,
+          }));
+          return [...prev,...novas];
+        });
+      }
+
+      setPersonalCategorias(prev=>{
+        const despAtuais=new Set((prev.despesa||[]).map(c=>c.nome));
+        const recAtuais=new Set((prev.receita||[]).map(c=>c.nome));
+        const novasDesp=CATS_FIN.filter(n=>!despAtuais.has(n)).map(nome=>({id:uid(),nome,ativa:true}));
+        const novasRec=CATS_FIN.filter(n=>!recAtuais.has(n)).map(nome=>({id:uid(),nome,ativa:true}));
+        return {despesa:[...(prev.despesa||[]),...novasDesp],receita:[...(prev.receita||[]),...novasRec]};
+      });
+
+      setConfig(c=>({...c,finUnificadoMigrado:true}));
+      showSavedGlobal("Financeiro unificado! Suas contas pessoais agora vivem dentro do Financeiro, com a identificação Pessoal/Artesanato/Consultoria/Obras.");
+    },3000);
+    return ()=>clearTimeout(t);
+  },[]);
+
   const onRetiradaPessoal=({valor,data,desc,contaId})=>{
     const catPl=(personalCategorias.receita||[]).find(c=>c.nome==="Pró-labore/Retirada do negócio");
     setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today,contaRecebimento:contaId||""}]);
   };
-  // setters já vêm direto do useStorage acima
 
   const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
 
@@ -12192,8 +12428,7 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} stockSup={stockSup} setStockSup={setStockSup} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} onRetiradaPessoal={onRetiradaPessoal} personalContas={personalContas}/>}
-          {view==="personal"    &&<PersonalFinance despesas={personalDespesas} setDespesas={setPersonalDespesas} receitas={personalReceitas} setReceitas={setPersonalReceitas} categorias={personalCategorias} setCategorias={setPersonalCategorias} contasPF={personalContas} setContasPF={setPersonalContas} faturas={personalFaturas} setFaturas={setPersonalFaturas}/>}
+          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas}/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
