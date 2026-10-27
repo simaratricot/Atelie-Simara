@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v66 · 2026-10-27 06:40";
+const APP_BUILD = "v67 · 2026-10-27 17:20";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -951,7 +951,10 @@ const NAV = [
   {k:"orders",i:"◎",l:"Encomendas"},
   {k:"production",i:"⟡",l:"Produção"},
   {k:"stock",i:"◇",l:"Estoque"},
-  {k:"finance",i:"◉",l:"Financeiro"},
+  {k:"fin_receber",i:"💰",l:"Contas a Receber"},
+  {k:"fin_pagar",i:"📄",l:"Contas a Pagar"},
+  {k:"fin_cartoes",i:"💳",l:"Cartões"},
+  {k:"fin_fluxo",i:"◉",l:"Fluxo de Caixa"},
   {k:"metas",i:"🎯",l:"Metas"},
   {k:"clients",i:"◈",l:"Cadastros"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
@@ -970,7 +973,7 @@ const NAV_GROUPS=[
   {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
-  {label:"Financeiro",items:[NAV_BY_KEY.finance,NAV_BY_KEY.reports]},
+  {label:"Financeiro",items:[NAV_BY_KEY.fin_receber,NAV_BY_KEY.fin_pagar,NAV_BY_KEY.fin_cartoes,NAV_BY_KEY.fin_fluxo,NAV_BY_KEY.reports]},
   {label:"Cadastros",items:[NAV_BY_KEY.clients]},
   {label:"Minha Rotina",items:[NAV_BY_KEY.agenda,NAV_BY_KEY.metas,NAV_BY_KEY.diario,NAV_BY_KEY.projects]},
   {label:"Sistema",items:[NAV_BY_KEY.config]},
@@ -1463,7 +1466,7 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
             <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>A receber hoje</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:recHoje>0?C.dourado:C.oliva}}>{fmtBRL(recHoje)}</div></div>
             <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>A pagar hoje</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,color:pagHoje>0?C.vermelho:C.oliva}}>{fmtBRL(pagHoje)}</div></div>
           </div>}
-        <button onClick={()=>setView("finance")} style={{marginTop:10,fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver financeiro completo →</button>
+        <button onClick={()=>setView("fin_receber")} style={{marginTop:10,fontSize:11,color:C.dourado,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Ver financeiro completo →</button>
       </Card>
 
       <Card>
@@ -1534,7 +1537,7 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
             style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>📦 Nova encomenda</button>
           <button onClick={()=>setView("agenda")}
             style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>📣 Novo conteúdo</button>
-          <button onClick={()=>setView("finance")}
+          <button onClick={()=>setView("fin_receber")}
             style={{fontSize:11,background:C.dourado,border:"none",color:"#fff",padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>💰 Registrar receita</button>
         </div>
       </div>
@@ -3489,8 +3492,8 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   );
 };
 
-const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categorias={despesa:[],receita:[]},setCategorias,faturas=[],setFaturas}) => {
-  const [tab,setTab]=useState("rec");
+const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categorias={despesa:[],receita:[]},setCategorias,faturas=[],setFaturas,initialTab="rec",initialSubContas="contas",esconderAbas=false}) => {
+  const [tab,setTab]=useState(initialTab);
   const [filtTipoNeg,setFiltTipoNeg]=useState("todos");
   const [catModal,setCatModal]=useState(null); // {tipo:"despesa"|"receita"}
   const [catForm,setCatForm]=useState({tipo:"despesa",id:"",nome:""});
@@ -3509,7 +3512,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const [mostrarFiltros,setMostrarFiltros]=useState(false);
   const [mostrarPagos,setMostrarPagos]=useState(false); // Contas a Receber/Pagar: por padrão só os abertos
   const [subCx,setSubCx]=useState("cx");
-  const [subContas,setSubContas]=useState("contas");
+  const [subContas,setSubContas]=useState(initialSubContas);
   const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
   const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
@@ -3709,8 +3712,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-        <Tabs tabs={[{k:"rec",l:"Contas a Receber"},{k:"pag",l:"Contas a Pagar"},{k:"cx",l:"Fluxo de Caixa"},{k:"contas",l:"💳 Contas Bancárias"}]} active={tab} set={setTab}/>
-        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+        {!esconderAbas&&<Tabs tabs={[{k:"rec",l:"Contas a Receber"},{k:"pag",l:"Contas a Pagar"},{k:"cx",l:"Fluxo de Caixa"},{k:"contas",l:"💳 Contas Bancárias"}]} active={tab} set={setTab}/>}
+        <div style={{marginLeft:esconderAbas?0:"auto",display:"flex",gap:8}}>
           <Btn onClick={()=>setFormModal(true)}>+ Lançamento</Btn>
         </div>
       </div>
@@ -10715,7 +10718,9 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
     const a=document.createElement("a");
     a.href=url;a.download=`simara-backup-${today}.json`;a.click();
     URL.revokeObjectURL(url);
+    setConfig(c=>({...c,ultimoBackupBaixado:today}));
   };
+  const diasDesdeBackup=config.ultimoBackupBaixado?Math.floor((new Date(today)-new Date(config.ultimoBackupBaixado))/86400000):null;
 
   // ── Restaurar de um backup (.json baixado antes) ──
   // SEMPRE um merge por id — nunca substitui nem apaga nada que já existe hoje,
@@ -10884,6 +10889,10 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
           <Divider label="💾 Backup e armazenamento"/>
           <StorageMonitor/>
           <p style={{fontSize:12,color:C.oliva,lineHeight:1.6,marginBottom:10,marginTop:8}}>Baixe um arquivo com todos os seus dados. Faça isso regularmente para não perder nada!</p>
+          {(diasDesdeBackup===null||diasDesdeBackup>=14)&&<div style={{background:"#FFF",border:`1.5px solid ${C.vermelho}`,borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:11,color:C.vermelho,fontWeight:600}}>
+            {diasDesdeBackup===null?"⚠ Você ainda não baixou nenhum backup neste aparelho.":`⚠ Faz ${diasDesdeBackup} dias desde o seu último backup baixado.`} Recomendo baixar um agora.
+          </div>}
+          {diasDesdeBackup!==null&&diasDesdeBackup<14&&<p style={{fontSize:10,color:C.oliva,marginBottom:10}}>Último backup baixado: {fmtDate(config.ultimoBackupBaixado)} ✓</p>}
           <Btn v="oliva" onClick={exportar}>⬇ Baixar backup agora</Btn>
           <p style={{fontSize:10,color:C.oliva,marginTop:10,opacity:0.7}}>Versão do app neste aparelho: {APP_BUILD}. Se parecer desatualizado (faltando algo que você sabe que já foi feito), force atualizar: no celular, feche o app/aba completamente e abra de novo; se não resolver, em Ajustes do navegador limpe o cache deste site e abra o link outra vez.</p>
           <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.dourado}`}}>
@@ -12502,7 +12511,10 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} stockSup={stockSup} setStockSup={setStockSup} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="finance"     &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas}/>}
+          {view==="fin_receber" &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="rec" esconderAbas/>}
+          {view==="fin_pagar"   &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="pag" esconderAbas/>}
+          {view==="fin_cartoes" &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="contas" initialSubContas="cartao" esconderAbas/>}
+          {view==="fin_fluxo"   &&<Finance finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="cx" esconderAbas/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="clients"     &&<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>}
           {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
