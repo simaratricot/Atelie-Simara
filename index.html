@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v64 · 2026-10-26 22:45";
+const APP_BUILD = "v66 · 2026-10-27 06:40";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -495,6 +495,10 @@ if (typeof window !== "undefined") {
     if (_fbPendentes > 0) { e.preventDefault(); e.returnValue = ""; }
   });
 }
+// Marca, por chave, quando o carregamento inicial do Firebase já terminou (sucesso
+// OU falha) — usado por rotinas como a migração única do Financeiro pra nunca rodar
+// em cima de um estado que ainda não chegou da nuvem (ver useStorage mais abaixo).
+const _fbLoaded = {};
 // Chaves cujo valor é um array que pode crescer demais pra caber num único
 // documento do Firestore (limite de ~1MB por documento, por causa das fotos).
 // Essas usam 1 documento POR ITEM, numa subcoleção própria, em vez de um
@@ -536,7 +540,23 @@ const fbSaveColecao = (key, arrayValue) => {
   return atual;
 };
 
+// Guarda o maior tamanho já visto de cada lista "sensível" — se um salvamento for
+// tentar derrubar a lista de repente (sinal de bug, não de exclusão manual de 1 ou
+// 2 itens), avisa com destaque em vez de sobrescrever a nuvem silenciosamente.
+const _maiorTamanhoVisto = {};
+const CHAVES_PROTEGIDAS = new Set(["finance", "contas", "orders", "clients"]);
+const _checarQuedaBrusca = (key, value) => {
+  if (!CHAVES_PROTEGIDAS.has(key) || !Array.isArray(value)) return;
+  const n = value.length;
+  const maior = _maiorTamanhoVisto[key] || 0;
+  if (n > maior) { _maiorTamanhoVisto[key] = n; return; }
+  if (maior >= 8 && n < maior * 0.5) {
+    showSaveError(`⚠ "${key}" caiu de ${maior} para ${n} itens de repente — isso não parece uma exclusão manual normal. NÃO mexa em mais nada e me avise agora, antes que esse valor menor seja salvo por cima do que já existia na nuvem.`);
+  }
+};
+
 const fbSave = (key, value) => {
+  _checarQuedaBrusca(key, value);
   if (COLECAO_POR_ITEM.has(key) && Array.isArray(value)) return fbSaveColecao(key, value);
   const anterior = _fbQueues[key] || Promise.resolve();
   _fbPendentes++;
@@ -647,6 +667,7 @@ const useStorage = (key, initial) => {
         const local = _lerLocal(K);
         const cloudArr = snap.docs.map(d => { try { return JSON.parse(d.data().value); } catch { return null; } }).filter(Boolean);
         const cloudTs = snap.docs.reduce((m,d) => Math.max(m, d.data().updated||0), 0);
+        if (CHAVES_PROTEGIDAS.has(key) && cloudArr.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudArr.length;
         if (local && local.ts > cloudTs) {
           // Este aparelho tem algo mais novo (ou a subcoleção ainda nem existe na
           // nuvem, caso deste aparelho seja o primeiro a sincronizar com o formato
@@ -659,9 +680,11 @@ const useStorage = (key, initial) => {
           lastTs.current = cloudTs;
           _gravarLocal(K, cloudArr);
         }
+        _fbLoaded[key] = true;
       }).catch(() => {
         const local = _lerLocal(K);
         if (local) { setVal(local.value); lastTs.current = local.ts; }
+        _fbLoaded[key] = true;
       });
       return;
     }
@@ -672,6 +695,7 @@ const useStorage = (key, initial) => {
         try {
           const cloudVal = JSON.parse(doc.data().value);
           const cloudTs = doc.data().updated || 0;
+          if (CHAVES_PROTEGIDAS.has(key) && Array.isArray(cloudVal) && cloudVal.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudVal.length;
           if (local && local.ts > cloudTs) {
             // Este aparelho tem algo mais novo que a nuvem — mantém e reenvia pra nuvem
             setVal(local.value);
@@ -688,7 +712,8 @@ const useStorage = (key, initial) => {
         fbSave(key, local.value);
         lastTs.current = local.ts;
       }
-    }).catch(() => {});
+      _fbLoaded[key] = true;
+    }).catch(() => { _fbLoaded[key] = true; });
   }, []);
 
   // Sincroniza entre abas/janelas abertas ao mesmo tempo no mesmo aparelho: se outra
@@ -10666,7 +10691,7 @@ const StorageMonitor = () => {
 };
 
 // ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
-const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,subcategories,setSubcategories,allData}) => {
+const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,subcategories,setSubcategories,allData,finance,setFinance,contas,setContas,faturas,setFaturas,orders,setOrders,clients,setClients}) => {
   const [tab,setTab]=useState("geral");
   const [saved,setSaved]=useState(false);
   const [novaFrase,setNovaFrase]=useState({texto:"",categoria:"Motivação"});
@@ -10690,6 +10715,57 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
     const a=document.createElement("a");
     a.href=url;a.download=`simara-backup-${today}.json`;a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ── Restaurar de um backup (.json baixado antes) ──
+  // SEMPRE um merge por id — nunca substitui nem apaga nada que já existe hoje,
+  // só acrescenta o que estiver no arquivo e não estiver mais aqui. Serve tanto
+  // pra recuperar de um problema de sincronização quanto só pra conferir.
+  const restoreRef=useRef();
+  const [restoreResumo,setRestoreResumo]=useState(null); // {financeN, contasN, ordersN, clientsN, faturasN}
+  const [restoreBusy,setRestoreBusy]=useState(false);
+  const mergePorId=(atual,doArquivo)=>{
+    if(!Array.isArray(doArquivo)||!doArquivo.length)return {lista:atual,add:0};
+    const idsAtuais=new Set((atual||[]).map(x=>x?.id));
+    const faltando=doArquivo.filter(x=>x&&x.id!=null&&!idsAtuais.has(x.id));
+    return {lista:[...(atual||[]),...faltando],add:faltando.length};
+  };
+  const restaurarBackup=(file)=>{
+    if(!file)return;
+    setRestoreBusy(true);
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        const dados=JSON.parse(e.target.result);
+        const resumo={financeN:0,contasN:0,ordersN:0,clientsN:0,faturasN:0};
+        if(setFinance&&Array.isArray(dados.finance)){
+          const r=mergePorId(finance,dados.finance);
+          if(r.add){setFinance(r.lista);resumo.financeN=r.add;}
+        }
+        if(setContas&&Array.isArray(dados.contas)){
+          const r=mergePorId(contas,dados.contas);
+          if(r.add){setContas(r.lista);resumo.contasN=r.add;}
+        }
+        if(setFaturas&&Array.isArray(dados.personalFaturas)){
+          const r=mergePorId(faturas,dados.personalFaturas);
+          if(r.add){setFaturas(r.lista);resumo.faturasN=r.add;}
+        }
+        if(setOrders&&Array.isArray(dados.orders)){
+          const r=mergePorId(orders,dados.orders);
+          if(r.add){setOrders(r.lista);resumo.ordersN=r.add;}
+        }
+        if(setClients&&Array.isArray(dados.clients)){
+          const r=mergePorId(clients,dados.clients);
+          if(r.add){setClients(r.lista);resumo.clientsN=r.add;}
+        }
+        setRestoreResumo(resumo);
+        showSavedGlobal("Restauração concluída!");
+      }catch(err){
+        showSaveError(`⚠ Não consegui ler esse arquivo como backup (${err.message}). Confere se é mesmo o .json baixado pelo botão "Baixar backup agora".`);
+      }
+      setRestoreBusy(false);
+    };
+    reader.readAsText(file);
   };
 
   return(
@@ -10810,6 +10886,17 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
           <p style={{fontSize:12,color:C.oliva,lineHeight:1.6,marginBottom:10,marginTop:8}}>Baixe um arquivo com todos os seus dados. Faça isso regularmente para não perder nada!</p>
           <Btn v="oliva" onClick={exportar}>⬇ Baixar backup agora</Btn>
           <p style={{fontSize:10,color:C.oliva,marginTop:10,opacity:0.7}}>Versão do app neste aparelho: {APP_BUILD}. Se parecer desatualizado (faltando algo que você sabe que já foi feito), force atualizar: no celular, feche o app/aba completamente e abra de novo; se não resolver, em Ajustes do navegador limpe o cache deste site e abra o link outra vez.</p>
+          <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.dourado}`}}>
+            <p style={{fontSize:12,color:C.cafe,lineHeight:1.6,marginBottom:8,fontWeight:600}}>📤 Restaurar de um arquivo de backup antigo</p>
+            <p style={{fontSize:11,color:C.oliva,lineHeight:1.5,marginBottom:10}}>Escolha um arquivo <code>.json</code> baixado antes. O app só <b>acrescenta</b> o que estiver faltando hoje (lançamentos, contas, pedidos, clientes) — nunca apaga ou substitui nada que já existe agora.</p>
+            <input ref={restoreRef} type="file" accept="application/json,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];e.target.value="";restaurarBackup(f);}}/>
+            <Btn v="ghost" onClick={()=>restoreRef.current?.click()} disabled={restoreBusy}>{restoreBusy?"Lendo arquivo...":"📁 Escolher arquivo de backup"}</Btn>
+            {restoreResumo&&<div style={{marginTop:10,background:"#D4E8D4",borderRadius:6,padding:"10px 14px",fontSize:12,color:"#2E6B2E"}}>
+              {(restoreResumo.financeN+restoreResumo.contasN+restoreResumo.ordersN+restoreResumo.clientsN+restoreResumo.faturasN)===0
+                ? "Nada novo encontrado nesse arquivo — tudo que tinha lá já está aqui hoje."
+                : <>✓ Restaurado: {restoreResumo.financeN>0&&<>{restoreResumo.financeN} lançamento(s) do Financeiro. </>}{restoreResumo.contasN>0&&<>{restoreResumo.contasN} conta(s). </>}{restoreResumo.faturasN>0&&<>{restoreResumo.faturasN} fatura(s). </>}{restoreResumo.ordersN>0&&<>{restoreResumo.ordersN} pedido(s). </>}{restoreResumo.clientsN>0&&<>{restoreResumo.clientsN} cliente(s)/fornecedor(es). </>}</>}
+            </div>}
+          </div>
         </Card>
         <div style={{display:"flex",gap:10,alignItems:"center"}}><Btn onClick={sv}>Salvar configurações</Btn>{saved&&<span style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>✓ Salvo!</span>}</div>
       </>}
@@ -12269,11 +12356,20 @@ function App() {
   useEffect(()=>{
     if(finMigRodou.current)return;
     if(config.finUnificadoMigrado)return;
-    finMigRodou.current=true;
-    // Espera um pouco pra dar tempo dos dados chegarem do Firebase (evita migrar
-    // em cima de um array ainda vazio, antes da nuvem carregar) antes de rodar
-    // a migração única e marcar como feita.
-    const t=setTimeout(()=>{
+    // Só roda depois que "finance", "contas", "personalDespesas", "personalReceitas"
+    // e "personalContas" confirmarem (via _fbLoaded) que JÁ terminaram de carregar
+    // da nuvem — nunca em cima de um array que ainda está vindo. Fica tentando a
+    // cada 500ms, por até 2 minutos (rede lenta); se não conseguir, desiste por
+    // essa sessão e tenta de novo no próximo carregamento do app, sem nunca migrar
+    // (e sobrescrever a nuvem) às cegas.
+    let tentativas=0;
+    const iv=setInterval(()=>{
+      tentativas++;
+      const prontos=_fbLoaded.finance&&_fbLoaded.contas&&_fbLoaded.personalDespesas&&_fbLoaded.personalReceitas&&_fbLoaded.personalContas;
+      if(!prontos&&tentativas<240)return; // 240×500ms = 2min
+      clearInterval(iv);
+      if(!prontos)return; // não confirmou — não migra agora, tenta de novo no próximo load
+      finMigRodou.current=true;
       const personalDespesasAtual=pdRef.current, personalReceitasAtual=prRef.current, personalContasAtual=pcRef.current;
       setFinance(prev=>{
         let out=prev.map(f=>{
@@ -12321,8 +12417,8 @@ function App() {
 
       setConfig(c=>({...c,finUnificadoMigrado:true}));
       showSavedGlobal("Financeiro unificado! Suas contas pessoais agora vivem dentro do Financeiro, com a identificação Pessoal/Artesanato/Consultoria/Obras.");
-    },3000);
-    return ()=>clearTimeout(t);
+    },500);
+    return ()=>clearInterval(iv);
   },[]);
 
   const onRetiradaPessoal=({valor,data,desc,contaId})=>{
@@ -12416,7 +12512,7 @@ function App() {
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients} contas={contas} personalReceitas={personalReceitas} personalDespesas={personalDespesas}/>}
-          {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData}/>}
+          {view==="config"      &&<Config config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
         </div>
       </div>
       {fichaModal&&<FichaPedido order={fichaModal} products={products} config={config} onClose={()=>setFichaModal(null)}/>}
