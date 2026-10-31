@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v76 · 2026-10-31 11:25";
+const APP_BUILD = "v77 · 2026-10-31 12:00";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -3473,6 +3473,18 @@ const Stock = ({stockSup,setStockSup,products,setProducts}) => {
 };
 
 // ─── FINANCEIRO ───────────────────────────────────────────────────────────────
+const MESES_PICK=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const listaAnos=(atual)=>{const y0=new Date().getFullYear();const a=[];for(let y=y0-5;y<=y0+6;y++)a.push(y);const n=Number(atual);if(n&&!a.includes(n))a.push(n);return a.sort();};
+const selPick={padding:"5px 8px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:"#fff"};
+const MesAnoPick = ({mes,setMes}) => {
+  const [a,m]=(mes||today.slice(0,7)).split("-");
+  return(<span style={{display:"inline-flex",gap:6}}>
+    <select value={m} onChange={e=>setMes(`${a}-${e.target.value}`)} style={selPick}>{MESES_PICK.map((n,i)=><option key={n} value={String(i+1).padStart(2,"0")}>{n}</option>)}</select>
+    <select value={a} onChange={e=>setMes(`${e.target.value}-${m}`)} style={selPick}>{listaAnos(a).map(y=><option key={y} value={String(y)}>{y}</option>)}</select>
+  </span>);
+};
+const AnoPick = ({ano,setAno}) => (<select value={String(ano)} onChange={e=>setAno(e.target.value)} style={selPick}>{listaAnos(ano).map(y=><option key={y} value={String(y)}>{y}</option>)}</select>);
+
 const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
   const [valorPago,setValorPago]=useState(lancamento.value);
   const [dataPag,setDataPag]=useState(today);
@@ -3556,8 +3568,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const inferirTitular=(c)=>c.titular||(/marcelo/i.test(c.nome||"")?"Marcelo":(c.tipo==="Outro"||c.tipo==="Dinheiro em mãos")?"Dinheiro em mãos":"Simara");
   const periodoCtl=(<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
     {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"todos",l:"Todos"}].map(pp=><button key={pp.k} onClick={()=>setPer(pp.k)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${per===pp.k?C.cafe:C.areia}`,background:per===pp.k?C.cafe:"transparent",color:per===pp.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{pp.l}</button>)}
-    {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
-    {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
+    {per==="mes"&&<MesAnoPick mes={mes} setMes={setMes}/>}
+    {per==="ano"&&<AnoPick ano={ano} setAno={setAno}/>}
   </div>);
   const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f)&&filtraTipoNeg(f));
   const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
@@ -3654,8 +3666,9 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const doBaixa=(lanc,valorPago,dataPag,contaId)=>{
     if(valorPago>=lanc.value){
       // Pago total
-      setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:true,pagoParcial:false,dataPagamento:dataPag,contaId,valorPago:lanc.value}:x));
-      if(contaId){const delta=lanc.type==="receita"?lanc.value:-lanc.value;setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
+      // guarda o valor original e o valor realmente pago (pode ser diferente, ex.: previsto 25, pagou 30)
+      setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:true,pagoParcial:false,dataPagamento:dataPag,contaId,valorOriginal:lanc.value,valorPago,value:valorPago}:x));
+      if(contaId){const delta=lanc.type==="receita"?valorPago:-valorPago;setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
     } else {
       // Pagamento parcial — a parte paga agora fica PAGA de verdade (some da lista de
       // abertos), guardando a informação de que foi parcial; o saldo que falta vira um
@@ -3682,7 +3695,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         const orig=lanc.valorOriginal||(lanc.value+(filho?filho.value:0));
         return prev.filter(x=>!(filho&&x.id===filho.id)).map(x=>x.id===lanc.id?{...x,pago:false,pagoParcial:false,dataPagamento:null,valorPago:0,valorPagoParc:0,value:orig,saldoId:undefined,valorOriginal:undefined}:x);
       });
-    } else setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:false,pagoParcial:false,dataPagamento:null,valorPago:0}:x));
+    } else setFinance(prev=>prev.map(x=>x.id===lanc.id?{...x,pago:false,pagoParcial:false,dataPagamento:null,valorPago:0,value:x.valorOriginal||x.value,valorOriginal:undefined}:x));
     if(lanc.contaId){const delta=lanc.type==="receita"?-lanc.value:lanc.value;setContas(prev=>prev.map(c=>c.id===lanc.contaId?{...c,saldo:(c.saldo||0)+delta}:c));}
     showSavedGlobal("Baixa cancelada!");
   };
@@ -3912,7 +3925,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {(tab==="rec"||tab==="pag")&&(()=>{
         const tipoAlvo=tab==="rec"?"receita":"despesa";
-        const COLS="minmax(150px,1fr) 78px 78px 92px 150px 52px";
+        const COLS="minmax(150px,1fr) 78px 78px 84px 84px 150px 52px";
         const corAlvo=tab==="rec"?C.dourado:C.vermelho;
         const modoOk=f=>{
           if(modoPer==="pago")return f.pago&&noPeriodo(f.dataPagamento||f.date);
@@ -3927,8 +3940,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         <div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
             {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"todos",l:"Todos"}].map(p=><button key={p.k} onClick={()=>setPer(p.k)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${per===p.k?C.cafe:C.areia}`,background:per===p.k?C.cafe:"transparent",color:per===p.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{p.l}</button>)}
-            {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
-            {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
+            {per==="mes"&&<MesAnoPick mes={mes} setMes={setMes}/>}
+            {per==="ano"&&<AnoPick ano={ano} setAno={setAno}/>}
           </div>
           <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
             <div style={{flex:"1 1 200px",minWidth:160}}><Inp value={buscaFin} onChange={setBuscaFin} placeholder={tab==="rec"?"Buscar por cliente ou descrição...":"Buscar por fornecedor ou descrição..."}/></div>
@@ -3949,10 +3962,11 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
           {lista.length===0&&<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>{mostrarPagos?"Nada nesse período ✓":"Nada em aberto nesse período ✓"}</div>}
           {lista.length>0&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
             {!mob&&<div style={{display:"grid",gridTemplateColumns:COLS,gap:8,padding:"6px 10px",fontSize:9,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,fontWeight:700,background:C.linho}}>
-              <div>Descrição</div><div>Vencimento</div><div>Pagamento</div><div style={{textAlign:"right"}}>Valor</div><div>Status</div><div></div>
+              <div>Descrição</div><div>Vencimento</div><div>Pagamento</div><div style={{textAlign:"right"}}>V. original</div><div style={{textAlign:"right"}}>V. pago</div><div>Status</div><div></div>
             </div>}
             {lista.map(f=>{const fr=f.tipoNegocio||"Artesanato";const frc=TIPO_NEGOCIO_COR[fr]||TIPO_NEGOCIO_COR.Artesanato;
               const fd=d=>{const t=d?fmtDate(d):"—";return mob&&t.length===10?t.slice(0,6)+t.slice(8):t;};
+              const vOrig=f.pago?(f.valorOriginal||f.value):f.value;
               const borda=f.pago?`3px solid ${C.areia}`:isVencido(f)?`3px solid ${C.vermelho}`:`3px solid ${corAlvo}`;
               const sub=(f.clientName||(tab==="pag"&&f.centrocusto))?<div style={{fontSize:10,color:C.oliva,marginTop:1}}>{f.clientName?`${tab==="rec"?"👤":"🏪"} ${f.clientName}${f.orderId?` · ${f.orderId}`:""}`:""}{f.clientName&&tab==="pag"&&f.centrocusto?" · ":""}{tab==="pag"&&f.centrocusto?f.centrocusto:""}</div>:null;
               const badge=<span style={{fontSize:9,background:frc.bg,color:frc.c,padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:5,whiteSpace:"nowrap"}}>{fr==="Obras"?"Obra":fr}</span>;
@@ -3966,10 +3980,11 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
                     <div style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,lineHeight:1.3}}>{f.desc}{badge}{sub}</div>
                     {acoes}
                   </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,alignItems:"center",marginTop:5}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:6,alignItems:"center",marginTop:5}}>
                     <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Venc.</div><div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.cafe,fontWeight:isVencido(f)?700:400}}>{fd(f.dataVencimento)}{isVencido(f)&&" ⚠"}</div></div>
                     <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Pagto</div><div style={{fontSize:11,color:C.oliva}}>{f.pago&&f.dataPagamento?fd(f.dataPagamento):"—"}</div></div>
-                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Valor</div><div style={{fontSize:13,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700}}>{fmtBRL(f.value)}</div></div>
+                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Original</div><div style={{fontSize:11,color:C.oliva}}>{fmtBRL(vOrig)}</div></div>
+                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Pago</div><div style={{fontSize:12,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700}}>{f.pago?fmtBRL(f.value):"—"}</div></div>
                     <StatusBtn f={f} c/>
                   </div>
                 </div>
@@ -3979,7 +3994,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
                 <div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:700}}>{f.desc}{badge}</div>{sub}</div>
                 <div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.cafe,fontWeight:isVencido(f)?700:400}}>{fd(f.dataVencimento)}{isVencido(f)&&" ⚠"}</div>
                 <div style={{fontSize:11,color:C.oliva}}>{f.pago&&f.dataPagamento?fd(f.dataPagamento):"—"}</div>
-                <div style={{fontSize:13,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700,textAlign:"right"}}>{fmtBRL(f.value)}</div>
+                <div style={{fontSize:12,color:C.oliva,textAlign:"right"}}>{fmtBRL(vOrig)}</div>
+                <div style={{fontSize:13,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700,textAlign:"right"}}>{f.pago?fmtBRL(f.value):"—"}</div>
                 <StatusBtn f={f}/>
                 {acoes}
               </div>
@@ -3991,7 +4007,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {tab==="cx"&&<div>
         <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-          {[{k:"res",l:"Resultado"},{k:"bal",l:"Balanço mensal"},{k:"mov",l:"Movimentação"},{k:"div",l:"Divisão do dia"}].map(s=><button key={s.k} onClick={()=>setSubCx(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subCx===s.k?C.cafe:C.areia}`,background:subCx===s.k?C.cafe:"transparent",color:subCx===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
+          {[{k:"res",l:"Resultado"},{k:"bal",l:"Balanço mensal"},{k:"mov",l:"Movimentação"},{k:"transf",l:"Transferências"},{k:"div",l:"Divisão do dia"}].map(s=><button key={s.k} onClick={()=>setSubCx(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subCx===s.k?C.cafe:C.areia}`,background:subCx===s.k?C.cafe:"transparent",color:subCx===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
         </div>
 
         {subCx==="res"&&<>
@@ -4009,7 +4025,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         <Card style={{padding:0,overflow:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
             <thead><tr style={{background:C.linho}}>{["Data","Descrição","Conta","Tipo","Valor"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`}}>{h}</th>)}</tr></thead>
-            <tbody>{finance.filter(f=>f.contaId&&noPeriodo(f.dataPagamento||f.date)).sort((a,b)=>(b.dataPagamento||b.date||"").localeCompare(a.dataPagamento||a.date||"")).map(f=>{const conta=contas.find(c=>c.id===f.contaId);return(<tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
+            <tbody>{finance.filter(f=>f.contaId&&!f.isTransferencia&&noPeriodo(f.dataPagamento||f.date)).sort((a,b)=>(b.dataPagamento||b.date||"").localeCompare(a.dataPagamento||a.date||"")).map(f=>{const conta=contas.find(c=>c.id===f.contaId);return(<tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
               <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.dataPagamento||f.date)}</td>
               <td style={{padding:"8px 10px",fontSize:12,fontWeight:600}}>{f.desc}</td>
               <td style={{padding:"8px 10px",fontSize:11,color:C.oliva}}>{conta?.nome||"—"}</td>
@@ -4021,8 +4037,25 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         </Card>
         </>}
 
+        {subCx==="transf"&&<>
+        {periodoCtl}
+        <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Transferências entre contas são só movimento — não contam como recebido nem como pago.</div>
+        <Card style={{padding:0,overflow:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:360}}>
+            <thead><tr style={{background:C.linho}}>{["Data","De","Para","Valor"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`}}>{h}</th>)}</tr></thead>
+            <tbody>{finance.filter(f=>f.isTransferencia&&f.type==="despesa"&&noPeriodo(f.date)).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(f=>{const de=contas.find(c=>c.id===f.contaId);return(<tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
+              <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
+              <td style={{padding:"8px 10px",fontSize:12}}>{de?.nome||"—"}</td>
+              <td style={{padding:"8px 10px",fontSize:12}}>{(f.desc||"").replace("Transferência → ","")}</td>
+              <td style={{padding:"8px 10px",fontSize:13,fontWeight:700}}>{fmtBRL(f.value)}</td>
+            </tr>);})}
+            </tbody>
+          </table>
+        </Card>
+        </>}
+
         {subCx==="bal"&&<>
-        <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}><label style={{fontSize:12,color:C.oliva}}>Ano:</label><input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"6px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:13,color:C.cafe,width:85}}/></div>
+        <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}><label style={{fontSize:12,color:C.oliva}}>Ano:</label><AnoPick ano={ano} setAno={setAno}/></div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
           {[{l:"Receita anual",v:fmtBRL(balAno.reduce((a,m)=>a+m.r,0)),c:C.oliva},{l:"Despesa anual",v:fmtBRL(balAno.reduce((a,m)=>a+m.d,0)),c:C.vermelho},{l:"Lucro anual",v:fmtBRL(balAno.reduce((a,m)=>a+m.lucro,0)),c:C.dourado},{l:"Investimentos",v:fmtBRL(finance.filter(f=>f.centrocusto==="Investimentos"&&f.date?.startsWith(ano)).reduce((a,f)=>a+f.value,0)),c:C.oliva}].map(k=><Card key={k.l} style={{flex:"1 1 120px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:3,fontWeight:700}}>{k.l}</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div></Card>)}
         </div>
@@ -10716,22 +10749,22 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
   const porSegmento=clients.reduce((acc,c)=>{const s=c.segmento||"Não informado";acc[s]=(acc[s]||0)+1;return acc;},{});
 
   // Produtos mais vendidos (artesanato, no período)
-  const prodVendas=ordAtivos.reduce((acc,o)=>{
-    const nome=o.product||"Sem nome";
-    if(!acc[nome])acc[nome]={nome,qtd:0,total:0};
-    acc[nome].qtd+=(o.itens?.length||1);
-    acc[nome].total+=(o.precoFinal||o.price||0);
-    return acc;
-  },{});
-  const topProd=Object.values(prodVendas).sort((a,b)=>b.qtd-a.qtd).slice(0,5);
+  const prodVendas={};
+  ordAtivos.forEach(o=>{
+    const its=o.itens?.length>0?o.itens:[{product:o.product,qty:1}];
+    its.forEach(it=>{const nome=(it.product||o.product||"Sem nome").trim();const q=Number(it.qty)||1;
+      if(!prodVendas[nome])prodVendas[nome]={nome,qtd:0};prodVendas[nome].qtd+=q;});
+  });
+  const topProd=Object.values(prodVendas).sort((a,b)=>b.qtd-a.qtd).slice(0,3);
+  const totalProdVendidos=Object.values(prodVendas).reduce((a,p)=>a+p.qtd,0);
 
   const PER_LABELS={dia:"Hoje",mes:"No mês",ano:"No ano",geral:"Geral (tudo)"};
   return(
     <div className="fade" style={{padding:24}}>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18,alignItems:"center"}}>
         {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"geral",l:"Geral"}].map(p=><button key={p.k} onClick={()=>setPer(p.k)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${per===p.k?C.cafe:C.areia}`,background:per===p.k?C.cafe:"transparent",color:per===p.k?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{p.l}</button>)}
-        {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
-        {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:90}}/>}
+        {per==="mes"&&<MesAnoPick mes={mes} setMes={setMes}/>}
+        {per==="ano"&&<AnoPick ano={ano} setAno={setAno}/>}
         <span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Mostrando: {PER_LABELS[per]}</span>
       </div>
 
@@ -10785,11 +10818,12 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
           ))}
         </Card>
         {topProd.length>0&&<Card style={{flex:1,minWidth:180}}>
-          <h3 style={{fontSize:14,marginBottom:4}}>Produtos mais vendidos</h3>
-          <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:12}}>Artesanato — por quantidade {per!=="geral"?`(${PER_LABELS[per]})`:""}</div>
-          <div style={{marginBottom:14}}>
-            <PieChart data={topProd.map((p,i)=>({label:p.nome,value:p.qtd,color:[C.dourado,"#8A6D1F",CORES_OBRAS.primaria,"#B5455B","#6B7152"][i%5]}))}/>
+          <h3 style={{fontSize:14,marginBottom:4}}>Produtos vendidos {per!=="geral"?`— ${PER_LABELS[per]}`:""}</h3>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",margin:"8px 0 14px"}}>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Total vendido</div><div style={{fontSize:24,fontFamily:"'Playfair Display',serif",color:C.cafe}}>{totalProdVendidos} <span style={{fontSize:12,color:C.oliva}}>unid.</span></div></div>
+            <div><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Mais vendido</div><div style={{fontSize:15,fontWeight:700,color:C.dourado}}>{topProd[0].nome}</div></div>
           </div>
+          <div style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>Os 3 mais vendidos</div>
           {topProd.map((p,i)=>(
             <div key={p.nome} style={{marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
