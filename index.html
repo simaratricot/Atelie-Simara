@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v72 · 2026-10-31 09:45";
+const APP_BUILD = "v73 · 2026-10-31 10:05";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -3510,6 +3510,13 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const maskBRL=v=>mostrarSaldos?fmtBRL(v):"R$ ••••••";
   const [formModal,setFormModal]=useState(false);
   const [editId,setEditId]=useState(null);
+  const [mob,setMob]=useState(()=>typeof window!=="undefined"&&window.innerWidth<700);
+  useEffect(()=>{const h=()=>setMob(window.innerWidth<700);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  // Baixas parciais antigas (feitas antes da v68) ficaram como "não pagas": acerta pra pago, sem mexer em valores
+  useEffect(()=>{
+    if(!_fbLoaded.finance)return;
+    if(finance.some(x=>x.pagoParcial&&!x.pago))setFinance(prev=>prev.map(x=>x.pagoParcial&&!x.pago?{...x,pago:true}:x));
+  },[finance]);
   const [contaModal,setContaModal]=useState(false);
   const [transModal,setTransModal]=useState(false);
   const [baixaModal,setBaixaModal]=useState(null);
@@ -3728,12 +3735,12 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   };
   const doTrans=()=>{const v=Number(tForm.valor);setContas(prev=>prev.map(c=>c.id===tForm.de?{...c,saldo:(c.saldo||0)-v}:c.id===tForm.para?{...c,saldo:(c.saldo||0)+v}:c));const de=contas.find(c=>c.id===tForm.de);const para=contas.find(c=>c.id===tForm.para);setFinance(prev=>[...prev,{id:uid(),type:"despesa",desc:`Transferência → ${para?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.de,isTransferencia:true},{id:uid(),type:"receita",desc:`Transferência ← ${de?.nome}`,value:v,date:tForm.data,category:"Transferência",centrocusto:"Transferência",pago:true,contaId:tForm.para,isTransferencia:true}]);setTransModal(false);showSavedGlobal("Transferência feita — é só movimento entre contas, não entra no Lucro/Resultado.");};
 
-  const StatusBtn=({f})=>{
+  const StatusBtn=({f,c=false})=>{
     const s=getStatus(f);
     if(s==="pago"||s==="parcial") return(
       <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:s==="parcial"?"#FEF3E9":"#D4E8D4",color:s==="parcial"?"#9A6B40":"#2E6B2E"}}>{s==="parcial"?`Parcial ${fmtBRL(f.valorPagoParc||0)}`:"✓ Pago"}{f.dataPagamento?` · ${fmtDate(f.dataPagamento)}`:""}</span>
-        <button onClick={()=>cancelarBaixa(f)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Cancelar</button>
+        <span style={{fontSize:10,padding:"2px 8px",borderRadius:10,fontWeight:700,background:s==="parcial"?"#FEF3E9":"#D4E8D4",color:s==="parcial"?"#9A6B40":"#2E6B2E"}}>{s==="parcial"?(c?"Parcial":`Parcial ${fmtBRL(f.valorPagoParc||0)}`):"✓ Pago"}{!c&&f.dataPagamento?` · ${fmtDate(f.dataPagamento)}`:""}</span>
+        <button title="Cancelar baixa" onClick={()=>cancelarBaixa(f)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>{c?"↩":"↩ Cancelar"}</button>
       </div>
     );
     return(
@@ -3744,21 +3751,21 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   };
 
   return (
-    <div className="fade" style={{padding:24}}>
+    <div className="fade" style={{padding:mob?12:24}}>
       {/* RESUMO — hoje e mês */}
       <div style={{background:`linear-gradient(135deg,#1A2744,#2D1B69)`,borderRadius:8,padding:"16px 20px",marginBottom:16,border:"1px solid rgba(165,99,162,0.3)"}}>
         <div style={{fontSize:9,color:"#D8B4CE",letterSpacing:"3px",textTransform:"uppercase",fontWeight:700,marginBottom:12}}>Painel financeiro</div>
         {(()=>{
           const ehCartoes=tab==="contas"&&subContas==="cartao";
           let kpis;
-          if(tab==="rec")kpis=[{l:"A receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Receber no mês",v:fmtBRL(pendMes),c:"#FDFAFF"},{l:"Vencidos",v:`${recVencidos}`,c:recVencidos>0?"#FF8A80":"#D8B4CE"}];
-          else if(tab==="pag")kpis=[{l:"A pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Pagar no mês",v:fmtBRL(pagMes),c:"#FDFAFF"},{l:"Vencidos",v:`${pagVencidos}`,c:pagVencidos>0?"#FF8A80":"#D8B4CE"}];
+          if(tab==="rec")kpis=[{l:"A receber (todos)",v:fmtBRL(aRec),c:"#FDFAFF"},{l:"A receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Receber no mês",v:fmtBRL(pendMes),c:"#FDFAFF"},{l:"Vencidos",v:`${recVencidos}`,c:recVencidos>0?"#FF8A80":"#D8B4CE"}];
+          else if(tab==="pag")kpis=[{l:"A pagar (todos)",v:fmtBRL(aPag),c:"#FDFAFF"},{l:"A pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Pagar no mês",v:fmtBRL(pagMes),c:"#FDFAFF"},{l:"Vencidos",v:`${pagVencidos}`,c:pagVencidos>0?"#FF8A80":"#D8B4CE"}];
           else if(ehCartoes){
             const livre=Math.max(0,limiteTotalCartoes-usadoTotalCartoes);
             kpis=[{l:"Limite total",v:fmtBRL(limiteTotalCartoes),c:"#FDFAFF"},{l:"Consumido",v:fmtBRL(usadoTotalCartoes),c:usadoTotalCartoes>limiteTotalCartoes*0.8&&limiteTotalCartoes>0?"#FF8A80":"#FDFAFF"},{l:"Disponível",v:fmtBRL(livre),c:"#D8B4CE"},{l:`Parcelas ${pfCompetenciaLabel(mesFmt)}`,v:fmtBRL(consumidoMesAtualCartoes),c:"#FDFAFF"},{l:`Parcelas ${pfCompetenciaLabel(proxMesComp)}`,v:fmtBRL(consumidoProxMesCartoes),c:"#FDFAFF"},{l:"Comprometido até",v:parcelamentoComprometidoAte?pfCompetenciaLabel(parcelamentoComprometidoAte):"—",c:"#D8B4CE"}];
           }
           else kpis=[{l:"Receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FDFAFF"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:"#D8B4CE"},{l:"Vencidos",v:`${vencidos}`,c:vencidos>0?"#FF8A80":"#D8B4CE"}];
-          return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12}}>
+          return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:mob?8:12}}>
             {kpis.map(k=>(
               <div key={k.l} style={{background:"rgba(255,255,255,0.08)",borderRadius:6,padding:"10px 14px",border:"1px solid rgba(216,180,206,0.15)"}}>
                 <div style={{fontSize:9,color:"#D8B4CE",textTransform:"uppercase",letterSpacing:"1.5px",marginBottom:4,fontWeight:600}}>{k.l}</div>
@@ -3856,7 +3863,6 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
           !buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase())
         ));
         const lista=[...base].sort((a,b)=>(a.dataVencimento||"").localeCompare(b.dataVencimento||""));
-        const totalAberto=finance.filter(f=>f.type===tipoAlvo&&!f.isTransferencia&&!f.pago).reduce((a,f)=>a+f.value,0);
         return(
         <div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
@@ -3864,40 +3870,56 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
             {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
             {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
           </div>
-          <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-            <Card style={{flex:"1 1 140px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:4,fontWeight:700}}>{tab==="rec"?"A receber (todos)":"A pagar (todos)"}</div><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:corAlvo}}>{fmtBRL(totalAberto)}</div></Card>
-            <div style={{flex:1,minWidth:180}}><Inp value={buscaFin} onChange={setBuscaFin} placeholder={tab==="rec"?"Buscar por cliente ou descrição...":"Buscar por fornecedor ou descrição..."}/></div>
-            <select value={filtTipoNeg} onChange={e=>setFiltTipoNeg(e.target.value)} style={{padding:"6px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:"#fff"}}>
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <div style={{flex:"1 1 200px",minWidth:160}}><Inp value={buscaFin} onChange={setBuscaFin} placeholder={tab==="rec"?"Buscar por cliente ou descrição...":"Buscar por fornecedor ou descrição..."}/></div>
+            <select value={filtTipoNeg} onChange={e=>setFiltTipoNeg(e.target.value)} style={{padding:"6px 8px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:"#fff"}}>
               <option value="todos">Todas as frentes</option>
               {TIPOS_NEGOCIO.map(t=><option key={t} value={t}>{t==="Obras"?"Obra":t}</option>)}
             </select>
-            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.cafe,cursor:"pointer",whiteSpace:"nowrap"}}>
-              <input type="checkbox" checked={mostrarPagos} onChange={e=>setMostrarPagos(e.target.checked)} style={{width:15,height:15,accentColor:C.oliva}}/>
-              Mostrar pagos também
+            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.cafe,cursor:"pointer",whiteSpace:"nowrap"}}>
+              <input type="checkbox" checked={mostrarPagos} onChange={e=>setMostrarPagos(e.target.checked)} style={{width:14,height:14,accentColor:C.oliva}}/>
+              Mostrar pagos
             </label>
           </div>
           {lista.length===0&&<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>{mostrarPagos?"Nada nesse período ✓":"Nada em aberto nesse período ✓"}</div>}
-          {lista.length>0&&<div style={{overflowX:"auto"}}><div style={{minWidth:620}}>
-            <div style={{display:"grid",gridTemplateColumns:COLS,gap:8,padding:"4px 10px",fontSize:9,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,fontWeight:700}}>
+          {lista.length>0&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
+            {!mob&&<div style={{display:"grid",gridTemplateColumns:COLS,gap:8,padding:"6px 10px",fontSize:9,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,fontWeight:700,background:C.linho}}>
               <div>Descrição</div><div>Vencimento</div><div>Pagamento</div><div style={{textAlign:"right"}}>Valor</div><div>Status</div><div></div>
-            </div>
-            {lista.map(f=>{const fr=f.tipoNegocio||"Artesanato";const frc=TIPO_NEGOCIO_COR[fr]||TIPO_NEGOCIO_COR.Artesanato;return(
-              <div key={f.id} style={{display:"grid",gridTemplateColumns:COLS,gap:8,alignItems:"center",padding:"7px 10px",borderBottom:`1px solid ${C.linho}`,borderLeft:f.pago?`3px solid ${C.areia}`:isVencido(f)?`3px solid ${C.vermelho}`:`3px solid ${corAlvo}`,opacity:f.pago?0.75:1}}>
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis"}}>{f.desc}<span style={{fontSize:9,background:frc.bg,color:frc.c,padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:5}}>{fr==="Obras"?"Obra":fr}</span>{f.fixa&&<span style={{fontSize:9,background:"#FEF3E9",color:C.dourado,padding:"1px 5px",borderRadius:10,fontWeight:700,marginLeft:4}}>FIXA</span>}</div>
-                  {(f.clientName||(tab==="pag"&&f.centrocusto))&&<div style={{fontSize:10,color:C.oliva,marginTop:1}}>{f.clientName?`${tab==="rec"?"👤":"🏪"} ${f.clientName}${f.orderId?` · ${f.orderId}`:""}`:""}{f.clientName&&tab==="pag"&&f.centrocusto?" · ":""}{tab==="pag"&&f.centrocusto?f.centrocusto:""}</div>}
+            </div>}
+            {lista.map(f=>{const fr=f.tipoNegocio||"Artesanato";const frc=TIPO_NEGOCIO_COR[fr]||TIPO_NEGOCIO_COR.Artesanato;
+              const fd=d=>{const t=d?fmtDate(d):"—";return mob&&t.length===10?t.slice(0,6)+t.slice(8):t;};
+              const borda=f.pago?`3px solid ${C.areia}`:isVencido(f)?`3px solid ${C.vermelho}`:`3px solid ${corAlvo}`;
+              const sub=(f.clientName||(tab==="pag"&&f.centrocusto))?<div style={{fontSize:10,color:C.oliva,marginTop:1}}>{f.clientName?`${tab==="rec"?"👤":"🏪"} ${f.clientName}${f.orderId?` · ${f.orderId}`:""}`:""}{f.clientName&&tab==="pag"&&f.centrocusto?" · ":""}{tab==="pag"&&f.centrocusto?f.centrocusto:""}</div>:null;
+              const badge=<span style={{fontSize:9,background:frc.bg,color:frc.c,padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:5,whiteSpace:"nowrap"}}>{fr==="Obras"?"Obra":fr}</span>;
+              const acoes=<div style={{display:"flex",gap:2}}>
+                <button title="Editar" onClick={()=>editarLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13,padding:2}}>✎</button>
+                <button title="Excluir" onClick={()=>excluirLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
+              </div>;
+              if(mob)return(
+                <div key={f.id} style={{padding:"7px 10px",borderBottom:`1px solid ${C.linho}`,borderLeft:borda,opacity:f.pago?0.75:1}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
+                    <div style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,lineHeight:1.3}}>{f.desc}{badge}{sub}</div>
+                    {acoes}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,alignItems:"center",marginTop:5}}>
+                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Venc.</div><div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.cafe,fontWeight:isVencido(f)?700:400}}>{fd(f.dataVencimento)}{isVencido(f)&&" ⚠"}</div></div>
+                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Pagto</div><div style={{fontSize:11,color:C.oliva}}>{f.pago&&f.dataPagamento?fd(f.dataPagamento):"—"}</div></div>
+                    <div><div style={{fontSize:8,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Valor</div><div style={{fontSize:13,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700}}>{fmtBRL(f.value)}</div></div>
+                    <StatusBtn f={f} c/>
+                  </div>
                 </div>
-                <div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.cafe,fontWeight:isVencido(f)?700:400}}>{fmtDate(f.dataVencimento)}{isVencido(f)&&" ⚠"}</div>
-                <div style={{fontSize:11,color:C.oliva}}>{f.pago&&f.dataPagamento?fmtDate(f.dataPagamento):"—"}</div>
+              );
+              return(
+              <div key={f.id} style={{display:"grid",gridTemplateColumns:COLS,gap:8,alignItems:"center",padding:"7px 10px",borderBottom:`1px solid ${C.linho}`,borderLeft:borda,opacity:f.pago?0.75:1}}>
+                <div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:700}}>{f.desc}{badge}</div>{sub}</div>
+                <div style={{fontSize:11,color:isVencido(f)?C.vermelho:C.cafe,fontWeight:isVencido(f)?700:400}}>{fd(f.dataVencimento)}{isVencido(f)&&" ⚠"}</div>
+                <div style={{fontSize:11,color:C.oliva}}>{f.pago&&f.dataPagamento?fd(f.dataPagamento):"—"}</div>
                 <div style={{fontSize:13,fontFamily:"'Playfair Display',serif",color:corAlvo,fontWeight:700,textAlign:"right"}}>{fmtBRL(f.value)}</div>
                 <StatusBtn f={f}/>
-                <div style={{display:"flex",gap:4}}>
-                  <button title="Editar" onClick={()=>editarLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13}}>✎</button>
-                  <button title="Excluir" onClick={()=>excluirLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13}}>🗑</button>
-                </div>
+                {acoes}
               </div>
             );})}
-          </div></div>}
+          </div>}
         </div>
         );
       })()}
