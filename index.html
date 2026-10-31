@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v73 · 2026-10-31 10:05";
+const APP_BUILD = "v76 · 2026-10-31 11:25";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -201,7 +201,9 @@ const STATUS = {
 const ORIGENS = ["Instagram","WhatsApp","Facebook","Google","Site/Loja Online","Feira","Evento","Indicação","Networking","Panfleto/Divulgação local","Cliente antigo","Outro"];
 const CLIENTE_SEGMENTOS = ["Artesanato","Consultoria","Obras","Outros"];
 const CLIENTE_SEGMENTOS_COR = {"Artesanato":{bg:"#F3E3DD",color:"#A6553C"},"Consultoria":{bg:"#EFE7DA",color:"#8A6D1F"},"Obras":{bg:"#EAE3DD",color:"#6B4530"},"Outros":{bg:"#E4EEE6",color:"#2E6B5E"}};
-const CENTROS = ["Vendas","Despesas","Suprimentos","Marketing","Investimentos","Rendimentos"];
+const CENTROS_FRENTES = ["Artesanato","Consultoria","Obras","Pessoal"]; // um centro de custo por frente, preenchido automático pela origem
+const CENTROS = [...CENTROS_FRENTES,"Suprimentos","Marketing","Investimentos","Rendimentos","Despesas","Vendas"];
+const centrosDe = (config) => [...new Set([...CENTROS_FRENTES,...(config?.centrosCusto||CENTROS)])];
 const CATS_FIN = ["Moda","Casa","Amigurumi","Suprimentos","Marketing","Despesas","Investimentos","Rendimentos","Outros"];
 const UNIDADES = ["g","kg","m","cm","un","novelo","rolo","par","meada"];
 const TIPOS_SUP = ["Linha/Fio","Embalagem","Brinde/Mimo","Aviamento","Outro"];
@@ -1009,17 +1011,17 @@ const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
       {/* NAV */}
       <nav style={{flex:1,padding:"8px 0"}}>
         {NAV_GROUPS.map((g,gi)=>{
-          const itemBtn=(n)=>{
+          const itemBtn=(n,sub=false)=>{
             const isActive=active===n.k;
             return(
               <button key={n.k} onClick={()=>{setActive(n.k);onClose?.();}}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"9px 20px",
+                style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:sub?"7px 14px 7px 12px":"9px 20px",borderRadius:sub?6:0,
                   background:isActive?"rgba(201,160,99,0.2)":"transparent",
                   border:"none",
                   color:isActive?"#FDFBF7":"rgba(240,228,214,0.92)",
                   fontSize:12,fontWeight:isActive?600:400,cursor:"pointer",
                   textAlign:"left",
-                  borderLeft:isActive?"3px solid #C9A063":"3px solid transparent",
+                  borderLeft:sub?"none":(isActive?"3px solid #C9A063":"3px solid transparent"),
                   transition:"all 0.15s",position:"relative"}}>
                 <span style={{fontSize:13,width:18,textAlign:"center",opacity:isActive?1:0.9}}>{n.i}</span>
                 <span style={{flex:1}}>{n.l}</span>
@@ -1036,12 +1038,14 @@ const Sidebar = ({active,setActive,orders,mobile,onClose}) => {
             <div key={g.label}>
               <button onClick={()=>setAberto(isAberto?-1:gi)}
                 style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"12px 20px 8px",background:"none",border:"none",cursor:"pointer",
-                  fontSize:9,color:"rgba(240,228,214,0.8)",letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,textAlign:"left"}}>
+                  fontSize:9,color:isAberto?"#E8C98F":"rgba(240,228,214,0.8)",letterSpacing:"2px",textTransform:"uppercase",fontWeight:700,textAlign:"left"}}>
                 <span style={{fontSize:12,width:16,textAlign:"center",opacity:0.9}}>{(g.items.find(Boolean)||{}).i}</span>
                 <span style={{flex:1}}>{g.label}</span>
                 <span style={{fontSize:9,transition:"transform 0.15s",transform:isAberto?"rotate(90deg)":"none"}}>›</span>
               </button>
-              {isAberto&&g.items.filter(Boolean).map(itemBtn)}
+              {isAberto&&<div style={{margin:"2px 14px 10px 30px",padding:"4px 0 4px 8px",borderLeft:"2px solid rgba(201,160,99,0.35)",display:"flex",flexDirection:"column",gap:3,background:"rgba(0,0,0,0.12)",borderRadius:"0 8px 8px 0"}}>
+                {g.items.filter(Boolean).map(n=>itemBtn(n,true))}
+              </div>}
             </div>
           );
         })}
@@ -2601,7 +2605,7 @@ const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,co
 
   const gerarLancamentos=(o,newId,itens,pF,prodDesc)=>{
     const cat=products.find(p=>p.name===itens[0]?.product)?.category||"Moda";
-    const base={type:"receita",category:cat,centrocusto:"Vendas",tipoNegocio:"Artesanato",
+    const base={type:"receita",category:cat,centrocusto:"Artesanato",tipoNegocio:"Artesanato",
       orderId:newId,clientName:o.client,payment:o.payment,
       dataLancamento:o.dataCompra,pago:false}; // SEMPRE pendente
 
@@ -2704,7 +2708,7 @@ const Orders = ({orders,setOrders,products,modelos=[],stockSup=[],setStockSup,co
     const pF=order.precoFinal||order.price;
     const saldo=Math.max(0,pF-novoPago);
     setOrders(prev=>prev.map(o=>o.id===order.id?{...o,valorPago:novoPago,paid:saldo<=0,historicoPagamentos:[...(o.historicoPagamentos||[]),{data,valor:Number(valor),contaId}]}:o));
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${order.id} – Baixa – ${order.client}`,value:Number(valor),date:data,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",pago:true,contaId,orderId:order.id,clientName:order.client,dataLancamento:today,dataVencimento:data}]);
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${order.id} – Baixa – ${order.client}`,value:Number(valor),date:data,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",pago:true,contaId,orderId:order.id,clientName:order.client,dataLancamento:today,dataVencimento:data}]);
     if(contaId)setContas(prev=>prev.map(c=>c.id===contaId?{...c,saldo:(c.saldo||0)+Number(valor)}:c));
     setBaixaModal(null);
   };
@@ -3527,11 +3531,12 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const [buscaFin,setBuscaFin]=useState("");
   const [mostrarFiltros,setMostrarFiltros]=useState(false);
   const [mostrarPagos,setMostrarPagos]=useState(false); // Contas a Receber/Pagar: por padrão só os abertos
-  const [subCx,setSubCx]=useState("cx");
+  const [subCx,setSubCx]=useState("res");
+  const [modoPer,setModoPer]=useState("venc"); // Receber/Pagar: venc = vencem no período · pago = pagos no período · ambos
   const [subContas,setSubContas]=useState(initialSubContas);
-  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
-  const formVazio=()=>({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Vendas",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
-  const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10});
+  const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
+  const formVazio=()=>({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
+  const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10,titular:"Simara",frente:""});
   const [tForm,setTForm]=useState({de:"",para:"",valor:0,data:today,nota:""});
   const MESES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   const TIPOS_NEGOCIO=["Artesanato","Consultoria","Obras","Pessoal"];
@@ -3544,6 +3549,16 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const inPer=f=>{if(per==="dia")return f.date===today||f.dataVencimento===today;if(per==="mes")return f.date?.startsWith(mes)||f.dataVencimento?.startsWith(mes);if(per==="ano")return f.date?.startsWith(ano)||f.dataVencimento?.startsWith(ano);return true;};
   const filtraBusca=f=>!buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase());
   const filtraTipoNeg=f=>filtTipoNeg==="todos"||(f.tipoNegocio||"Artesanato")===filtTipoNeg;
+  // o período escolhido (Hoje/Mês/Ano/Todos) vale pro painel do topo E pra lista — tudo muda junto
+  const noPeriodo=(d)=>{if(!d)return false;if(per==="dia")return d===today;if(per==="mes")return d.startsWith(mes);if(per==="ano")return d.startsWith(ano);return true;};
+  const plTxt={dia:"hoje",mes:"no mês",ano:"no ano",todos:"(total)"}[per];
+  const somaV=(l)=>l.reduce((a,f)=>a+Number(f.value||0),0);
+  const inferirTitular=(c)=>c.titular||(/marcelo/i.test(c.nome||"")?"Marcelo":(c.tipo==="Outro"||c.tipo==="Dinheiro em mãos")?"Dinheiro em mãos":"Simara");
+  const periodoCtl=(<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+    {[{k:"dia",l:"Hoje"},{k:"mes",l:"Mês"},{k:"ano",l:"Ano"},{k:"todos",l:"Todos"}].map(pp=><button key={pp.k} onClick={()=>setPer(pp.k)} style={{padding:"4px 12px",borderRadius:20,border:`1.5px solid ${per===pp.k?C.cafe:C.areia}`,background:per===pp.k?C.cafe:"transparent",color:per===pp.k?"#fff":C.cafe,fontSize:11,fontWeight:600,cursor:"pointer"}}>{pp.l}</button>)}
+    {per==="mes"&&<input type="month" value={mes} onChange={e=>setMes(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe}}/>}
+    {per==="ano"&&<input type="number" value={ano} onChange={e=>setAno(e.target.value)} style={{padding:"5px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,width:80}}/>}
+  </div>);
   const filtPer=finance.filter(f=>inPer(f)&&filtraBusca(f)&&filtraTipoNeg(f));
   const filt=filtStatus==="todos"?filtPer:filtStatus==="parcial"?filtPer.filter(f=>f.pagoParcial):filtPer.filter(f=>getStatus(f)===filtStatus);
 
@@ -3608,6 +3623,18 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const recHoje=financeReal.filter(f=>f.type==="receita"&&f.date===today).reduce((a,f)=>a+f.value,0);
 
   // Painel financeiro específico por aba (cada aba mostra os números que correspondem à sua própria tela)
+  const caixaPer=financeReal.filter(f=>f.pago&&noPeriodo(f.dataPagamento||f.date));
+  const entrouPer=somaV(caixaPer.filter(f=>f.type==="receita"));
+  const saiuPer=somaV(caixaPer.filter(f=>f.type==="despesa"));
+  const resumoFrentes=(lista)=>TIPOS_NEGOCIO.map(t=>{const l=lista.filter(f=>(f.tipoNegocio||"Artesanato")===t);const e=somaV(l.filter(f=>f.type==="receita"));const sd=somaV(l.filter(f=>f.type==="despesa"));return{t,e,s:sd,r:e-sd};});
+  const tabelaFrentes=(rows)=>(<Card style={{padding:0,overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:320}}>
+    <thead><tr style={{background:C.linho}}>{["Frente","Entrou","Saiu","Resultado"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:h==="Frente"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`}}>{h}</th>)}</tr></thead>
+    <tbody>{rows.map(r=><tr key={r.t} style={{borderBottom:`1px solid ${C.linho}`}}>
+      <td style={{padding:"8px 10px",fontSize:12,fontWeight:700}}><span style={{fontSize:10,background:(TIPO_NEGOCIO_COR[r.t]||{}).bg,color:(TIPO_NEGOCIO_COR[r.t]||{}).c,padding:"2px 8px",borderRadius:10}}>{r.t==="Obras"?"Obra":r.t}</span></td>
+      <td style={{padding:"8px 10px",fontSize:12,textAlign:"right",color:C.oliva}}>{r.e>0?fmtBRL(r.e):"—"}</td>
+      <td style={{padding:"8px 10px",fontSize:12,textAlign:"right",color:r.s>0?C.vermelho:C.oliva}}>{r.s>0?fmtBRL(r.s):"—"}</td>
+      <td style={{padding:"8px 10px",fontSize:13,textAlign:"right",fontWeight:700,color:r.r>=0?C.dourado:C.vermelho}}>{r.e>0||r.s>0?fmtBRL(r.r):"—"}</td>
+    </tr>)}</tbody></table></Card>);
   const pagMes=financeReal.filter(f=>f.type==="despesa"&&!f.pago&&f.dataVencimento?.startsWith(mesFmt)).reduce((a,f)=>a+f.value,0);
   const recVencidos=finance.filter(f=>f.type==="receita"&&isVencido(f)).length;
   const pagVencidos=finance.filter(f=>f.type==="despesa"&&isVencido(f)).length;
@@ -3758,13 +3785,20 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         {(()=>{
           const ehCartoes=tab==="contas"&&subContas==="cartao";
           let kpis;
-          if(tab==="rec")kpis=[{l:"A receber (todos)",v:fmtBRL(aRec),c:"#FDFAFF"},{l:"A receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Receber no mês",v:fmtBRL(pendMes),c:"#FDFAFF"},{l:"Vencidos",v:`${recVencidos}`,c:recVencidos>0?"#FF8A80":"#D8B4CE"}];
-          else if(tab==="pag")kpis=[{l:"A pagar (todos)",v:fmtBRL(aPag),c:"#FDFAFF"},{l:"A pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Pagar no mês",v:fmtBRL(pagMes),c:"#FDFAFF"},{l:"Vencidos",v:`${pagVencidos}`,c:pagVencidos>0?"#FF8A80":"#D8B4CE"}];
+          if(tab==="rec"||tab==="pag"){
+            const rc=tab==="rec";
+            const baseP=financeReal.filter(f=>f.type===(rc?"receita":"despesa")&&filtraTipoNeg(f));
+            const abertoP=baseP.filter(f=>!f.pago&&noPeriodo(f.dataVencimento||f.date));
+            const vencP=abertoP.filter(f=>isVencido(f));
+            const pagoP=baseP.filter(f=>f.pago&&noPeriodo(f.dataPagamento||f.date));
+            kpis=[{l:`${rc?"A receber":"A pagar"} ${plTxt}`,v:fmtBRL(somaV(abertoP)),c:"#FDFAFF"},{l:`${rc?"Recebido":"Pago"} ${plTxt}`,v:fmtBRL(somaV(pagoP)),c:"#FDFAFF"},{l:`Vencidos ${plTxt}`,v:vencP.length?`${vencP.length} · ${fmtBRL(somaV(vencP))}`:"0",c:vencP.length>0?"#FF8A80":"#D8B4CE"},{l:rc?"A receber (total geral)":"A pagar (total geral)",v:fmtBRL(rc?aRec:aPag),c:"#D8B4CE"}];
+          }
+          else if(tab==="cx")kpis=[{l:`Entrou ${plTxt}`,v:fmtBRL(entrouPer),c:"#FDFAFF"},{l:`Saiu ${plTxt}`,v:fmtBRL(saiuPer),c:"#FDFAFF"},{l:"Resultado",v:fmtBRL(entrouPer-saiuPer),c:entrouPer-saiuPer>=0?"#A5E6A5":"#FF8A80"},{l:"Saldo das contas",v:fmtBRL(contas.filter(c=>c.tipo!=="Cartão de crédito").reduce((a,c)=>a+Number(c.saldo||0),0)),c:"#D8B4CE"}];
           else if(ehCartoes){
             const livre=Math.max(0,limiteTotalCartoes-usadoTotalCartoes);
             kpis=[{l:"Limite total",v:fmtBRL(limiteTotalCartoes),c:"#FDFAFF"},{l:"Consumido",v:fmtBRL(usadoTotalCartoes),c:usadoTotalCartoes>limiteTotalCartoes*0.8&&limiteTotalCartoes>0?"#FF8A80":"#FDFAFF"},{l:"Disponível",v:fmtBRL(livre),c:"#D8B4CE"},{l:`Parcelas ${pfCompetenciaLabel(mesFmt)}`,v:fmtBRL(consumidoMesAtualCartoes),c:"#FDFAFF"},{l:`Parcelas ${pfCompetenciaLabel(proxMesComp)}`,v:fmtBRL(consumidoProxMesCartoes),c:"#FDFAFF"},{l:"Comprometido até",v:parcelamentoComprometidoAte?pfCompetenciaLabel(parcelamentoComprometidoAte):"—",c:"#D8B4CE"}];
           }
-          else kpis=[{l:"Receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FDFAFF"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:"#D8B4CE"},{l:"Vencidos",v:`${vencidos}`,c:vencidos>0?"#FF8A80":"#D8B4CE"}];
+          else kpis=[{l:"Receber hoje",v:fmtBRL(recHojeVal),c:"#FDFAFF"},{l:"Pagar hoje",v:fmtBRL(pagHojeVal),c:pagHojeVal>0?"#FF8A80":"#FDFAFF"},{l:"Recebido no mês",v:fmtBRL(recMes),c:"#FDFAFF"},{l:"Pendente no mês",v:fmtBRL(pendMes),c:"#D8B4CE"}];
           return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:mob?8:12}}>
             {kpis.map(k=>(
               <div key={k.l} style={{background:"rgba(255,255,255,0.08)",borderRadius:6,padding:"10px 14px",border:"1px solid rgba(216,180,206,0.15)"}}>
@@ -3787,32 +3821,53 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         <div style={{display:"flex",gap:6,marginBottom:14}}>
           {[{k:"contas",l:"Saldos"},{k:"cartao",l:"💳 Faturas do cartão"}].map(s=><button key={s.k} onClick={()=>setSubContas(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subContas===s.k?C.cafe:C.areia}`,background:subContas===s.k?C.cafe:"transparent",color:subContas===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
         </div>
-        {subContas==="contas"&&<>
-        {contas.length>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.linho,borderRadius:8,padding:"10px 16px",marginBottom:10}}>
-          <span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>Saldo total das contas ({contas.length})</span>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{maskBRL(contas.filter(c=>c.tipo!=="Cartão de crédito").reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
-            <button onClick={toggleMostrarSaldos} title={mostrarSaldos?"Ocultar saldos":"Mostrar saldos"} style={{background:"none",border:`1.5px solid ${C.areia}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",fontSize:13,color:C.cafe,display:"flex",alignItems:"center",gap:4}}>{mostrarSaldos?"🙈 Ocultar":"👁 Mostrar"}</button>
-          </div>
-        </div>}
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-          {contas.map(c=>{
-            const ehCartao=c.tipo==="Cartão de crédito";
-            const usado=ehCartao?fcLimiteUsado(c.id):0;
-            return(
-            <div key={c.id} className="ch" onClick={()=>{setCForm({limite:0,limitePix:0,diaFechamento:1,diaVencimento:10,...c});setContaModal(true);}} style={{flex:"1 1 150px",background:`linear-gradient(135deg,${c.cor||C.dourado},${c.cor||C.dourado}bb)`,borderRadius:8,padding:"12px 16px",cursor:"pointer"}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:3}}>{c.tipo}</div>
-              <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>{c.nome}</div>
-              {ehCartao?<>
-                <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(usado)} <span style={{fontSize:10,fontWeight:400,opacity:0.8}}>usado</span></div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.8)",marginTop:2}}>Limite {maskBRL(c.limite||0)} · fecha dia {c.diaFechamento||1}, vence dia {c.diaVencimento||10}{c.limitePix?` · Pix/saque ${maskBRL(c.limitePix)}`:""}</div>
-              </>:<div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:"#fff",fontWeight:700}}>{maskBRL(c.saldo||0)}</div>}
+        {subContas==="contas"&&(()=>{
+          const naoCartao=contas.filter(c=>c.tipo!=="Cartão de crédito");
+          const grupos={};
+          naoCartao.forEach(c=>{const t=inferirTitular(c);(grupos[t]=grupos[t]||[]).push(c);});
+          const ordem=["Simara","Marcelo","Dinheiro em mãos"];
+          const nomesG=[...ordem.filter(g=>grupos[g]),...Object.keys(grupos).filter(g=>!ordem.includes(g)).sort()];
+          const abrirEdit=(c)=>{setCForm({limite:0,limitePix:0,diaFechamento:1,diaVencimento:10,frente:"",...c,titular:inferirTitular(c)});setContaModal(true);};
+          return(<>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+            <Btn sm onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10,titular:"Simara",frente:""});setContaModal(true);}}>+ Nova conta/cartão</Btn>
+            {contas.length>1&&<Btn sm v="ghost" onClick={()=>{setTForm({de:contas[0]?.id||"",para:contas[1]?.id||"",valor:0,data:today,nota:""});setTransModal(true);}}>⇄ Transferir</Btn>}
+            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:10,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px",fontWeight:700}}>Saldo total</span>
+              <span style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.cafe,fontWeight:700}}>{maskBRL(naoCartao.reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
+              <button onClick={toggleMostrarSaldos} title={mostrarSaldos?"Ocultar saldos":"Mostrar saldos"} style={{background:"none",border:`1.5px solid ${C.areia}`,borderRadius:20,padding:"3px 9px",cursor:"pointer",fontSize:12,color:C.cafe}}>{mostrarSaldos?"🙈 Ocultar":"👁 Mostrar"}</button>
             </div>
-          );})}
-          <div onClick={()=>{setCForm({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10});setContaModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.areia}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.oliva,fontWeight:600}}>+ Nova conta/cartão</div>
-          {contas.length>1&&<div onClick={()=>{setTForm({de:contas[0]?.id||"",para:contas[1]?.id||"",valor:0,data:today,nota:""});setTransModal(true);}} style={{flex:"1 1 90px",border:`2px dashed ${C.dourado}`,borderRadius:8,padding:"12px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:12,color:C.dourado,fontWeight:600}}>⇄ Transferir</div>}
-        </div>
-        </>}
+          </div>
+          {nomesG.map(g=>(
+            <div key={g} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 14px",background:C.linho}}>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:C.cafe}}>{g}</span>
+                <span style={{fontSize:13,fontWeight:700,color:C.cafe}}>{maskBRL(grupos[g].reduce((a,c)=>a+Number(c.saldo||0),0))}</span>
+              </div>
+              {grupos[g].map(c=>(
+                <div key={c.id} onClick={()=>abrirEdit(c)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderTop:`1px solid ${C.linho}`,borderLeft:`4px solid ${c.cor||C.dourado}`,cursor:"pointer"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600}}>{c.nome}</div>
+                    <div style={{fontSize:10,color:C.oliva}}>{c.tipo}{c.frente?` · ${c.frente==="Obras"?"Obra":c.frente}`:""}</div>
+                  </div>
+                  <div style={{fontSize:14,fontFamily:"'Playfair Display',serif",fontWeight:700,color:Number(c.saldo||0)>=0?C.cafe:C.vermelho}}>{maskBRL(c.saldo||0)}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+          {cartoes.length>0&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
+            <div style={{padding:"8px 14px",background:C.linho}}><span style={{fontSize:11,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:C.cafe}}>Cartões de crédito</span></div>
+            {cartoes.map(c=>{const usado=fcLimiteUsado(c.id);const lim=Number(c.limite||0);const pct=lim>0?Math.min(100,(usado/lim)*100):0;return(
+              <div key={c.id} onClick={()=>abrirEdit(c)} style={{padding:"9px 14px",borderTop:`1px solid ${C.linho}`,borderLeft:`4px solid ${c.cor||C.dourado}`,cursor:"pointer"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><div style={{fontSize:13,fontWeight:600}}>{c.nome}</div><div style={{fontSize:10,color:C.oliva}}>{inferirTitular(c)} · fecha dia {c.diaFechamento||1}, vence dia {c.diaVencimento||10}</div></div>
+                  <div style={{textAlign:"right",fontSize:12}}><b>{maskBRL(usado)}</b> <span style={{color:C.oliva}}>de {maskBRL(lim)}</span></div>
+                </div>
+                <div style={{height:5,background:C.linho,borderRadius:3,marginTop:6}}><div style={{height:5,width:`${pct}%`,background:pct>80?C.vermelho:C.dourado,borderRadius:3}}/></div>
+              </div>);})}
+          </div>}
+          </>);
+        })()}
         {subContas==="cartao"&&<>
         {cartoes.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum cartão de crédito cadastrado ainda — crie um na aba "Saldos", em "+ Nova conta/cartão" ✦</div>:
         cartoes.map(cartao=>{
@@ -3859,10 +3914,15 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
         const tipoAlvo=tab==="rec"?"receita":"despesa";
         const COLS="minmax(150px,1fr) 78px 78px 92px 150px 52px";
         const corAlvo=tab==="rec"?C.dourado:C.vermelho;
-        const base=finance.filter(f=>f.type===tipoAlvo&&!f.isTransferencia&&inPer(f)&&(mostrarPagos||!f.pago)&&filtraTipoNeg(f)&&(
+        const modoOk=f=>{
+          if(modoPer==="pago")return f.pago&&noPeriodo(f.dataPagamento||f.date);
+          if(modoPer==="ambos")return noPeriodo(f.dataVencimento||f.date)||(f.pago&&noPeriodo(f.dataPagamento||f.date));
+          return noPeriodo(f.dataVencimento||f.date)&&(mostrarPagos||!f.pago);
+        };
+        const base=finance.filter(f=>f.type===tipoAlvo&&!f.isTransferencia&&modoOk(f)&&filtraTipoNeg(f)&&(
           !buscaFin||f.desc?.toLowerCase().includes(buscaFin.toLowerCase())||f.clientName?.toLowerCase().includes(buscaFin.toLowerCase())
         ));
-        const lista=[...base].sort((a,b)=>(a.dataVencimento||"").localeCompare(b.dataVencimento||""));
+        const lista=[...base].sort((a,b)=>modoPer==="pago"?(a.dataPagamento||"").localeCompare(b.dataPagamento||""):(a.dataVencimento||"").localeCompare(b.dataVencimento||""));
         return(
         <div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,alignItems:"center"}}>
@@ -3876,10 +3936,15 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
               <option value="todos">Todas as frentes</option>
               {TIPOS_NEGOCIO.map(t=><option key={t} value={t}>{t==="Obras"?"Obra":t}</option>)}
             </select>
-            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.cafe,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <select value={modoPer} onChange={e=>setModoPer(e.target.value)} style={{padding:"6px 8px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12,color:C.cafe,background:"#fff"}}>
+              <option value="venc">Vencem no período</option>
+              <option value="pago">{tab==="rec"?"Recebidos no período":"Pagos no período"}</option>
+              <option value="ambos">Os dois</option>
+            </select>
+            {modoPer==="venc"&&<label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.cafe,cursor:"pointer",whiteSpace:"nowrap"}}>
               <input type="checkbox" checked={mostrarPagos} onChange={e=>setMostrarPagos(e.target.checked)} style={{width:14,height:14,accentColor:C.oliva}}/>
-              Mostrar pagos
-            </label>
+              Incluir já pagos
+            </label>}
           </div>
           {lista.length===0&&<div style={{fontSize:13,color:C.oliva,fontStyle:"italic"}}>{mostrarPagos?"Nada nesse período ✓":"Nada em aberto nesse período ✓"}</div>}
           {lista.length>0&&<div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,overflow:"hidden"}}>
@@ -3926,19 +3991,26 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {tab==="cx"&&<div>
         <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-          {[{k:"cx",l:"Por conta"},{k:"bal",l:"Balanço mensal"},{k:"div",l:"Divisão do dia"}].map(s=><button key={s.k} onClick={()=>setSubCx(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subCx===s.k?C.cafe:C.areia}`,background:subCx===s.k?C.cafe:"transparent",color:subCx===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
+          {[{k:"res",l:"Resultado"},{k:"bal",l:"Balanço mensal"},{k:"mov",l:"Movimentação"},{k:"div",l:"Divisão do dia"}].map(s=><button key={s.k} onClick={()=>setSubCx(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subCx===s.k?C.cafe:C.areia}`,background:subCx===s.k?C.cafe:"transparent",color:subCx===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
         </div>
 
-        {subCx==="cx"&&<>
-        <h3 style={{fontSize:15,marginBottom:12}}>Fluxo de caixa por conta</h3>
+        {subCx==="res"&&<>
+        {periodoCtl}
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-          {contas.map(c=><Card key={c.id} style={{flex:"1 1 150px",borderLeft:`4px solid ${c.cor||C.dourado}`}}><div style={{fontSize:11,fontWeight:700,color:C.oliva,marginBottom:3}}>{c.nome}</div><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",fontWeight:700,color:(c.saldo||0)>=0?C.cafe:C.vermelho}}>{fmtBRL(c.saldo||0)}</div><div style={{fontSize:10,color:C.oliva}}>{c.tipo}</div></Card>)}
+          {[{l:`Entrou ${plTxt}`,v:fmtBRL(entrouPer),c:C.oliva},{l:`Saiu ${plTxt}`,v:fmtBRL(saiuPer),c:C.vermelho},{l:"Saldo que ficou",v:fmtBRL(entrouPer-saiuPer),c:entrouPer-saiuPer>=0?C.dourado:C.vermelho}].map(k=><Card key={k.l} style={{flex:"1 1 120px"}}><div style={{fontSize:9,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:3,fontWeight:700}}>{k.l}</div><div style={{fontSize:20,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div></Card>)}
         </div>
+        <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:6}}>Considera só o que de fato foi pago/recebido no período (por data de pagamento). Transferências entre contas ficam de fora.</div>
+        <h3 style={{fontSize:14,margin:"14px 0 8px"}}>Resultado por frente</h3>
+        {tabelaFrentes(resumoFrentes(caixaPer))}
+        </>}
+
+        {subCx==="mov"&&<>
+        {periodoCtl}
         <Card style={{padding:0,overflow:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
             <thead><tr style={{background:C.linho}}>{["Data","Descrição","Conta","Tipo","Valor"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:C.oliva,borderBottom:`1px solid ${C.areia}`}}>{h}</th>)}</tr></thead>
-            <tbody>{finance.filter(f=>f.contaId).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(f=>{const conta=contas.find(c=>c.id===f.contaId);return(<tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
-              <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.date)}</td>
+            <tbody>{finance.filter(f=>f.contaId&&noPeriodo(f.dataPagamento||f.date)).sort((a,b)=>(b.dataPagamento||b.date||"").localeCompare(a.dataPagamento||a.date||"")).map(f=>{const conta=contas.find(c=>c.id===f.contaId);return(<tr key={f.id} style={{borderBottom:`1px solid ${C.linho}`}}>
+              <td style={{padding:"8px 10px",fontSize:12,color:C.oliva,whiteSpace:"nowrap"}}>{fmtDate(f.dataPagamento||f.date)}</td>
               <td style={{padding:"8px 10px",fontSize:12,fontWeight:600}}>{f.desc}</td>
               <td style={{padding:"8px 10px",fontSize:11,color:C.oliva}}>{conta?.nome||"—"}</td>
               <td style={{padding:"8px 10px"}}><span style={{fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,background:f.type==="receita"?"#D4E8D4":"#FEE",color:f.type==="receita"?"#2E6B2E":C.vermelho}}>{f.type==="receita"?"ENTRADA":"SAÍDA"}</span></td>
@@ -3966,6 +4038,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
             </tr>)}</tbody>
           </table>
         </Card>
+        <h3 style={{fontSize:14,margin:"16px 0 8px"}}>Resultado por frente — {ano}</h3>
+        {tabelaFrentes(resumoFrentes(financeReal.filter(f=>f.date?.startsWith(ano))))}
         </>}
 
         {subCx==="div"&&<>
@@ -3988,7 +4062,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
             </div>
           </div>
           <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>De qual frente é esse lançamento?</label>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{TIPOS_NEGOCIO.map(t=><button key={t} onClick={()=>setForm(f=>({...f,tipoNegocio:t}))} style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${form.tipoNegocio===t?C.cafe:C.areia}`,background:form.tipoNegocio===t?C.cafe:"transparent",color:form.tipoNegocio===t?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>)}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{TIPOS_NEGOCIO.map(t=><button key={t} onClick={()=>setForm(f=>({...f,tipoNegocio:t,centrocusto:t}))} style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${form.tipoNegocio===t?C.cafe:C.areia}`,background:form.tipoNegocio===t?C.cafe:"transparent",color:form.tipoNegocio===t?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>)}
             </div>
           </div>
           <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))}/>
@@ -4067,8 +4141,15 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {contaModal&&<Modal title={cForm.id?"Editar Conta":"Nova Conta"} onClose={()=>setContaModal(false)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Nome da conta" value={cForm.nome} onChange={v=>setCForm(f=>({...f,nome:v}))} placeholder="Ex: Mercado Pago, Nubank..."/>
-          <Sel label="Tipo" value={cForm.tipo} onChange={v=>setCForm(f=>({...f,tipo:v}))} options={["Conta corrente","Poupança","Investimentos","Conta digital","Cartão de crédito","Outro"]}/>
+          <Inp label="Nome do banco / conta" value={cForm.nome} onChange={v=>setCForm(f=>({...f,nome:v}))} placeholder="Ex: Mercado Pago, Nubank..."/>
+          <Sel label="Tipo de conta" value={cForm.tipo} onChange={v=>setCForm(f=>({...f,tipo:v}))} options={["Conta digital","Conta corrente","Poupança","Investimentos","Cartão de crédito","Dinheiro em mãos","Outro"]}/>
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Titular da conta</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>{["Simara","Marcelo","Dinheiro em mãos"].map(t=><button key={t} onClick={()=>setCForm(f=>({...f,titular:t}))} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${cForm.titular===t?C.cafe:C.areia}`,background:cForm.titular===t?C.cafe:"transparent",color:cForm.titular===t?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>)}</div>
+            <Inp value={cForm.titular||""} onChange={v=>setCForm(f=>({...f,titular:v}))} placeholder="ou escreva outro nome"/>
+          </div>
+          <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Frente de recebimento (opcional)</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["",...TIPOS_NEGOCIO].map(t=><button key={t||"nenhuma"} onClick={()=>setCForm(f=>({...f,frente:t}))} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${(cForm.frente||"")===t?C.cafe:C.areia}`,background:(cForm.frente||"")===t?C.cafe:"transparent",color:(cForm.frente||"")===t?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{t===""?"Nenhuma":t==="Obras"?"Obra":t}</button>)}</div>
+          </div>
           {cForm.tipo==="Cartão de crédito"?<>
             <Inp label="Limite de compras (R$)" type="number" value={cForm.limite} onChange={v=>setCForm(f=>({...f,limite:v}))}/>
             <Inp label="Limite Pix/Saque (R$)" type="number" value={cForm.limitePix||0} onChange={v=>setCForm(f=>({...f,limitePix:v}))}/>
@@ -7441,7 +7522,7 @@ const pcHdr=(p,titulo,extra)=>`<div class="hdr"><div><div class="hdr-nome">SIMAR
 const pcCliBloco=(p,cli)=>`<h2>Cliente</h2><div class="campo"><b>Nome:</b> ${p.clienteNome}</div>${(cli&&cli.cpfCnpj)?`<div class="campo"><b>CPF/CNPJ:</b> ${cli.cpfCnpj}</div>`:""}${p.empresa?`<div class="campo"><b>Empresa:</b> ${p.empresa}</div>`:""}${p.responsavel?`<div class="campo"><b>Responsável:</b> ${p.responsavel}</div>`:""}`;
 
 // ── financeiro do projeto ──
-const pcNovoLanc=(p,f,uid,today)=>({id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Projeto CONTÍNUA — ${p.nome} — ${p.clienteNome}${f.obs?` — ${f.obs}`:""}`,value:Number(f.valor)||0,date:today,dataVencimento:f.dataVencimento||today,formaPag:f.formaPag||"PIX",pago:false,category:"Consultoria",clientName:p.clienteNome,projetoId:p.id});
+const pcNovoLanc=(p,f,uid,today)=>({id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Projeto CONTÍNUA — ${p.nome} — ${p.clienteNome}${f.obs?` — ${f.obs}`:""}`,value:Number(f.valor)||0,date:today,dataVencimento:f.dataVencimento||today,formaPag:f.formaPag||"PIX",pago:false,category:"Consultoria",clientName:p.clienteNome,projetoId:p.id});
 
 // ── encerramento ──
 const pcEncerrar=(p,f)=>pcEv({...p,status:"Concluído",encerramento:{...(f||{}),data:pcHoje()}},"status",`Projeto encerrado${f&&f.resultados?": "+String(f.resultados).slice(0,80):""}`);
@@ -9595,7 +9676,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       setConsultoria(prev=>[...prev,novo]);
       // Só vai para o financeiro se você marcar "Lançar no financeiro agora"
       if(quer){
-        setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
+        setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Consultoria — ${novo.clienteNome} — ${novo.servico}`,value:Number(novo.valor),date:today,dataVencimento:novo.dataVencimento||today,pago:false,category:"Consultoria",clientName:novo.clienteNome}]);
       }
     } else {
       setConsultoria(prev=>prev.map(x=>x.id===novo.id?{...x,...novo,atendimentos:x.atendimentos,medicoes:x.medicoes}:x));
@@ -9632,7 +9713,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     }
     if(lancar){
       // data = dia do lançamento (aparece no mês atual do Financeiro); vencimento = o escolhido
-      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:valFinal,date:today,dataVencimento:vencFin,formaPag:atendForm.formaPagFin||"PIX",pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`,value:valFinal,date:today,dataVencimento:vencFin,formaPag:atendForm.formaPagFin||"PIX",pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     } else if(jaLanc){
       // já foi lançado antes: atualiza o mesmo lançamento (se ainda não foi pago) em vez de duplicar
       setFinance(prev=>prev.map(f=>f.id===finId&&!f.pago&&valFinal>0?{...f,value:valFinal,desc:`Atendimento — ${sel.clienteNome} — ${atendForm.assunto}`}:f));
@@ -9662,7 +9743,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
       atendimentos:(c.atendimentos||[]).map(a=>atends.find(x=>x.id===a.id)?{...a,valor:vRate(a,rate),medicaoId:medId}:a)
     }:c));
     if(quer){
-      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+      setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(hrs)}`,value:val,date:today,dataVencimento:medForm.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     }
     setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setSelAtends([]);setModal(null);
     showSavedGlobal(quer?"Medição fechada e lançada no financeiro!":"Medição salva no pedido (não foi para o financeiro).");
@@ -9673,7 +9754,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(!sel||!(Number(sel.valor)>0))return;
     if(!window.confirm(`Lançar ${fmtBRL(Number(sel.valor))} deste pedido no financeiro?`))return;
     const finId=uid();
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Consultoria — ${sel.clienteNome} — ${sel.servico}`,value:Number(sel.valor),date:today,dataVencimento:sel.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Consultoria — ${sel.clienteNome} — ${sel.servico}`,value:Number(sel.valor),date:today,dataVencimento:sel.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,lancado:true,financeiroId:finId}:c));
     showSavedGlobal("Pedido lançado no financeiro!");
   };
@@ -9684,7 +9765,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(!(Number(m.valor)>0)){alert("Esta medição está sem valor. Edite o valor (✎) antes de lançar.");return;}
     if(!window.confirm(`Lançar ${fmtBRL(m.valor)} desta medição no financeiro?`))return;
     const finId=uid();
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(m.horas)}`,value:Number(m.valor),date:today,dataVencimento:m.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Medição — ${sel.clienteNome} — ${fmtHoras(m.horas)}`,value:Number(m.valor),date:today,dataVencimento:m.dataVencimento||today,pago:false,category:"Consultoria",clientName:sel.clienteNome}]);
     setConsultoria(prev=>prev.map(c=>c.id===sel.id?{...c,medicoes:c.medicoes.map(x=>x.id===m.id?{...x,lancado:true,financeiroId:finId}:x)}:c));
     showSavedGlobal("Medição lançada no financeiro!");
   };
@@ -9700,7 +9781,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
     if(jaTem&&!window.confirm(`Já existe um lançamento de mensalidade de ${mesLancar} para este cliente. Lançar de novo mesmo assim?`))return;
     if(enviar&&wppFmt==="texto"&&!telDe(sel)){alert("Cadastre o WhatsApp do cliente para enviar (ou escolha PDF/Imagem).");return;}
     const venc=`${mesLancar}-${String(diaLancar||22).padStart(2,"0")}`;
-    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome,pedidoId:sel.id}]);
+    setFinance(prev=>[...prev,{id:uid(),type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc:`Mensalidade ${mesLancar} — ${sel.clienteNome}`,value:Number(sel.valor),date:today,dataVencimento:venc,pago:false,category:"Consultoria",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setModal(null);
     if(enviar){
       showSavedGlobal(wppFmt==="texto"?"Mensalidade lançada! Abrindo o WhatsApp…":"Mensalidade lançada! Preparando o documento…");
@@ -10548,11 +10629,13 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
   const [mes,setMes]=useState(today.slice(0,7));
   const [ano,setAno]=useState(today.slice(0,4));
 
-  // período aplicado a lançamentos do financeiro (usa data do fato OU vencimento, igual ao próprio módulo Financeiro)
+  // período aplicado a lançamentos do financeiro: o que já foi pago conta pela data do pagamento;
+  // o que ainda está em aberto conta pela data de vencimento (assim "Hoje" mostra só o que é de hoje)
   const inPerFin=f=>{
-    if(per==="dia")return f.date===today||f.dataVencimento===today;
-    if(per==="mes")return (f.date||"").startsWith(mes)||(f.dataVencimento||"").startsWith(mes);
-    if(per==="ano")return (f.date||"").startsWith(ano)||(f.dataVencimento||"").startsWith(ano);
+    const d=(f.pago?(f.dataPagamento||f.date):(f.dataVencimento||f.date))||"";
+    if(per==="dia")return d===today;
+    if(per==="mes")return d.startsWith(mes);
+    if(per==="ano")return d.startsWith(ano);
     return true;
   };
   // período aplicado a pedidos de artesanato (usa data da compra)
@@ -10603,9 +10686,12 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
   const avgTicket=ordAtivos.length>0?fatTotalModa/ordAtivos.length:0;
 
   // ── as três frentes: Artesanato, Consultoria, Obras ──
-  const isConsultoria=f=>f.category==="Consultoria"||f.tipoReceita==="Consultoria";
-  const isObras=f=>f.category==="Obras"||f.tipoReceita==="Obras";
-  const isArtesanato=f=>!isConsultoria(f)&&!isObras(f);
+  // usa a frente (tipoNegocio) do lançamento; nos antigos sem frente, cai na regra por categoria
+  const oldC=f=>f.category==="Consultoria"||f.tipoReceita==="Consultoria";
+  const oldO=f=>f.category==="Obras"||f.tipoReceita==="Obras";
+  const isConsultoria=f=>f.tipoNegocio?f.tipoNegocio==="Consultoria":oldC(f);
+  const isObras=f=>f.tipoNegocio?f.tipoNegocio==="Obras":oldO(f);
+  const isArtesanato=f=>f.tipoNegocio?f.tipoNegocio==="Artesanato":(!oldC(f)&&!oldO(f));
   const FRENTES_DEF=[
     {nome:"Artesanato",match:isArtesanato,cor:C.dourado},
     {nome:"Consultoria",match:isConsultoria,cor:"#8A6D1F"},
@@ -10650,7 +10736,7 @@ const Reports = ({orders,products,finance,clients,contas=[],personalReceitas=[],
       </div>
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
-        {[{l:"Saldo das contas",v:fmtBRL(saldoContas),c:C.verde},{l:"Ticket médio (Artesanato)",v:fmtBRL(avgTicket),c:C.dourado},{l:"Pedidos (Artesanato)",v:ordAtivos.length,c:C.cafe},{l:"Clientes cadastrados",v:clients.length,c:C.oliva},{l:"Margem geral",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
+        {[{l:"Saldo das contas",v:fmtBRL(saldoContas),c:C.verde},{l:"Ticket médio (Artesanato)",v:fmtBRL(avgTicket),c:C.dourado},{l:"Pedidos (Artesanato)",v:ordAtivos.length,c:C.cafe},{l:per==="geral"?"Clientes cadastrados":"Novos clientes",v:clientesPer.length,c:C.oliva},{l:"Margem geral",v:`${fatTotal>0?Math.round((lucro/fatTotal)*100):0}%`,c:lucro>=0?C.dourado:C.vermelho}].map(k=>(
           <Card key={k.l} style={{flex:"1 1 110px",textAlign:"center"}}><div style={{fontSize:22,fontFamily:"'Playfair Display',serif",color:k.c}}>{k.v}</div><div style={{fontSize:10,color:C.oliva,letterSpacing:"1px",textTransform:"uppercase",marginTop:2}}>{k.l}</div></Card>
         ))}
       </div>
@@ -10790,7 +10876,7 @@ const StorageMonitor = () => {
 const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,subcategories,setSubcategories,allData,finance,setFinance,contas,setContas,faturas,setFaturas,orders,setOrders,clients,setClients,modo="config",participantes=null,initialTab=null,esconderAbas=false}) => {
   const [tab,setTab]=useState(initialTab||(modo==="cadastros"?"part":"empresas"));
   const [novoCentro,setNovoCentro]=useState("");
-  const centrosLista=config.centrosCusto||CENTROS;
+  const centrosLista=centrosDe(config);
   const [empresaSel,setEmpresaSel]=useState(null);
   const paletaCard=(fr)=>(
     <Card style={{marginBottom:14}}>
@@ -11052,13 +11138,13 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
           <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:10}}>Os centros de custo que você cadastrar aparecem para escolher nos lançamentos do Financeiro.</div>
           <div style={{display:"flex",gap:8}}>
             <div style={{flex:1}}><Inp value={novoCentro} onChange={setNovoCentro} placeholder="Nome do novo centro de custo"/></div>
-            <Btn sm onClick={()=>{const n=novoCentro.trim();if(!n||centrosLista.includes(n))return;setConfig(c=>({...c,centrosCusto:[...(c.centrosCusto||CENTROS),n]}));setNovoCentro("");}}>Adicionar</Btn>
+            <Btn sm onClick={()=>{const n=novoCentro.trim();if(!n||centrosLista.includes(n))return;setConfig(c=>({...c,centrosCusto:[...centrosDe(c),n]}));setNovoCentro("");}}>Adicionar</Btn>
           </div>
         </Card>
         {centrosLista.map(n=>(
           <Card key={n} style={{marginBottom:8,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span style={{fontSize:13,fontWeight:600}}>{n}</span>
-            <Btn sm v="danger" onClick={()=>{if(window.confirm(`Remover "${n}"? Lançamentos antigos que usam esse centro continuam como estão.`))setConfig(c=>({...c,centrosCusto:(c.centrosCusto||CENTROS).filter(x=>x!==n)}));}}>✕</Btn>
+            {!CENTROS_FRENTES.includes(n)&&<Btn sm v="danger" onClick={()=>{if(window.confirm(`Remover "${n}"? Lançamentos antigos que usam esse centro continuam como estão.`))setConfig(c=>({...c,centrosCusto:centrosDe(c).filter(x=>x!==n&&!CENTROS_FRENTES.includes(x))}));}}>✕</Btn>}
           </Card>
         ))}
       </>}
@@ -12190,7 +12276,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     const novo={...recForm,id:recForm.id||uid(),valor,financeiroId:finId};
     setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:[...(o.recebimentos||[]),novo]}:o));
     // Vai pro Financeiro geral como "a receber" (pendente) — a baixa (marcar pago + escolher a conta) é feita lá no Financeiro, igual Consultoria.
-    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",tipoNegocio:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
+    setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",tipoNegocio:"Obras",centrocusto:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setRecFormOpen(false);showSavedGlobal("Recebimento registrado! Agora é só ir em Financeiro → A Receber pra dar baixa e escolher a conta.");
   };
   const excluirRecebimento=r=>{
@@ -12514,6 +12600,13 @@ function App() {
   const pdRef=useRef(personalDespesas), prRef=useRef(personalReceitas), pcRef=useRef(personalContas);
   pdRef.current=personalDespesas; prRef.current=personalReceitas; pcRef.current=personalContas;
 
+  // Centro de custo por origem: lançamentos sem centro (ou só com o padrão antigo "Vendas") passam a ter o centro da sua frente
+  useEffect(()=>{
+    if(!_fbLoaded.finance||!_fbLoaded.config)return;
+    if(config.ccPorFrenteMigrado||!finance.length)return;
+    setFinance(prev=>prev.map(f=>(!f.isTransferencia&&(!f.centrocusto||f.centrocusto==="Vendas"))?{...f,centrocusto:f.tipoNegocio||"Artesanato"}:f));
+    setConfig(c=>({...c,ccPorFrenteMigrado:true}));
+  },[finance,config.ccPorFrenteMigrado]);
   const finMigRodou=useRef(false);
   useEffect(()=>{
     if(finMigRodou.current)return;
@@ -12664,10 +12757,10 @@ function App() {
           {view==="orders"      &&<Orders orders={orders} setOrders={setOrders} products={products} modelos={modelos} stockSup={stockSup} setStockSup={setStockSup} config={config} onFicha={o=>setFichaModal(o)} clients={clients} setClients={setClients} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas}/>}
           {view==="production"  &&<Production orders={orders} products={products}/>}
           {view==="stock"       &&<Stock stockSup={stockSup} setStockSup={setStockSup} products={products} setProducts={setProducts}/>}
-          {view==="fin_receber" &&<Finance centros={config.centrosCusto||CENTROS} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="rec" esconderAbas/>}
-          {view==="fin_pagar"   &&<Finance centros={config.centrosCusto||CENTROS} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="pag" esconderAbas/>}
-          {view==="fin_cartoes" &&<Finance centros={config.centrosCusto||CENTROS} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="contas" initialSubContas="cartao" esconderAbas/>}
-          {view==="fin_fluxo"   &&<Finance centros={config.centrosCusto||CENTROS} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="cx" esconderAbas/>}
+          {view==="fin_receber" &&<Finance centros={centrosDe(config)} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="rec" esconderAbas/>}
+          {view==="fin_pagar"   &&<Finance centros={centrosDe(config)} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="pag" esconderAbas/>}
+          {view==="fin_cartoes" &&<Finance centros={centrosDe(config)} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="contas" initialSubContas="cartao" esconderAbas/>}
+          {view==="fin_fluxo"   &&<Finance centros={centrosDe(config)} finance={finance} setFinance={setFinance} orders={orders} contas={contas} setContas={setContas} clients={clients} categorias={personalCategorias} setCategorias={setPersonalCategorias} faturas={personalFaturas} setFaturas={setPersonalFaturas} initialTab="cx" esconderAbas/>}
           {view==="metas"       &&<Metas finance={finance} orders={orders} metas={metas} setMetas={setMetas}/>}
           {view==="cad_part" &&<Config modo="cadastros" initialTab="part" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_cat" &&<Config modo="cadastros" initialTab="categorias" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
