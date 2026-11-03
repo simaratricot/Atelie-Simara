@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v81 · 2026-11-03 materiais";
+const APP_BUILD = "v84 · 2026-11-03 orçamentos";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1090,6 +1090,7 @@ const NAV = [
   {k:"cad_prod",i:"🧮",l:"Produção e precificação"},
   {k:"cad_pag",i:"💳",l:"Formas de pagamento"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
+  {k:"orcamentos",i:"📋",l:"Orçamentos"},
   {k:"agenda",i:"📅",l:"Agenda"},
   {k:"diario",i:"✍🏻",l:"Diário da Simara"},
   {k:"consultoria",i:"💼",l:"Consultoria"},
@@ -1103,6 +1104,7 @@ const NAV = [
 const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
 const NAV_GROUPS=[
   {label:"Início",items:[NAV_BY_KEY.dashboard]},
+  {label:"Orçamentos",items:[NAV_BY_KEY.orcamentos]},
   {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
@@ -1814,7 +1816,7 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   };
 
   const CAFE="#6B4530",DOURADO="#C9A063",CREME="#FDFBF7";
-  const ROXO="#4F3561",ROXO_TXT="#6B4E7F",LILAS_CLARO="#D9C2E6",PAINEL_BG="#FBF3E8",TXT_ESCURO="#4A3B40";
+  const ROXO="#4F3561",ROXO_TXT="#6B4E7F",LILAS_CLARO="#D9C2E6",PAINEL_BG="#FFFFFF",TXT_ESCURO="#1F1519";
 
   const tipoVisual=inferTipoVisualProduto(p);
   const heroImg=await loadImg(p.photos?.[0]);
@@ -1844,89 +1846,38 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   const precoStr=p.valorPorTamanho?.length>0?fmtBRL(Math.min(...p.valorPorTamanho.map(v=>v.preco))):fmtBRL(p.price);
   const dispLabel=p.type==="pronta"?`PRONTA ENTREGA${p.stock?` · ${p.stock} UNID.`:""}`:"SOB ENCOMENDA";
 
-  // ═══ BLOCO SUPERIOR (sobre a foto) — marca, categoria/nome e um trechinho
-  // emocional (campo Sensação, se preenchido). Só um pequeno realce atrás do
-  // texto, nunca uma camada escura cobrindo a foto inteira. ═══
-  const topTxtMaxW=W*0.56;
-  ctx.save();
-  const vign=ctx.createRadialGradient(W*0.16,H*0.14,10,W*0.16,H*0.14,W*0.62);
-  vign.addColorStop(0,"rgba(18,12,10,0.55)");
-  vign.addColorStop(0.55,"rgba(18,12,10,0.28)");
-  vign.addColorStop(1,"rgba(18,12,10,0)");
-  ctx.fillStyle=vign;ctx.fillRect(0,0,W,H*0.62);
-  ctx.restore();
-
-  let ty=56;
-  ctx.textAlign="left";
-  ctx.shadowColor="rgba(0,0,0,0.45)";ctx.shadowBlur=10;
-
-  // Logo da marca (se cadastrado em Configurações) ou, na falta dele, a
-  // assinatura em texto — nunca um logotipo inventado.
-  const logoImg=await loadImg(config?.logoMarca);
-  if(logoImg){
-    const lh=46,lw=(logoImg.width/logoImg.height)*lh;
-    ctx.drawImage(logoImg,padL,ty,lw,lh);
-    ty+=lh+10;
-  } else {
-    ctx.font="italic bold 30px Georgia,serif";ctx.fillStyle=CREME;
-    ty+=28;ctx.fillText("Simara Lobui",padL,ty);
-    ty+=8;
-  }
-  ctx.font="bold 12px Arial,sans-serif";ctx.letterSpacing="3px";ctx.fillStyle=LILAS_CLARO;
-  ty+=18;ctx.fillText("TRICOT AMOR & ARTE",padL,ty);
-  ctx.letterSpacing="0px";
-  ty+=16;
-  ctx.strokeStyle="rgba(253,250,255,0.4)";ctx.lineWidth=1;
-  ctx.beginPath();ctx.moveTo(padL,ty);ctx.lineTo(padL+90,ty);ctx.stroke();
-  ty+=34;
-
-  // Categoria curta (1ª palavra do nome, ou a categoria cadastrada se o nome
-  // tiver só uma palavra) + o restante do nome em destaque, com a última
-  // palavra em itálico lilás — sempre a partir dos dados reais do produto.
+  // ═══ BLOCO DO NOME (sobre a foto, logo acima do painel) — categoria, nome em
+  // destaque e um trechinho emocional (campo Sensação). Fica colado nas
+  // informações do painel; um degradê escuro suave só atrás do texto garante leitura. ═══
+  const topTxtMaxW=W-padL-padR;
   const nomeTxt=p.name||"Produto";
   const nomeWords=nomeTxt.trim().split(/\s+/).filter(Boolean);
   const tagTxt=(nomeWords.length>1?nomeWords[0]:(p.category||"")).toUpperCase();
   const tituloWords=nomeWords.length>1?nomeWords.slice(1):nomeWords;
-
-  if(tagTxt){
-    ctx.font="bold 15px Arial,sans-serif";ctx.letterSpacing="3px";ctx.fillStyle=LILAS_CLARO;
-    ctx.fillText(tagTxt,padL,ty);ctx.letterSpacing="0px";
-    ty+=10;
-  }
-
-  let tituloSize=60,linhasBranco=[],ultimaPalavra="";
-  for(const sz of [60,52,44,38,33]){
-    ctx.font=`bold ${sz}px Georgia,serif`;
-    const resto=tituloWords.slice(0,-1).join(" ");
-    const ls=resto?wrapLines(resto,topTxtMaxW):[];
-    if(ls.length<=2||sz===33){tituloSize=sz;linhasBranco=ls;ultimaPalavra=tituloWords[tituloWords.length-1]||"";break;}
-  }
-  ctx.font=`bold ${tituloSize}px Georgia,serif`;ctx.fillStyle=CREME;
-  linhasBranco.forEach(l=>{ty+=tituloSize*0.86;ctx.fillText(l,padL,ty);});
-  if(ultimaPalavra){
-    ctx.font=`italic ${tituloSize}px Georgia,serif`;ctx.fillStyle=LILAS_CLARO;
-    ty+=tituloSize*0.86;ctx.fillText(ultimaPalavra,padL,ty);
-  }
-  ty+=28;
-
-  // Trechinho emocional — reaproveita o campo Sensação (ou Benefício/
-  // Características, na falta dele) como uma citação curta; o texto
-  // completo de cada campo aparece inteiro mais abaixo, no painel.
   const taglineSrc=String(p.sensacao||p.beneficio||p.caracteristicas||"").trim();
-  if(taglineSrc){
-    let tagline=taglineSrc;
-    if(tagline.length>110){
-      tagline=tagline.slice(0,110);
-      tagline=tagline.replace(/\s+\S*$/,"")+"…";
+  // draw=false só mede a altura; draw=true desenha a partir de yTop
+  const blocoNome=(draw,yTop)=>{
+    let ty=yTop;
+    ctx.textAlign="left";
+    if(tagTxt){
+      ty+=16;
+      if(draw){ctx.font="bold 15px Arial,sans-serif";ctx.letterSpacing="3px";ctx.fillStyle=LILAS_CLARO;ctx.fillText(tagTxt,padL,ty);ctx.letterSpacing="0px";}
+      ty+=10;
     }
-    ctx.font="italic 21px Georgia,serif";ctx.fillStyle="rgba(253,250,255,0.92)";
-    const tLines=wrapLines(tagline,topTxtMaxW).slice(0,3);
-    tLines.forEach(l=>{ty+=28;ctx.fillText(l,padL,ty);});
-    ty+=8;
-    ctx.font="20px serif";ctx.fillStyle=LILAS_CLARO;
-    ty+=26;ctx.fillText("♥",padL,ty);
-  }
-  ctx.shadowBlur=0;
+    let tituloSize=60,linhasBranco=[],ultimaPalavra="";
+    for(const sz of [84,74,66,58,50,42,36]){
+      ctx.font=`bold ${sz}px Georgia,serif`;
+      const resto=tituloWords.slice(0,-1).join(" ");
+      const ls=resto?wrapLines(resto,topTxtMaxW):[];
+      if(ls.length<=2||sz===36){tituloSize=sz;linhasBranco=ls;ultimaPalavra=tituloWords[tituloWords.length-1]||"";break;}
+    }
+    linhasBranco.forEach(l=>{ty+=tituloSize*0.9;if(draw){ctx.font=`bold ${tituloSize}px Georgia,serif`;ctx.fillStyle="#FFFFFF";ctx.fillText(l,padL,ty);}});
+    if(ultimaPalavra){
+      ty+=tituloSize*0.9;
+      if(draw){ctx.font=`italic ${tituloSize}px Georgia,serif`;ctx.fillStyle=LILAS_CLARO;ctx.fillText(ultimaPalavra,padL,ty);}
+    }
+    return ty-yTop;
+  };
 
   // ═══ PAINEL INFERIOR — fundo claro dedicado às informações comerciais,
   // sempre com contraste garantido (nunca texto apagado sobre a foto). ═══
@@ -1944,7 +1895,7 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
 
   let colFontSz=15.5,colLineH=20,colsLinhas=[];
   if(camposCols.length){
-    for(const sz of [15.5,14,13,12,11,10.5]){
+    for(const sz of [18,16.5,15.5,14,13,12,11,10.5]){
       ctx.font=`${sz}px Georgia,serif`;
       colLineH=Math.round(sz*1.42);
       colsLinhas=camposCols.map(c=>wrapLines(c.txt,colW));
@@ -1962,6 +1913,20 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
   const panelH=Math.max(panelMinH,panelContentH);
   const panelY=H-panelH;
 
+  {
+    const hBloco=blocoNome(false,0);
+    const yTopNome=Math.max(40,panelY-hBloco-30);
+    // degradê escuro suave de baixo pra cima, só pra dar leitura ao nome
+    const gy0=Math.max(0,yTopNome-110);
+    const gr=ctx.createLinearGradient(0,gy0,0,panelY);
+    gr.addColorStop(0,"rgba(18,12,10,0)");
+    gr.addColorStop(1,"rgba(18,12,10,0.72)");
+    ctx.fillStyle=gr;ctx.fillRect(0,gy0,W,panelY-gy0);
+    ctx.save();
+    ctx.shadowColor="rgba(0,0,0,0.55)";ctx.shadowBlur=12;
+    blocoNome(true,yTopNome);
+    ctx.restore();
+  }
   ctx.fillStyle="rgba(20,14,12,0.12)";
   ctx.fillRect(0,panelY-6,W,6);
   roundRectTopPath(0,panelY,W,panelH+40,26);
@@ -1978,7 +1943,7 @@ const gerarArteDivulgacaoV2=async(p,config,formato,seed)=>{
     ctx.fillText(c.icone,cx+circleR,cy+circleR+1);
     ctx.restore();
     ctx.textAlign="left";
-    ctx.font="bold 11px Arial,sans-serif";ctx.letterSpacing="1.2px";ctx.fillStyle=ROXO_TXT;
+    ctx.font="bold 12px Arial,sans-serif";ctx.letterSpacing="1.2px";ctx.fillStyle=ROXO;
     ctx.fillText(c.label,cx+circleR*2+10,cy+circleR+4);
     ctx.letterSpacing="0px";
     ctx.font=`${colFontSz}px Georgia,serif`;ctx.fillStyle=TXT_ESCURO;
@@ -12099,6 +12064,7 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
     setCepLoad(false);
   };
 
+  const [fotoIdx,setFotoIdx]=useState(0);
   const finalizar=()=>{
     const pos=(orders||[]).filter(emFila).length+1;
     const id=proximoIdPedido(orders);
@@ -12123,7 +12089,10 @@ const CompraModal = ({produto,orders=[],setOrders,clients=[],setClients,config={
         </div>
         <div style={{padding:"18px"}}>
           {step==="opcoes"&&<>
-            {produto.photos?.[0]&&<div style={{height:130,borderRadius:6,overflow:"hidden",marginBottom:14}}><img src={produto.photos[0]} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>}
+            {produto.photos?.[0]&&<div style={{marginBottom:14}}>
+              <div style={{borderRadius:6,overflow:"hidden",background:C.linho,display:"flex",justifyContent:"center"}}><img src={produto.photos[Math.min(fotoIdx,produto.photos.length-1)]} alt="" style={{display:"block",width:"100%",height:"auto",maxHeight:"58vh",objectFit:"contain"}}/></div>
+              {produto.photos.length>1&&<div style={{display:"flex",gap:6,marginTop:6,overflowX:"auto"}}>{produto.photos.map((src,i)=><img key={i} src={src} alt="" onClick={()=>setFotoIdx(i)} style={{width:48,height:48,objectFit:"cover",borderRadius:4,cursor:"pointer",flexShrink:0,border:`2px solid ${i===fotoIdx?C.cafe:C.areia}`}}/>)}</div>}
+            </div>}
             <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",color:C.dourado,fontWeight:700,marginBottom:12}}>{fmtBRL(preco)}</div>
             {produto.tamanhos?.length>0&&<><Divider label="Tamanho"/>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
@@ -12879,6 +12848,193 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 };
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
+// ─── ORÇAMENTOS AVULSOS (fora do Projeto CONTÍNUA) ───────────────────────────
+// Proposta rápida pra qualquer frente. Ao ser aprovada, vira pedido na área certa.
+const FRENTES_ORC=["Consultoria","Artesanato","Obras"];
+const COR_STATUS_ORC={"Rascunho":"#8A7A6A","Enviado":"#3D5A8A","Aprovado":"#2E6B2E","Recusado":"#c0392b"};
+const FORMAS_ORC=["PIX","Cartão","Dinheiro","Transferência","Boleto","Parcelado","A combinar"];
+const totalOrc=o=>{const s=(o.itens||[]).reduce((a,i)=>a+Number(i.qtd||0)*Number(i.valor||0),0);return Math.max(0,s-Number(o.desconto||0));};
+const somaOrc=o=>(o.itens||[]).reduce((a,i)=>a+Number(i.qtd||0)*Number(i.valor||0),0);
+const somarDiasISO=(iso,d)=>{const x=new Date(iso+"T00:00");x.setDate(x.getDate()+d);return x.toISOString().split("T")[0];};
+const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,orders=[],setOrders,finance=[],setFinance,consultoria=[],setConsultoria,obras=[],setObras,config}) => {
+  const novoVazio=()=>({id:null,cliente:"",phone:"",frente:"Consultoria",titulo:"",itens:[{id:uid(),desc:"",qtd:1,valor:0}],desconto:0,data:today,validade:somarDiasISO(today,15),prazo:"",formaPag:"PIX",obs:"",status:"Rascunho"});
+  const [form,setForm]=useState(null);
+  const [filtro,setFiltro]=useState("Abertos");
+  const [busca,setBusca]=useState("");
+  const proximoId=()=>{const m=orcamentos.reduce((a,o)=>{const n=parseInt(String(o.id||"").replace(/\D/g,""),10);return Number.isFinite(n)&&n>a?n:a;},0);return `ORC-${String(Math.max(m,orcamentos.length)+1).padStart(3,"0")}`;};
+  const lista=orcamentos.filter(o=>(filtro==="Todos"||(filtro==="Abertos"?["Rascunho","Enviado"].includes(o.status):o.status===filtro))&&(`${o.cliente} ${o.titulo} ${o.id}`).toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>(b.data||"").localeCompare(a.data||"")||String(b.id).localeCompare(String(a.id)));
+  const cont=st=>orcamentos.filter(o=>st==="Abertos"?["Rascunho","Enviado"].includes(o.status):o.status===st).length;
+  const abertoValor=orcamentos.filter(o=>["Rascunho","Enviado"].includes(o.status)).reduce((a,o)=>a+totalOrc(o),0);
+
+  const salvar=()=>{
+    if(!form.cliente.trim()){alert("Informe o nome do cliente.");return;}
+    if(!(form.itens||[]).some(i=>i.desc.trim())){alert("Adicione ao menos um item com descrição.");return;}
+    const itens=form.itens.filter(i=>i.desc.trim());
+    if(form.id)setOrcamentos(prev=>prev.map(x=>x.id===form.id?{...x,...form,itens}:x));
+    else setOrcamentos(prev=>[...prev,{...form,itens,id:proximoId()}]);
+    setForm(null);showSavedGlobal("Orçamento salvo!");
+  };
+  const setStatus=(o,status)=>setOrcamentos(prev=>prev.map(x=>x.id===o.id?{...x,status,...(status==="Enviado"?{dataEnvio:today}:{}),...(["Aprovado","Recusado"].includes(status)?{dataResposta:today}:{})}:x));
+  const excluir=o=>{if(window.confirm(`Excluir o orçamento ${o.id}?`))setOrcamentos(prev=>prev.filter(x=>x.id!==o.id));};
+
+  const textoZap=(o)=>{
+    const prim=(o.cliente||"").split(" ")[0];
+    const linhas=(o.itens||[]).map(i=>`• ${Number(i.qtd)>1?i.qtd+"x ":""}${i.desc} — ${fmtBRL(Number(i.qtd||0)*Number(i.valor||0))}`).join("\n");
+    return `Olá, ${prim}! 🤎\n\nSegue o seu orçamento${o.titulo?` — *${o.titulo}*`:""}:\n\n${linhas}\n${Number(o.desconto)>0?`\nDesconto: −${fmtBRL(o.desconto)}`:""}\n*Total: ${fmtBRL(totalOrc(o))}*\n${o.prazo?`\nPrazo: ${o.prazo}`:""}\nForma de pagamento: ${o.formaPag}\nValidade: ${fmtDate(o.validade)}\n${o.obs?`\n${o.obs}\n`:""}\nSe estiver de acordo, é só me avisar que já começo! ✨\n${BRAND}`;
+  };
+  const enviarZap=(o)=>{
+    if(!o.phone){alert("Este orçamento está sem telefone do cliente. Edite (✎) e informe o WhatsApp.");return;}
+    window.open(`https://wa.me/${waNumero(o.phone)}?text=${encodeURIComponent(textoZap(o))}`);
+    if(o.status==="Rascunho")setStatus(o,"Enviado");
+  };
+  const gerarDoc=(o)=>{
+    const esc=t=>String(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    const rows=(o.itens||[]).map((i,n)=>`<tr><td>${n+1}</td><td>${esc(i.desc)}</td><td style="text-align:center">${i.qtd}</td><td style="text-align:right">${fmtBRL(i.valor)}</td><td style="text-align:right">${fmtBRL(Number(i.qtd||0)*Number(i.valor||0))}</td></tr>`).join("");
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento ${o.id} — ${esc(o.cliente)}</title><style>
+      body{font-family:Georgia,serif;color:#3b2a1d;max-width:760px;margin:30px auto;padding:0 24px}
+      h1{font-size:22px;margin:0}.sub{color:#8a6d1f;font-size:12px;letter-spacing:2px;text-transform:uppercase}
+      .top{display:flex;justify-content:space-between;border-bottom:2px solid #c9a063;padding-bottom:12px;margin-bottom:18px}
+      table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border-bottom:1px solid #e5d9c8;padding:8px 6px;font-size:13px}th{background:#f7f1e6;text-align:left}
+      .tot{text-align:right;font-size:18px;font-weight:bold;margin-top:8px}.box{background:#f7f1e6;border-radius:6px;padding:10px 14px;font-size:13px;margin-top:12px;line-height:1.7}
+      .badge{display:inline-block;background:#fef3e9;color:#8a6d1f;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:bold}
+    </style></head><body>
+      <div class="top"><div><div class="sub">${esc(BRAND)}</div><h1>Orçamento ${o.id}</h1></div><div style="text-align:right;font-size:12px">Data: ${fmtDate(o.data)}<br>Validade: ${fmtDate(o.validade)}<br><span class="badge">${o.status==="Aprovado"?"APROVADO":"AGUARDANDO APROVAÇÃO"}</span></div></div>
+      <div style="font-size:14px;margin-bottom:6px"><b>Cliente:</b> ${esc(o.cliente)}${o.phone?` · ${esc(o.phone)}`:""}</div>
+      ${o.titulo?`<div style="font-size:14px"><b>Referente a:</b> ${esc(o.titulo)}</div>`:""}
+      <table><thead><tr><th style="width:30px">#</th><th>Descrição</th><th style="width:50px;text-align:center">Qtd</th><th style="width:100px;text-align:right">Valor unit.</th><th style="width:110px;text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
+      ${Number(o.desconto)>0?`<div style="text-align:right;font-size:13px">Subtotal: ${fmtBRL(somaOrc(o))} · Desconto: −${fmtBRL(o.desconto)}</div>`:""}
+      <div class="tot">Total: ${fmtBRL(totalOrc(o))}</div>
+      <div class="box">${o.prazo?`<b>Prazo:</b> ${esc(o.prazo)}<br>`:""}<b>Forma de pagamento:</b> ${esc(o.formaPag)}<br><b>Validade da proposta:</b> ${fmtDate(o.validade)}${o.obs?`<br><b>Observações:</b> ${esc(o.obs)}`:""}</div>
+      <p style="font-size:12px;color:#8a7a6a;margin-top:30px;text-align:center">${esc(BRAND)}</p>
+      <script>setTimeout(function(){window.print();},400);<\/script>
+    </body></html>`;
+    const w=window.open("","_blank");
+    if(!w){alert("O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.");return;}
+    w.document.write(html);w.document.close();
+  };
+
+  // Aprovar → vira pedido na área certa (Artesanato → Encomendas, Consultoria → pedido, Obras → obra aprovada)
+  const aprovar=(o)=>{
+    const total=totalOrc(o);
+    if(o.pedidoId){alert("Este orçamento já virou pedido.");return;}
+    const destino=o.frente==="Artesanato"?"uma Encomenda":o.frente==="Obras"?"uma Obra aprovada":"um pedido de Consultoria";
+    if(!window.confirm(`Aprovar o orçamento ${o.id} (${fmtBRL(total)})?\n\nEle vai virar ${destino}.`))return;
+    let pedidoId="";
+    if(o.frente==="Artesanato"&&setOrders){
+      const id=proximoIdPedido(orders);
+      const itens=(o.itens||[]).map(i=>({product:i.desc,color:"",size:"",qty:Number(i.qtd)||1,price:Number(i.valor)||0}));
+      const pedido={id,client:o.cliente,phone:o.phone,origem:"Orçamento",itens,measures:"",price:somaOrc(o),desconto:Number(o.desconto||0),tipoDesc:"valor",precoFinal:total,dataCompra:today,delivery:"",status:"Pedido recebido",valorPago:0,note:[o.titulo,o.obs].filter(Boolean).join(" — "),tracking:"",payment:o.formaPag,condicao:"À vista",entrada:0,dataEntradaPag:today,dataSaldo:"",parcelas:[],qtdParcelas:2,position:1,product:itens.length===1?itens[0].product:`${itens.length} produtos`,color:"",size:"",read:true,historicoPagamentos:[]};
+      setOrders(prev=>reorderQ([...prev,pedido]));
+      setFinance&&setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${id} – ${o.cliente}`,value:total,date:today,dataVencimento:today,pago:false,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",orderId:id,clientName:o.cliente,dataLancamento:today}]);
+      pedidoId=id;
+    } else if(o.frente==="Obras"&&setObras){
+      const id=uid();
+      setObras(prev=>[...prev,{id,clientId:"",clienteNome:o.cliente,clienteCpfCnpj:"",tipo:o.titulo||"Serviço",endereco:"",itensOrcamento:(o.itens||[]).map(i=>({id:uid(),descricao:i.desc,qtd:Number(i.qtd)||1,unidade:"un",valorUnit:Number(i.valor)||0})),formaCobranca:o.formaPag==="Cartão"?"Cartão":"PIX",taxaCartaoPct:0,valor:total,dataOrcamento:o.data||today,dataPrevista:"",status:"Aprovado",dataAprovacao:today,obs:o.obs||"",servicos:[],medicoes:[],recebimentos:[]}]);
+      pedidoId=id;
+    } else if(setConsultoria){
+      const id=uid();
+      setConsultoria(prev=>[...prev,{id,clientId:"",clienteNome:o.cliente,clienteCpfCnpj:"",empresaTerceira:"",servico:o.titulo||(o.itens[0]&&o.itens[0].desc)||"Serviço",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:total,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:today,dataFim:"",dataVencimento:"",formaPag:o.formaPag,obs:[o.obs,`Origem: orçamento ${o.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
+      pedidoId=id;
+    }
+    if(o.cliente&&setClients&&!clients.find(c=>norm(c.name)===norm(o.cliente))){
+      setClients(prev=>[...prev,{id:uid(),name:o.cliente,phone:o.phone||"",email:"",city:"",orders:1,total,vip:false,joined:today,origem:"Orçamento",segmento:o.frente}]);
+    }
+    setOrcamentos(prev=>prev.map(x=>x.id===o.id?{...x,status:"Aprovado",dataResposta:today,pedidoId}:x));
+    showSavedGlobal(o.frente==="Artesanato"?`Aprovado! Virou a encomenda ${pedidoId}.`:o.frente==="Obras"?"Aprovado! Virou obra aprovada em Obras.":"Aprovado! Virou pedido em Consultoria.");
+  };
+
+  const upI=(id,campo,v)=>setForm(f=>({...f,itens:f.itens.map(i=>i.id===id?{...i,[campo]:v}:i)}));
+  const escolherCliente=(nome)=>{const c=clients.find(x=>norm(x.name)===norm(nome));setForm(f=>({...f,cliente:nome,phone:f.phone||(c?c.phone||"":"")}));};
+
+  return (
+    <div className="fade" style={{padding:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+        <div>
+          <div style={{fontSize:12,color:C.oliva}}>Propostas avulsas para qualquer frente. Ao aprovar, viram pedido automaticamente.</div>
+          <div style={{fontSize:12,color:C.cafe,marginTop:2}}>Em aberto: <b>{cont("Abertos")}</b> orçamento(s) · <b>{fmtBRL(abertoValor)}</b></div>
+        </div>
+        <Btn onClick={()=>setForm(novoVazio())}>＋ Novo orçamento</Btn>
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        {["Abertos","Aprovado","Recusado","Todos"].map(f=><button key={f} onClick={()=>setFiltro(f)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${filtro===f?C.cafe:C.areia}`,background:filtro===f?C.cafe:"transparent",color:filtro===f?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{f==="Aprovado"?"Aprovados":f==="Recusado"?"Recusados":f}{f!=="Todos"?` (${cont(f)})`:""}</button>)}
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar cliente ou nº…" style={{flex:"1 1 160px",padding:"6px 10px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+      </div>
+      {lista.length===0&&<div style={{textAlign:"center",padding:"36px 10px",color:C.oliva,fontStyle:"italic",fontFamily:"'Cormorant Garamond',serif",fontSize:15}}>Nenhum orçamento aqui ainda ✦</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {lista.map(o=>{const vencido=["Rascunho","Enviado"].includes(o.status)&&o.validade&&o.validade<today;return(
+          <Card key={o.id} style={{padding:"12px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+              <div style={{minWidth:0}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <b style={{fontSize:14}}>{o.cliente}</b>
+                  <span style={{fontSize:10,background:"#F2EAF5",color:"#6B4E7F",padding:"1px 8px",borderRadius:10,fontWeight:700}}>{o.frente}</span>
+                  <span style={{fontSize:10,background:COR_STATUS_ORC[o.status]||"#888",color:"#fff",padding:"1px 8px",borderRadius:10,fontWeight:700}}>{o.status}</span>
+                  {vencido&&<span style={{fontSize:10,color:C.vermelho,fontWeight:700}}>validade vencida</span>}
+                </div>
+                <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{o.id} · {fmtDate(o.data)}{o.titulo?` · ${o.titulo}`:""}</div>
+                <div style={{fontSize:11,color:C.oliva}}>{(o.itens||[]).length} item(ns) · válido até {fmtDate(o.validade)}{o.pedidoId&&o.frente==="Artesanato"?` · virou encomenda ${o.pedidoId}`:o.pedidoId?" · virou pedido":""}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(totalOrc(o))}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+              {o.status!=="Aprovado"&&<Btn sm v="ghost" onClick={()=>setForm({...novoVazio(),...o,itens:(o.itens||[]).map(i=>({...i,id:i.id||uid()}))})}>✎ Editar</Btn>}
+              <Btn sm v="ghost" onClick={()=>gerarDoc(o)}>📄 Documento</Btn>
+              <Btn sm v="ghost" onClick={()=>enviarZap(o)}>📲 Enviar</Btn>
+              {["Rascunho","Enviado"].includes(o.status)&&<Btn sm onClick={()=>aprovar(o)}>✓ Aprovar → pedido</Btn>}
+              {["Rascunho","Enviado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>setStatus(o,"Recusado")}>✕ Recusado</Btn>}
+              {o.status==="Recusado"&&<Btn sm v="ghost" onClick={()=>setStatus(o,"Rascunho")}>↩ Reabrir</Btn>}
+              {o.status!=="Aprovado"&&<Btn sm v="danger" onClick={()=>excluir(o)}>🗑</Btn>}
+            </div>
+          </Card>);})}
+      </div>
+
+      {form&&(
+        <Modal title={form.id?`Editar ${form.id}`:"Novo orçamento"} onClose={()=>setForm(null)} wide>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase"}}>Cliente</label>
+                <input list="orc-clientes" value={form.cliente} onChange={e=>escolherCliente(e.target.value)} placeholder="Digite ou escolha" style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%"}}/>
+                <datalist id="orc-clientes">{clients.map(c=><option key={c.id} value={c.name}/>)}</datalist>
+              </div>
+              <Inp label="WhatsApp" value={form.phone} onChange={v=>setForm(f=>({...f,phone:v}))} placeholder="(00) 00000-0000"/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10}}>
+              <Sel label="Frente (vira pedido em…)" value={form.frente} onChange={v=>setForm(f=>({...f,frente:v}))} options={FRENTES_ORC}/>
+              <Inp label="Referente a (título)" value={form.titulo} onChange={v=>setForm(f=>({...f,titulo:v}))} placeholder="Ex: Organização fiscal — outubro"/>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Itens</div>
+            {form.itens.map(i=>(
+              <div key={i.id} style={{display:"grid",gridTemplateColumns:"3fr 70px 110px 28px",gap:6,alignItems:"end"}}>
+                <Inp label="Descrição" value={i.desc} onChange={v=>upI(i.id,"desc",v)}/>
+                <Inp label="Qtd" type="number" value={i.qtd} onChange={v=>upI(i.id,"qtd",v)}/>
+                <Inp label="Valor unit." type="number" value={i.valor} onChange={v=>upI(i.id,"valor",v)}/>
+                <button onClick={()=>setForm(f=>({...f,itens:f.itens.length>1?f.itens.filter(x=>x.id!==i.id):f.itens}))} style={{height:36,border:"none",background:"transparent",color:C.vermelho,cursor:"pointer",fontSize:16}}>✕</button>
+              </div>))}
+            <div><Btn sm v="ghost" onClick={()=>setForm(f=>({...f,itens:[...f.itens,{id:uid(),desc:"",qtd:1,valor:0}]}))}>＋ Adicionar item</Btn></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Inp label="Desconto (R$)" type="number" value={form.desconto} onChange={v=>setForm(f=>({...f,desconto:v}))}/>
+              <div style={{background:C.linho,borderRadius:6,padding:"8px 12px",alignSelf:"end"}}><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",fontWeight:700,letterSpacing:"1px"}}>Total</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(totalOrc(form))}</div></div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <Inp label="Validade" type="date" value={form.validade} onChange={v=>setForm(f=>({...f,validade:v}))}/>
+              <Inp label="Prazo de entrega/execução" value={form.prazo} onChange={v=>setForm(f=>({...f,prazo:v}))} placeholder="Ex: 15 dias"/>
+              <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>setForm(f=>({...f,formaPag:v}))} options={FORMAS_ORC}/>
+            </div>
+            <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={3}/>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn v="ghost" onClick={()=>setForm(null)}>Cancelar</Btn>
+              <Btn onClick={salvar}>Salvar orçamento</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+};
+
 function App() {
   const isLoja = typeof window!=="undefined" && new URLSearchParams(window.location.search).get("loja")==="1";
   const [view,setView]=useState("dashboard");
@@ -12915,6 +13071,7 @@ function App() {
   const [cartas,      setCartas     ]=useStorage("cartas",      []);
   const [volumes,     setVolumes    ]=useStorage("volumes",     []);
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
+  const [orcamentos, setOrcamentos]=useStorage("orcamentos", []);
   const [obras, setObras]=useStorage("obras", []);
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
@@ -13018,7 +13175,7 @@ function App() {
     setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today,contaRecebimento:contaId||""}]);
   };
 
-  const allData={products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
+  const allData={orcamentos,products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
 
   const copyLink=()=>{
     const link=`${window.location.origin}/?loja=1`;
@@ -13028,6 +13185,7 @@ function App() {
   const TITLES={
     dashboard:["Bem-vinda ✦",new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})],
     site:["Catálogo",""],
+    orcamentos:["Orçamentos","Propostas avulsas — ao aprovar viram pedido"],
     products:["Produtos","Catálogo e precificação"],
     orders:["Encomendas","Gestão de pedidos"],
     production:["Produção","Fila e capacidade"],
@@ -13112,6 +13270,7 @@ function App() {
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
+          {view==="orcamentos"  &&<Orcamentos orcamentos={orcamentos} setOrcamentos={setOrcamentos} clients={clients} setClients={setClients} orders={orders} setOrders={setOrders} finance={finance} setFinance={setFinance} consultoria={consultoria} setConsultoria={setConsultoria} obras={obras} setObras={setObras} config={config}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients} contas={contas} personalReceitas={personalReceitas} personalDespesas={personalDespesas}/>}
           {view==="cfg_empresas" &&<Config initialTab="empresas" esconderAbas config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
