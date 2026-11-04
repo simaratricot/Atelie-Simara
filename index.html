@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v84 · 2026-11-03 orçamentos";
+const APP_BUILD = "v88 · 2026-11-04 modo-seguro";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -606,6 +606,44 @@ const FotoStore = (() => {
 })();
 
 const _fbLoaded = {};
+// _fbOk[chave] = true só depois que a leitura da nuvem DEU CERTO. Enquanto não for, nenhuma
+// gravação na nuvem dessa chave é feita (só neste aparelho) — protege contra sobrescrever os
+// dados da nuvem com um valor vazio/desatualizado quando a internet falha na abertura.
+const _fbOk = {};
+// Modo seguro: abrir o app com ?semnuvem=1 NÃO lê nem grava nada na nuvem — só mostra o que está guardado neste aparelho.
+// Serve pra resgatar dados antigos de um aparelho (e baixar um backup) sem risco de sobrescrever a nuvem.
+const MODO_SEM_NUVEM = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("semnuvem") === "1";
+// Guarda neste aparelho a cópia que seria substituída pela da nuvem (se a nuvem tiver bem menos itens)
+const _guardarAnterior = (key, local) => {
+  try { if (local && Array.isArray(local.value) && local.value.length) localStorage.setItem("atelie_bkp_" + key, JSON.stringify({salvoEm: Date.now(), value: local.value})); } catch {}
+};
+const _semNuvem = new Set();
+const _avisoSemNuvem = (key, ok) => {
+  if (ok) { _semNuvem.delete(key); if (_semNuvem.size === 0 && _setSemNuvemGlobal) _setSemNuvemGlobal(false); return; }
+  _semNuvem.add(key);
+  if (_setSemNuvemGlobal) _setSemNuvemGlobal(true);
+};
+let _setSemNuvemGlobal = null;
+// Cópia de segurança diária: antes da 1ª gravação do dia de cada lista importante, guarda o
+// que está na nuvem em "atelie_backups" (1 cópia por chave por dia).
+const _backupFeito = {};
+const CHAVES_BACKUP = new Set(["finance","contas","orders","clients","consultoria","obras","projetosContinua","orcamentos","stockSup","config"]);
+const _backupNuvem = async (key) => {
+  if (!CHAVES_BACKUP.has(key)) return;
+  const dia = new Date().toISOString().split("T")[0];
+  const id = key + "__" + dia;
+  if (_backupFeito[id]) return;
+  _backupFeito[id] = true;
+  try {
+    const dst = db.collection("atelie_backups").doc(id);
+    const ja = await dst.get();
+    if (ja.exists) return;
+    const src = await db.collection("atelie").doc(key).get();
+    if (src.exists && src.data().value && src.data().value.length > 2) {
+      await dst.set({ value: src.data().value, updated: src.data().updated || 0, copiadoEm: Date.now() });
+    }
+  } catch {}
+};
 // Chaves cujo valor é um array que pode crescer demais pra caber num único
 // documento do Firestore (limite de ~1MB por documento, por causa das fotos).
 // Essas usam 1 documento POR ITEM, numa subcoleção própria, em vez de um
@@ -662,18 +700,26 @@ const _checarQuedaBrusca = (key, value) => {
   const n = value.length;
   const maior = _maiorTamanhoVisto[key] || 0;
   if (n > maior) { _maiorTamanhoVisto[key] = n; return; }
+  // queda drástica (lista inteira ou quase) → BLOQUEIA a gravação na nuvem; fica só neste aparelho
+  if ((maior >= 3 && n === 0) || (maior >= 8 && n < maior * 0.2)) {
+    showSaveError(`⛔ Bloqueei o salvamento de "${key}" na nuvem: a lista foi de ${maior} para ${n} itens de uma vez, o que parece um erro. Nada foi apagado na nuvem. Recarregue a página; se for mesmo uma exclusão proposital, me avise.`);
+    return false;
+  }
   if (maior >= 8 && n < maior * 0.5) {
     showSaveError(`⚠ "${key}" caiu de ${maior} para ${n} itens de repente — isso não parece uma exclusão manual normal. NÃO mexa em mais nada e me avise agora, antes que esse valor menor seja salvo por cima do que já existia na nuvem.`);
   }
 };
 
 const fbSave = (key, value) => {
-  _checarQuedaBrusca(key, value);
+  // Nuvem ainda não lida com sucesso → não grava (fica só neste aparelho)
+  if (!_fbOk[key]) { _avisoSemNuvem(key); return Promise.resolve(); }
+  if (_checarQuedaBrusca(key, value) === false) return Promise.resolve();
   if (COLECAO_POR_ITEM.has(key) && Array.isArray(value)) return fbSaveColecao(key, value);
   const anterior = _fbQueues[key] || Promise.resolve();
   _fbPendentes++;
   const atual = anterior.catch(() => {}).then(async () => {
     try {
+      await _backupNuvem(key);
       let forCloud = value;
 
       if (Array.isArray(value)) {
@@ -779,7 +825,17 @@ const useStorage = (key, initial) => {
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
+    if (MODO_SEM_NUVEM) { _avisoSemNuvem(key); return; }
 
+    // Só considera a nuvem "carregada" quando a leitura realmente funcionou. Se falhar
+    // (internet ruim, etc.), tenta de novo e NÃO deixa nada ser gravado na nuvem nesse
+    // meio tempo — senão um valor vazio/antigo deste aparelho podia sobrescrever tudo.
+    const falhou = (tent, motivo) => {
+      _fbOk[key] = false;
+      _avisoSemNuvem(key);
+      setTimeout(() => iniciar(tent + 1), Math.min(30000, 3000 * (tent + 1)));
+    };
+    const iniciar = (tent) => {
     if (COLECAO_POR_ITEM.has(key)) {
       // Lê a subcoleção (1 documento por item) em vez de um documento único.
       db.collection("atelie_col_" + key).get().then(snap => {
@@ -787,13 +843,13 @@ const useStorage = (key, initial) => {
         const cloudArr = snap.docs.map(d => { try { return JSON.parse(d.data().value); } catch { return null; } }).filter(Boolean);
         const cloudTs = snap.docs.reduce((m,d) => Math.max(m, d.data().updated||0), 0);
         if (CHAVES_PROTEGIDAS.has(key) && cloudArr.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudArr.length;
-        if (local && local.ts > cloudTs) {
-          // Este aparelho tem algo mais novo (ou a subcoleção ainda nem existe na
-          // nuvem, caso deste aparelho seja o primeiro a sincronizar com o formato
-          // novo) — mantém e reenvia, item por item, pra nuvem.
+        // aparelho com lista bem menor que a nuvem não pode vencer só por ser "mais novo"
+        const localEncolhido = local && Array.isArray(local.value) && cloudArr.length >= 8 && local.value.length < cloudArr.length * 0.5;
+        if (local && local.ts > cloudTs && !localEncolhido) {
           setVal(FotoStore.hidratarLista(local.value));
           hidratar(local.value);
           lastTs.current = local.ts;
+          _fbOk[key] = true;
           fbSave(key, local.value);
         } else {
           setVal(FotoStore.hidratarLista(cloudArr));
@@ -801,14 +857,15 @@ const useStorage = (key, initial) => {
           lastTs.current = cloudTs;
           const legado = FotoStore.temLegado(cloudArr);
           _gravarLocal(K, FotoStore.externalizarLista(cloudArr));
-          // Fotos antigas (embutidas no produto) → converte pro formato novo, sem apagar nada
+          _fbOk[key] = true;
           if (legado) fbSave(key, cloudArr);
         }
         _fbLoaded[key] = true;
+        _avisoSemNuvem(key, true);
       }).catch(() => {
         const local = _lerLocal(K);
-        if (local) { setVal(local.value); lastTs.current = local.ts; }
-        _fbLoaded[key] = true;
+        if (local && tent === 0) { setVal(FotoStore.hidratarLista(local.value)); hidratar(local.value); lastTs.current = local.ts; }
+        falhou(tent);
       });
       return;
     }
@@ -816,28 +873,54 @@ const useStorage = (key, initial) => {
     db.collection("atelie").doc(key).get().then(doc => {
       const local = _lerLocal(K);
       if (doc.exists) {
+        let cloudVal, cloudTs;
         try {
-          const cloudVal = JSON.parse(doc.data().value);
-          const cloudTs = doc.data().updated || 0;
-          if (CHAVES_PROTEGIDAS.has(key) && Array.isArray(cloudVal) && cloudVal.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudVal.length;
-          if (local && local.ts > cloudTs) {
-            // Este aparelho tem algo mais novo que a nuvem — mantém e reenvia pra nuvem
-            setVal(local.value);
-            lastTs.current = local.ts;
-            fbSave(key, local.value);
-          } else {
-            setVal(cloudVal);
-            lastTs.current = cloudTs;
-            _gravarLocal(K, cloudVal);
-          }
-        } catch {}
+          cloudVal = JSON.parse(doc.data().value);
+          cloudTs = doc.data().updated || 0;
+        } catch {
+          _fbOk[key] = false;
+          showSaveError(`⚠ Não consegui ler "${key}" da nuvem (dado ilegível). Por segurança nada será gravado na nuvem para essa parte até eu verificar — me avise.`);
+          return;
+        }
+        if (CHAVES_PROTEGIDAS.has(key) && Array.isArray(cloudVal) && cloudVal.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudVal.length;
+        const localEncolhido = local && Array.isArray(local.value) && Array.isArray(cloudVal) && cloudVal.length >= 8 && local.value.length < cloudVal.length * 0.5;
+        let usarLocal = !!(local && local.ts > cloudTs && !localEncolhido);
+        // nuvem com MUITO menos itens que este aparelho: pode ser a nuvem que foi sobrescrita
+        if (!usarLocal && local && CHAVES_PROTEGIDAS.has(key) && Array.isArray(local.value) && Array.isArray(cloudVal) && local.value.length >= 8 && cloudVal.length < local.value.length * 0.5) {
+          _guardarAnterior(key, local);
+          usarLocal = window.confirm(`ATENÇÃO — "${key}": este aparelho tem ${local.value.length} itens, mas a nuvem tem só ${cloudVal.length}.\n\nOK = manter os ${local.value.length} deste aparelho (e devolver pra nuvem)\nCancelar = usar os ${cloudVal.length} da nuvem (os deste aparelho ficam guardados numa cópia de segurança)`);
+        } else if (!usarLocal && local && Array.isArray(local.value) && Array.isArray(cloudVal) && local.value.length > cloudVal.length) {
+          _guardarAnterior(key, local);
+        }
+        if (usarLocal) {
+          // Este aparelho tem algo mais novo que a nuvem — mantém e reenvia pra nuvem
+          setVal(local.value);
+          lastTs.current = local.ts;
+          _fbOk[key] = true;
+          fbSave(key, local.value);
+        } else {
+          setVal(cloudVal);
+          lastTs.current = cloudTs;
+          _gravarLocal(K, cloudVal);
+          _fbOk[key] = true;
+        }
       } else if (local) {
         // Nunca salvou na nuvem, mas já existe algo aqui — envia pra nuvem agora
+        _fbOk[key] = true;
         fbSave(key, local.value);
         lastTs.current = local.ts;
+      } else {
+        _fbOk[key] = true;
       }
       _fbLoaded[key] = true;
-    }).catch(() => { _fbLoaded[key] = true; });
+      _avisoSemNuvem(key, true);
+    }).catch(() => {
+      const local = _lerLocal(K);
+      if (local && tent === 0) { setVal(local.value); lastTs.current = local.ts; }
+      falhou(tent);
+    });
+    };
+    iniciar(0);
   }, []);
 
   // Sincroniza entre abas/janelas abertas ao mesmo tempo no mesmo aparelho: se outra
@@ -1090,7 +1173,6 @@ const NAV = [
   {k:"cad_prod",i:"🧮",l:"Produção e precificação"},
   {k:"cad_pag",i:"💳",l:"Formas de pagamento"},
   {k:"orcamento",i:"✦",l:"Calculadora"},
-  {k:"orcamentos",i:"📋",l:"Orçamentos"},
   {k:"agenda",i:"📅",l:"Agenda"},
   {k:"diario",i:"✍🏻",l:"Diário da Simara"},
   {k:"consultoria",i:"💼",l:"Consultoria"},
@@ -1104,7 +1186,6 @@ const NAV = [
 const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
 const NAV_GROUPS=[
   {label:"Início",items:[NAV_BY_KEY.dashboard]},
-  {label:"Orçamentos",items:[NAV_BY_KEY.orcamentos]},
   {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
   {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
@@ -9845,11 +9926,15 @@ const Consultoria=(props)=>{
     <div>
       <div style={{display:"flex",gap:6,padding:"10px 14px 0",overflowX:"auto"}}>
         {tabBtn("prospec","📡 Prospecção Comercial")}
+        {tabBtn("orcamentos","📋 Orçamentos")}
         {tabBtn("continua","🧭 Projetos CONTÍNUA")}
         {tabBtn("implant","🖥️ Implantação Sistema")}
         {tabBtn("pedidos","📋 Pedidos e atendimentos")}
       </div>
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
+      <div style={{display:aba==="orcamentos"?"block":"none"}}>
+        <Orcamentos orcamentos={props.orcamentos||[]} setOrcamentos={props.setOrcamentos} clients={props.clients||[]} setClients={props.setClients} orders={props.orders||[]} setOrders={props.setOrders} finance={props.finance||[]} setFinance={props.setFinance} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria} obras={props.obras||[]} setObras={props.setObras} config={props.config}/>
+      </div>
       {visitouContinua&&<div style={{display:aba==="continua"?"block":"none"}}>
         <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config}/>
       </div>}
@@ -11175,6 +11260,109 @@ const StorageMonitor = () => {
 };
 
 // ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────────
+// ─── RECONSTRUIR FINANCEIRO a partir de Encomendas, Consultoria e Obras ───────────
+// Usado só quando a lista de lançamentos foi perdida: refaz os "a receber" a partir dos pedidos
+// (que continuam intactos). NÃO mexe no saldo das contas. Despesas do negócio não são recuperáveis daqui.
+const reconAplicarPagamentos=(linhas,o)=>{
+  let fila=(o.historicoPagamentos||[]).map(h=>({data:h.data,valor:Number(h.valor)||0,contaId:h.contaId||""})).filter(h=>h.valor>0);
+  if(!fila.length&&Number(o.valorPago)>0)fila=[{data:o.dataCompra,valor:Number(o.valorPago),contaId:""}];
+  const out=[];
+  for(const l of linhas){
+    let falta=l.value,pago=0,data="",conta="";
+    while(falta>0.005&&fila.length){const f=fila[0];const usa=Math.min(f.valor,falta);pago+=usa;falta-=usa;f.valor-=usa;data=f.data;conta=f.contaId;if(f.valor<=0.005)fila.shift();}
+    if(pago<=0.005){out.push(l);continue;}
+    if(falta<=0.005){out.push({...l,pago:true,valorPago:l.value,dataPagamento:data,contaId:conta});}
+    else{
+      const saldoId=uid();
+      out.push({...l,pago:true,pagoParcial:true,valorPago:pago,valorPagoParc:pago,dataPagamento:data,contaId:conta,saldoId});
+      out.push({id:saldoId,type:"receita",desc:`${l.desc} – Saldo`,value:falta,date:l.date,dataVencimento:l.dataVencimento,category:l.category,centrocusto:l.centrocusto,tipoNegocio:l.tipoNegocio,pago:false,orderId:l.orderId,clientName:l.clientName,contaId:"",reconstruido:true});
+    }
+  }
+  return out;
+};
+const reconCandidatos=({orders=[],consultoria=[],obras=[],products=[],finance=[]})=>{
+  const idsExist=new Set(finance.map(f=>f.id));
+  const orderComLanc=new Set(finance.filter(f=>f.orderId).map(f=>f.orderId));
+  const rows=[];
+  // Encomendas (o pago vem do histórico de pagamentos do pedido)
+  orders.filter(o=>o.status!=="Cancelado"&&!orderComLanc.has(o.id)).forEach(o=>{
+    const pF=Number(o.precoFinal||o.price||0);
+    if(!(pF>0))return;
+    const itens=o.itens&&o.itens.length?o.itens:[{product:o.product}];
+    const cat=(products.find(p=>p.name===itens[0].product)||{}).category||"Moda";
+    const prodDesc=o.product||"Pedido";
+    const base={type:"receita",category:cat,centrocusto:"Artesanato",tipoNegocio:"Artesanato",orderId:o.id,clientName:o.client,payment:o.payment,dataLancamento:o.dataCompra,pago:false,reconstruido:true};
+    let linhas=[];
+    if(o.condicao==="Com entrada"){
+      if(Number(o.entrada)>0)linhas.push({...base,id:uid(),desc:`${o.id} – Entrada – ${o.client}`,value:Number(o.entrada),date:o.dataEntradaPag||o.dataCompra,dataVencimento:o.dataEntradaPag||o.dataCompra});
+      const saldo=pF-Number(o.entrada||0);
+      if(saldo>0)linhas.push({...base,id:uid(),desc:`${o.id} – Saldo – ${o.client}`,value:saldo,date:o.dataCompra,dataVencimento:o.dataSaldo||o.delivery||o.dataCompra});
+    } else if(o.condicao==="Parcelado"&&o.parcelas?.length){
+      o.parcelas.forEach(p=>linhas.push({...base,id:uid(),desc:`${o.id} – ${p.n}ª parcela de ${o.parcelas.length} – ${o.client}`,value:Number(p.valor),date:o.dataCompra,dataVencimento:p.data,parcela:p.n}));
+    } else {
+      linhas.push({...base,id:uid(),desc:`${o.id} – ${prodDesc} – À vista`,value:pF,date:o.dataCompra,dataVencimento:o.dataCompra});
+    }
+    reconAplicarPagamentos(linhas,o).forEach(l=>rows.push({key:l.id,incluir:true,origem:`Encomenda ${o.id}`,certo:true,lanc:l}));
+  });
+  // Consultoria (pedido, medições e atendimentos que tinham sido lançados) — mesmo id de antes
+  consultoria.forEach(c=>{
+    const mk=(id,desc,value,date,venc,extra={})=>({id,type:"receita",tipoReceita:"Consultoria",tipoNegocio:"Consultoria",centrocusto:"Consultoria",desc,value:Number(value)||0,date:date||today,dataVencimento:venc||date||today,pago:false,category:"Consultoria",clientName:c.clienteNome,reconstruido:true,...extra});
+    if(c.lancado&&c.financeiroId&&!idsExist.has(c.financeiroId)&&Number(c.valor)>0)rows.push({key:c.financeiroId,incluir:true,origem:`Consultoria — ${c.clienteNome}`,certo:false,lanc:mk(c.financeiroId,`Consultoria — ${c.clienteNome} — ${c.servico}`,c.valor,c.dataInicio,c.dataVencimento)});
+    (c.medicoes||[]).forEach(m=>{if(m.lancado&&m.financeiroId&&!idsExist.has(m.financeiroId)&&Number(m.valor)>0)rows.push({key:m.financeiroId,incluir:true,origem:`Consultoria — ${c.clienteNome}`,certo:false,lanc:mk(m.financeiroId,`Medição — ${c.clienteNome} — ${typeof fmtHoras==="function"?fmtHoras(m.horas):m.horas+"h"}`,m.valor,m.dataFim,m.dataVencimento)});});
+    (c.atendimentos||[]).forEach(a=>{if(a.financeiroId&&!a.medicaoId&&!idsExist.has(a.financeiroId)&&Number(a.valor)>0)rows.push({key:a.financeiroId,incluir:true,origem:`Consultoria — ${c.clienteNome}`,certo:false,lanc:mk(a.financeiroId,`Atendimento — ${c.clienteNome} — ${a.assunto||""}`,a.valor,a.data,a.dataVencFin||a.data)});});
+  });
+  // Obras (recebimentos registrados)
+  obras.forEach(o=>{
+    (o.recebimentos||[]).forEach(r=>{
+      if(!r.financeiroId||idsExist.has(r.financeiroId)||!(Number(r.valor)>0))return;
+      rows.push({key:r.financeiroId,incluir:true,origem:`Obra — ${o.clienteNome}`,certo:false,lanc:{id:r.financeiroId,type:"receita",tipoReceita:"Obras",tipoNegocio:"Obras",centrocusto:"Obras",desc:`Obra — ${o.clienteNome} — recebimento${r.obs?` — ${r.obs}`:""}`,value:Number(r.valor),date:r.data||today,dataVencimento:r.data||today,formaPag:r.formaPag||"PIX",pago:false,category:"Obras",clientName:o.clienteNome,pedidoId:o.id,reconstruido:true}});
+    });
+  });
+  return rows;
+};
+const ReconstruirFinanceiro=({orders,consultoria,obras,products,finance,setFinance,onClose})=>{
+  const [rows,setRows]=useState(()=>reconCandidatos({orders,consultoria,obras,products,finance}));
+  const [feito,setFeito]=useState(null);
+  const upd=(key,patch)=>setRows(rs=>rs.map(r=>r.key===key?{...r,...patch}:r));
+  const marcaPago=(r,v)=>upd(r.key,{lanc:{...r.lanc,pago:v,valorPago:v?r.lanc.value:0,dataPagamento:v?(r.lanc.dataVencimento||today):""}});
+  const sel=rows.filter(r=>r.incluir);
+  const total=sel.reduce((a,r)=>a+r.lanc.value,0);
+  const confirmar=()=>{
+    if(sel.length===0)return;
+    const novos=sel.map(r=>r.lanc);
+    setFinance(prev=>{const ids=new Set(prev.map(x=>x.id));return [...prev,...novos.filter(n=>!ids.has(n.id))];});
+    setFeito(novos.length);
+    showSavedGlobal(`${novos.length} lançamento(s) reconstruído(s)!`);
+  };
+  return(
+    <Modal title="♻ Reconstruir recebimentos a partir dos pedidos" onClose={onClose} wide>
+      {feito!==null?<div style={{background:"#D4E8D4",borderRadius:6,padding:"12px 14px",fontSize:13,color:"#2E6B2E"}}>✓ {feito} lançamento(s) devolvido(s) ao Financeiro. Confira em Contas a Receber. O saldo das contas não foi alterado.</div>:<>
+      <div style={{fontSize:12,color:C.oliva,lineHeight:1.6,marginBottom:10}}>
+        Aqui o app refaz os <b>recebimentos</b> a partir das suas <b>Encomendas, Consultoria e Obras</b> (que continuam salvas). Nas encomendas, o que já foi pago vem dos pagamentos registrados no pedido. Em Consultoria e Obras o app <b>não sabe</b> se já foi recebido: marque “Já recebido” nos que já entraram. <b>Não altera o saldo das contas.</b> As despesas do negócio não podem ser refeitas por aqui.
+      </div>
+      {rows.length===0&&<div style={{fontSize:13,color:C.oliva,padding:"14px 0"}}>Nada para reconstruir: todos os pedidos já têm lançamento no financeiro.</div>}
+      <div style={{maxHeight:"50vh",overflowY:"auto",border:`1px solid ${C.areia}`,borderRadius:6,background:"#fff"}}>
+        {rows.map(r=>(
+          <div key={r.key} style={{display:"flex",gap:8,alignItems:"center",padding:"7px 10px",borderBottom:`1px solid ${C.linho}`,fontSize:12,flexWrap:"wrap"}}>
+            <input type="checkbox" checked={r.incluir} onChange={e=>upd(r.key,{incluir:e.target.checked})}/>
+            <div style={{flex:"1 1 220px",minWidth:0}}>
+              <div style={{color:C.cafe,fontWeight:600}}>{r.lanc.desc}</div>
+              <div style={{fontSize:10,color:C.oliva}}>{r.origem} · vence {fmtDate(r.lanc.dataVencimento)}</div>
+            </div>
+            <div style={{fontWeight:700,color:C.cafe}}>{fmtBRL(r.lanc.value)}</div>
+            {r.certo
+              ?<span style={{fontSize:11,fontWeight:700,color:r.lanc.pago?"#2E6B2E":C.dourado}}>{r.lanc.pago?`pago${r.lanc.pagoParcial?" (parcial)":""}`:"em aberto"}</span>
+              :<label style={{fontSize:11,display:"flex",gap:4,alignItems:"center",color:C.cafe}}><input type="checkbox" checked={!!r.lanc.pago} onChange={e=>marcaPago(r,e.target.checked)}/> Já recebido</label>}
+          </div>))}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:12}}>
+        <div style={{fontSize:12,color:C.cafe}}>{sel.length} lançamento(s) · {fmtBRL(total)}</div>
+        <div style={{display:"flex",gap:8}}><Btn v="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={confirmar} disabled={sel.length===0}>Devolver ao Financeiro</Btn></div>
+      </div></>}
+    </Modal>
+  );
+};
+
 const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimentos,setDepoimentos,categories,setCategories,subcategories,setSubcategories,allData,finance,setFinance,contas,setContas,faturas,setFaturas,orders,setOrders,clients,setClients,modo="config",participantes=null,initialTab=null,esconderAbas=false}) => {
   const [tab,setTab]=useState(initialTab||(modo==="cadastros"?"part":"empresas"));
   const [novoCentro,setNovoCentro]=useState("");
@@ -11228,48 +11416,67 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
     const faltando=doArquivo.filter(x=>x&&x.id!=null&&!idsAtuais.has(x.id));
     return {lista:[...(atual||[]),...faltando],add:faltando.length};
   };
+  const aplicarDados=(dados)=>{
+    const resumo={financeN:0,contasN:0,ordersN:0,clientsN:0,faturasN:0};
+    if(setFinance&&Array.isArray(dados.finance)){
+      const r=mergePorId(finance,dados.finance);
+      if(r.add){setFinance(r.lista);resumo.financeN=r.add;}
+    }
+    if(setContas&&Array.isArray(dados.contas)){
+      const r=mergePorId(contas,dados.contas);
+      if(r.add){setContas(r.lista);resumo.contasN=r.add;}
+    }
+    if(setFaturas&&Array.isArray(dados.personalFaturas)){
+      const r=mergePorId(faturas,dados.personalFaturas);
+      if(r.add){setFaturas(r.lista);resumo.faturasN=r.add;}
+    }
+    if(setOrders&&Array.isArray(dados.orders)){
+      const r=mergePorId(orders,dados.orders);
+      if(r.add){setOrders(r.lista);resumo.ordersN=r.add;}
+    }
+    if(setClients&&Array.isArray(dados.clients)){
+      const r=mergePorId(clients,dados.clients);
+      if(r.add){setClients(r.lista);resumo.clientsN=r.add;}
+    }
+    setRestoreResumo(resumo);
+    showSavedGlobal("Restauração concluída!");
+  };
   const restaurarBackup=(file)=>{
     if(!file)return;
     setRestoreBusy(true);
     const reader=new FileReader();
     reader.onload=(e)=>{
-      try{
-        const dados=JSON.parse(e.target.result);
-        const resumo={financeN:0,contasN:0,ordersN:0,clientsN:0,faturasN:0};
-        if(setFinance&&Array.isArray(dados.finance)){
-          const r=mergePorId(finance,dados.finance);
-          if(r.add){setFinance(r.lista);resumo.financeN=r.add;}
-        }
-        if(setContas&&Array.isArray(dados.contas)){
-          const r=mergePorId(contas,dados.contas);
-          if(r.add){setContas(r.lista);resumo.contasN=r.add;}
-        }
-        if(setFaturas&&Array.isArray(dados.personalFaturas)){
-          const r=mergePorId(faturas,dados.personalFaturas);
-          if(r.add){setFaturas(r.lista);resumo.faturasN=r.add;}
-        }
-        if(setOrders&&Array.isArray(dados.orders)){
-          const r=mergePorId(orders,dados.orders);
-          if(r.add){setOrders(r.lista);resumo.ordersN=r.add;}
-        }
-        if(setClients&&Array.isArray(dados.clients)){
-          const r=mergePorId(clients,dados.clients);
-          if(r.add){setClients(r.lista);resumo.clientsN=r.add;}
-        }
-        setRestoreResumo(resumo);
-        showSavedGlobal("Restauração concluída!");
-      }catch(err){
+      try{ aplicarDados(JSON.parse(e.target.result)); }
+      catch(err){
         showSaveError(`⚠ Não consegui ler esse arquivo como backup (${err.message}). Confere se é mesmo o .json baixado pelo botão "Baixar backup agora".`);
       }
       setRestoreBusy(false);
     };
     reader.readAsText(file);
   };
+  // Cópias de segurança automáticas: (1) deste aparelho, guardadas quando a nuvem tinha menos dados; (2) diárias na nuvem
+  const [copias,setCopias]=useState(null);
+  const [reconOpen,setReconOpen]=useState(false);
+  const procurarCopias=async()=>{
+    const achadas=[];
+    const chaves=[["finance","finance"],["contas","contas"],["orders","orders"],["clients","clients"],["personalFaturas","personalFaturas"]];
+    const loc={};
+    chaves.forEach(([k,dk])=>{try{const v=JSON.parse(localStorage.getItem("atelie_bkp_"+k)||"null");if(v&&Array.isArray(v.value))loc[dk]=v.value;}catch{}});
+    if(Object.keys(loc).length)achadas.push({rotulo:"Cópia guardada neste aparelho",dados:loc,resumo:Object.entries(loc).map(([k,v])=>`${v.length} ${k}`).join(" · ")});
+    try{
+      const snap=await db.collection("atelie_backups").get();
+      const porDia={};
+      snap.docs.forEach(d=>{const [k,dia]=d.id.split("__");if(!dia)return;try{(porDia[dia]=porDia[dia]||{})[k]=JSON.parse(d.data().value);}catch{}});
+      Object.keys(porDia).sort().reverse().forEach(dia=>{const dd=porDia[dia];achadas.push({rotulo:`Cópia da nuvem de ${fmtDate(dia)}`,dados:dd,resumo:["finance","contas","orders","clients"].filter(k=>Array.isArray(dd[k])).map(k=>`${dd[k].length} ${k}`).join(" · ")});});
+    }catch{ showSaveError("Não consegui consultar as cópias da nuvem agora (internet?)."); }
+    setCopias(achadas);
+  };
 
   return(
     <div className="fade" style={{padding:24,maxWidth:tab==="part"?"none":680}}>
       {!esconderAbas&&<Tabs tabs={modo==="cadastros"?[{k:"part",l:"Participantes"},{k:"categorias",l:"Categorias"},{k:"centros",l:"Centros de Custo"},{k:"frases",l:"Frases"},{k:"banners",l:"Banners"},{k:"depoimentos",l:"Depoimentos"},{k:"producao",l:"Produção e precificação"},{k:"pagamentos",l:"Formas de pagamento"}]:[{k:"empresas",l:"Empresas"},{k:"backup",l:"Backup e armazenamento"}]} active={tab} set={setTab}/>}
 
+      {reconOpen&&<ReconstruirFinanceiro orders={orders||[]} consultoria={(allData&&allData.consultoria)||[]} obras={(allData&&allData.obras)||[]} products={(allData&&allData.products)||[]} finance={finance||[]} setFinance={setFinance} onClose={()=>setReconOpen(false)}/>}
       {modo==="cadastros"&&tab==="part"&&participantes}
       {tab==="empresas"&&!empresaSel&&<>
         <div style={{fontSize:12,color:C.oliva,marginBottom:12}}>Escolha a frente do negócio para ver e editar os dados dela.</div>
@@ -11431,6 +11638,21 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
                 ? "Nada novo encontrado nesse arquivo — tudo que tinha lá já está aqui hoje."
                 : <>✓ Restaurado: {restoreResumo.financeN>0&&<>{restoreResumo.financeN} lançamento(s) do Financeiro. </>}{restoreResumo.contasN>0&&<>{restoreResumo.contasN} conta(s). </>}{restoreResumo.faturasN>0&&<>{restoreResumo.faturasN} fatura(s). </>}{restoreResumo.ordersN>0&&<>{restoreResumo.ordersN} pedido(s). </>}{restoreResumo.clientsN>0&&<>{restoreResumo.clientsN} cliente(s)/fornecedor(es). </>}</>}
             </div>}
+          </div>
+          <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.dourado}`}}>
+            <p style={{fontSize:12,color:C.cafe,lineHeight:1.6,marginBottom:8,fontWeight:600}}>♻ Recuperar cópias de segurança automáticas</p>
+            <p style={{fontSize:11,color:C.oliva,lineHeight:1.5,marginBottom:10}}>O app guarda uma cópia por dia na nuvem e também uma cópia neste aparelho quando percebe que a nuvem ficou com menos dados. Restaurar só <b>acrescenta</b> o que estiver faltando — nunca apaga o que já existe.</p>
+            <Btn v="ghost" onClick={procurarCopias}>🔎 Procurar cópias</Btn>
+            <div style={{marginTop:14}}>
+              <p style={{fontSize:12,color:C.cafe,lineHeight:1.6,marginBottom:6,fontWeight:600}}>🛟 Perdeu os lançamentos do financeiro?</p>
+              <p style={{fontSize:11,color:C.oliva,lineHeight:1.5,marginBottom:8}}>Refaz os <b>recebimentos</b> a partir das Encomendas, Consultoria e Obras. Você revisa tudo antes de confirmar.</p>
+              <Btn v="oliva" onClick={()=>setReconOpen(true)}>♻ Reconstruir recebimentos dos pedidos</Btn>
+            </div>
+            {copias&&copias.length===0&&<div style={{marginTop:8,fontSize:12,color:C.oliva}}>Nenhuma cópia encontrada ainda.</div>}
+            {copias&&copias.map((c,i)=><div key={i} style={{marginTop:8,background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div><div style={{fontSize:12,fontWeight:700,color:C.cafe}}>{c.rotulo}</div><div style={{fontSize:11,color:C.oliva}}>{c.resumo}</div></div>
+              <Btn sm onClick={()=>{if(window.confirm(`Restaurar (só acrescentar o que falta) a partir de: ${c.rotulo}?`))aplicarDados(c.dados);}}>Restaurar</Btn>
+            </div>)}
           </div>
         </Card>
       </>}
@@ -12848,112 +13070,292 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 };
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
-// ─── ORÇAMENTOS AVULSOS (fora do Projeto CONTÍNUA) ───────────────────────────
-// Proposta rápida pra qualquer frente. Ao ser aprovada, vira pedido na área certa.
-const FRENTES_ORC=["Consultoria","Artesanato","Obras"];
-const COR_STATUS_ORC={"Rascunho":"#8A7A6A","Enviado":"#3D5A8A","Aprovado":"#2E6B2E","Recusado":"#c0392b"};
-const FORMAS_ORC=["PIX","Cartão","Dinheiro","Transferência","Boleto","Parcelado","A combinar"];
-const totalOrc=o=>{const s=(o.itens||[]).reduce((a,i)=>a+Number(i.qtd||0)*Number(i.valor||0),0);return Math.max(0,s-Number(o.desconto||0));};
-const somaOrc=o=>(o.itens||[]).reduce((a,i)=>a+Number(i.qtd||0)*Number(i.valor||0),0);
-const somarDiasISO=(iso,d)=>{const x=new Date(iso+"T00:00");x.setDate(x.getDate()+d);return x.toISOString().split("T")[0];};
-const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,orders=[],setOrders,finance=[],setFinance,consultoria=[],setConsultoria,obras=[],setObras,config}) => {
-  const novoVazio=()=>({id:null,cliente:"",phone:"",frente:"Consultoria",titulo:"",itens:[{id:uid(),desc:"",qtd:1,valor:0}],desconto:0,data:today,validade:somarDiasISO(today,15),prazo:"",formaPag:"PIX",obs:"",status:"Rascunho"});
-  const [form,setForm]=useState(null);
+// ─── ORÇAMENTOS AVULSOS DE CONSULTORIA (mesmo modelo do orçamento do Projeto CONTÍNUA, sem o Método) ───
+// Ao ser aprovado, vira um pedido na aba "Pedidos e atendimentos".
+const orcNovoRegistro=()=>({id:null,clienteNome:"",phone:"",cpfCnpj:"",empresa:"",titulo:"",objetivo:"",criadoEm:pcHoje(),orcamento:pcOrcDefault()});
+// converte orçamentos criados no formato antigo (lista de itens) para o formato novo
+const orcMigrarLegado=(o)=>{
+  if(o.orcamento)return o;
+  const itens=o.itens||[];
+  const total=Math.max(0,itens.reduce((a,i)=>a+Number(i.qtd||0)*Number(i.valor||0),0)-Number(o.desconto||0));
+  return {id:o.id,clienteNome:o.cliente||"",phone:o.phone||"",cpfCnpj:"",empresa:"",titulo:o.titulo||"",objetivo:"",criadoEm:o.data||pcHoje(),pedidoId:o.pedidoId||"",
+    orcamento:{...pcOrcDefault(),escopo:itens.map(i=>({id:uid(),texto:`${Number(i.qtd)>1?i.qtd+"x ":""}${i.desc}`})),ajusteManual:true,valorManual:total,motivoAjuste:"Valor do orçamento original",formaPagamento:o.formaPag||"PIX",cronograma:o.prazo||"",status:o.status||"Rascunho"}};
+};
+const orcValidadeTxt=(o)=>{const base=o.dataEnvio||o.criadoEm||pcHoje();const d=new Date(base+"T00:00");d.setDate(d.getDate()+(Number(o.orcamento.validadeDias)||15));return d.toLocaleDateString("pt-BR");};
+const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsultoria,config}) => {
+  const [edit,setEdit]=useState(null);
+  const [sujo,setSujo]=useState(false);
   const [filtro,setFiltro]=useState("Abertos");
   const [busca,setBusca]=useState("");
-  const proximoId=()=>{const m=orcamentos.reduce((a,o)=>{const n=parseInt(String(o.id||"").replace(/\D/g,""),10);return Number.isFinite(n)&&n>a?n:a;},0);return `ORC-${String(Math.max(m,orcamentos.length)+1).padStart(3,"0")}`;};
-  const lista=orcamentos.filter(o=>(filtro==="Todos"||(filtro==="Abertos"?["Rascunho","Enviado"].includes(o.status):o.status===filtro))&&(`${o.cliente} ${o.titulo} ${o.id}`).toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>(b.data||"").localeCompare(a.data||"")||String(b.id).localeCompare(String(a.id)));
-  const cont=st=>orcamentos.filter(o=>st==="Abertos"?["Rascunho","Enviado"].includes(o.status):o.status===st).length;
-  const abertoValor=orcamentos.filter(o=>["Rascunho","Enviado"].includes(o.status)).reduce((a,o)=>a+totalOrc(o),0);
+  const [escopoTxt,setEscopoTxt]=useState("");
+  const [docBusy,setDocBusy]=useState(false);
+  const [docPrev,setDocPrev]=useState(null);
 
+  useEffect(()=>{ if(orcamentos.some(o=>!o.orcamento)) setOrcamentos(prev=>prev.map(orcMigrarLegado)); },[orcamentos.length]);
+  const lista0=orcamentos.filter(o=>o.orcamento);
+  const stOf=o=>o.orcamento.status;
+  const abertos=lista0.filter(o=>["Rascunho","Enviado"].includes(stOf(o)));
+  const lista=lista0.filter(o=>(filtro==="Todos"||(filtro==="Abertos"?["Rascunho","Enviado"].includes(stOf(o)):stOf(o)===filtro))&&(`${o.clienteNome} ${o.titulo} ${o.id}`).toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>String(b.criadoEm||"").localeCompare(String(a.criadoEm||""))||String(b.id).localeCompare(String(a.id)));
+  const cont=st=>lista0.filter(o=>st==="Abertos"?["Rascunho","Enviado"].includes(stOf(o)):stOf(o)===st).length;
+  const proximoId=()=>{const m=lista0.reduce((a,o)=>{const n=parseInt(String(o.id||"").replace(/\D/g,""),10);return Number.isFinite(n)&&n>a?n:a;},0);return `ORC-${String(Math.max(m,lista0.length)+1).padStart(3,"0")}`;};
+
+  const H=(k,v)=>{setEdit(e=>({...e,[k]:v}));setSujo(true);};
+  const O=(k,v)=>{setEdit(e=>({...e,orcamento:{...e.orcamento,[k]:v}}));setSujo(true);};
+  const escolherCliente=(nome)=>{
+    const c=clients.find(x=>norm(x.name)===norm(nome));
+    setEdit(e=>({...e,clienteNome:nome,phone:e.phone||(c?c.phone||"":""),cpfCnpj:e.cpfCnpj||(c?c.cpfCnpj||"":"")}));setSujo(true);
+  };
+  const addEscopo=()=>{const t=escopoTxt.trim();if(!t)return;O("escopo",[...(edit.orcamento.escopo||[]),{id:uid(),texto:t}]);setEscopoTxt("");};
+  const rmEscopo=(id)=>O("escopo",(edit.orcamento.escopo||[]).filter(e=>e.id!==id));
+
+  const guardar=(rec)=>{
+    const id=rec.id||proximoId();
+    const r={...rec,id};
+    setOrcamentos(prev=>prev.some(x=>x.id===id)?prev.map(x=>x.id===id?r:x):[...prev,r]);
+    setEdit(r);setSujo(false);
+    return r;
+  };
   const salvar=()=>{
-    if(!form.cliente.trim()){alert("Informe o nome do cliente.");return;}
-    if(!(form.itens||[]).some(i=>i.desc.trim())){alert("Adicione ao menos um item com descrição.");return;}
-    const itens=form.itens.filter(i=>i.desc.trim());
-    if(form.id)setOrcamentos(prev=>prev.map(x=>x.id===form.id?{...x,...form,itens}:x));
-    else setOrcamentos(prev=>[...prev,{...form,itens,id:proximoId()}]);
-    setForm(null);showSavedGlobal("Orçamento salvo!");
+    if(!edit.clienteNome.trim()){alert("Informe o nome do cliente.");return;}
+    guardar(edit);showSavedGlobal("Orçamento salvo!");
   };
-  const setStatus=(o,status)=>setOrcamentos(prev=>prev.map(x=>x.id===o.id?{...x,status,...(status==="Enviado"?{dataEnvio:today}:{}),...(["Aprovado","Recusado"].includes(status)?{dataResposta:today}:{})}:x));
-  const excluir=o=>{if(window.confirm(`Excluir o orçamento ${o.id}?`))setOrcamentos(prev=>prev.filter(x=>x.id!==o.id));};
-
-  const textoZap=(o)=>{
-    const prim=(o.cliente||"").split(" ")[0];
-    const linhas=(o.itens||[]).map(i=>`• ${Number(i.qtd)>1?i.qtd+"x ":""}${i.desc} — ${fmtBRL(Number(i.qtd||0)*Number(i.valor||0))}`).join("\n");
-    return `Olá, ${prim}! 🤎\n\nSegue o seu orçamento${o.titulo?` — *${o.titulo}*`:""}:\n\n${linhas}\n${Number(o.desconto)>0?`\nDesconto: −${fmtBRL(o.desconto)}`:""}\n*Total: ${fmtBRL(totalOrc(o))}*\n${o.prazo?`\nPrazo: ${o.prazo}`:""}\nForma de pagamento: ${o.formaPag}\nValidade: ${fmtDate(o.validade)}\n${o.obs?`\n${o.obs}\n`:""}\nSe estiver de acordo, é só me avisar que já começo! ✨\n${BRAND}`;
-  };
-  const enviarZap=(o)=>{
-    if(!o.phone){alert("Este orçamento está sem telefone do cliente. Edite (✎) e informe o WhatsApp.");return;}
-    window.open(`https://wa.me/${waNumero(o.phone)}?text=${encodeURIComponent(textoZap(o))}`);
-    if(o.status==="Rascunho")setStatus(o,"Enviado");
-  };
-  const gerarDoc=(o)=>{
-    const esc=t=>String(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
-    const rows=(o.itens||[]).map((i,n)=>`<tr><td>${n+1}</td><td>${esc(i.desc)}</td><td style="text-align:center">${i.qtd}</td><td style="text-align:right">${fmtBRL(i.valor)}</td><td style="text-align:right">${fmtBRL(Number(i.qtd||0)*Number(i.valor||0))}</td></tr>`).join("");
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento ${o.id} — ${esc(o.cliente)}</title><style>
-      body{font-family:Georgia,serif;color:#3b2a1d;max-width:760px;margin:30px auto;padding:0 24px}
-      h1{font-size:22px;margin:0}.sub{color:#8a6d1f;font-size:12px;letter-spacing:2px;text-transform:uppercase}
-      .top{display:flex;justify-content:space-between;border-bottom:2px solid #c9a063;padding-bottom:12px;margin-bottom:18px}
-      table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border-bottom:1px solid #e5d9c8;padding:8px 6px;font-size:13px}th{background:#f7f1e6;text-align:left}
-      .tot{text-align:right;font-size:18px;font-weight:bold;margin-top:8px}.box{background:#f7f1e6;border-radius:6px;padding:10px 14px;font-size:13px;margin-top:12px;line-height:1.7}
-      .badge{display:inline-block;background:#fef3e9;color:#8a6d1f;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:bold}
-    </style></head><body>
-      <div class="top"><div><div class="sub">${esc(BRAND)}</div><h1>Orçamento ${o.id}</h1></div><div style="text-align:right;font-size:12px">Data: ${fmtDate(o.data)}<br>Validade: ${fmtDate(o.validade)}<br><span class="badge">${o.status==="Aprovado"?"APROVADO":"AGUARDANDO APROVAÇÃO"}</span></div></div>
-      <div style="font-size:14px;margin-bottom:6px"><b>Cliente:</b> ${esc(o.cliente)}${o.phone?` · ${esc(o.phone)}`:""}</div>
-      ${o.titulo?`<div style="font-size:14px"><b>Referente a:</b> ${esc(o.titulo)}</div>`:""}
-      <table><thead><tr><th style="width:30px">#</th><th>Descrição</th><th style="width:50px;text-align:center">Qtd</th><th style="width:100px;text-align:right">Valor unit.</th><th style="width:110px;text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
-      ${Number(o.desconto)>0?`<div style="text-align:right;font-size:13px">Subtotal: ${fmtBRL(somaOrc(o))} · Desconto: −${fmtBRL(o.desconto)}</div>`:""}
-      <div class="tot">Total: ${fmtBRL(totalOrc(o))}</div>
-      <div class="box">${o.prazo?`<b>Prazo:</b> ${esc(o.prazo)}<br>`:""}<b>Forma de pagamento:</b> ${esc(o.formaPag)}<br><b>Validade da proposta:</b> ${fmtDate(o.validade)}${o.obs?`<br><b>Observações:</b> ${esc(o.obs)}`:""}</div>
-      <p style="font-size:12px;color:#8a7a6a;margin-top:30px;text-align:center">${esc(BRAND)}</p>
-      <script>setTimeout(function(){window.print();},400);<\/script>
-    </body></html>`;
-    const w=window.open("","_blank");
-    if(!w){alert("O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.");return;}
-    w.document.write(html);w.document.close();
-  };
-
-  // Aprovar → vira pedido na área certa (Artesanato → Encomendas, Consultoria → pedido, Obras → obra aprovada)
-  const aprovar=(o)=>{
-    const total=totalOrc(o);
-    if(o.pedidoId){alert("Este orçamento já virou pedido.");return;}
-    const destino=o.frente==="Artesanato"?"uma Encomenda":o.frente==="Obras"?"uma Obra aprovada":"um pedido de Consultoria";
-    if(!window.confirm(`Aprovar o orçamento ${o.id} (${fmtBRL(total)})?\n\nEle vai virar ${destino}.`))return;
-    let pedidoId="";
-    if(o.frente==="Artesanato"&&setOrders){
-      const id=proximoIdPedido(orders);
-      const itens=(o.itens||[]).map(i=>({product:i.desc,color:"",size:"",qty:Number(i.qtd)||1,price:Number(i.valor)||0}));
-      const pedido={id,client:o.cliente,phone:o.phone,origem:"Orçamento",itens,measures:"",price:somaOrc(o),desconto:Number(o.desconto||0),tipoDesc:"valor",precoFinal:total,dataCompra:today,delivery:"",status:"Pedido recebido",valorPago:0,note:[o.titulo,o.obs].filter(Boolean).join(" — "),tracking:"",payment:o.formaPag,condicao:"À vista",entrada:0,dataEntradaPag:today,dataSaldo:"",parcelas:[],qtdParcelas:2,position:1,product:itens.length===1?itens[0].product:`${itens.length} produtos`,color:"",size:"",read:true,historicoPagamentos:[]};
-      setOrders(prev=>reorderQ([...prev,pedido]));
-      setFinance&&setFinance(prev=>[...prev,{id:uid(),type:"receita",desc:`${id} – ${o.cliente}`,value:total,date:today,dataVencimento:today,pago:false,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",orderId:id,clientName:o.cliente,dataLancamento:today}]);
-      pedidoId=id;
-    } else if(o.frente==="Obras"&&setObras){
-      const id=uid();
-      setObras(prev=>[...prev,{id,clientId:"",clienteNome:o.cliente,clienteCpfCnpj:"",tipo:o.titulo||"Serviço",endereco:"",itensOrcamento:(o.itens||[]).map(i=>({id:uid(),descricao:i.desc,qtd:Number(i.qtd)||1,unidade:"un",valorUnit:Number(i.valor)||0})),formaCobranca:o.formaPag==="Cartão"?"Cartão":"PIX",taxaCartaoPct:0,valor:total,dataOrcamento:o.data||today,dataPrevista:"",status:"Aprovado",dataAprovacao:today,obs:o.obs||"",servicos:[],medicoes:[],recebimentos:[]}]);
-      pedidoId=id;
-    } else if(setConsultoria){
-      const id=uid();
-      setConsultoria(prev=>[...prev,{id,clientId:"",clienteNome:o.cliente,clienteCpfCnpj:"",empresaTerceira:"",servico:o.titulo||(o.itens[0]&&o.itens[0].desc)||"Serviço",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:total,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:today,dataFim:"",dataVencimento:"",formaPag:o.formaPag,obs:[o.obs,`Origem: orçamento ${o.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
-      pedidoId=id;
+  const criarPedido=(rec)=>{
+    if(rec.pedidoId||!setConsultoria)return rec;
+    const calc=pcCalcOrcamento(rec.orcamento);
+    const pid=uid();
+    setConsultoria(prev=>[...prev,{id:pid,clientId:"",clienteNome:rec.clienteNome,clienteCpfCnpj:rec.cpfCnpj||"",empresaTerceira:rec.empresa||"",servico:rec.titulo||"Consultoria",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:calc.final,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:pcHoje(),dataFim:"",dataVencimento:"",formaPag:rec.orcamento.formaPagamento==="Outro"?"PIX":rec.orcamento.formaPagamento,obs:[rec.orcamento.condicoesPagamento,`Origem: orçamento ${rec.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
+    if(setClients&&rec.clienteNome&&!clients.find(c=>norm(c.name)===norm(rec.clienteNome))){
+      setClients(prev=>[...prev,{id:uid(),name:rec.clienteNome,phone:rec.phone||"",email:"",city:"",orders:1,total:calc.final,vip:false,joined:today,origem:"Orçamento",segmento:"Consultoria",cpfCnpj:rec.cpfCnpj||""}]);
     }
-    if(o.cliente&&setClients&&!clients.find(c=>norm(c.name)===norm(o.cliente))){
-      setClients(prev=>[...prev,{id:uid(),name:o.cliente,phone:o.phone||"",email:"",city:"",orders:1,total,vip:false,joined:today,origem:"Orçamento",segmento:o.frente}]);
-    }
-    setOrcamentos(prev=>prev.map(x=>x.id===o.id?{...x,status:"Aprovado",dataResposta:today,pedidoId}:x));
-    showSavedGlobal(o.frente==="Artesanato"?`Aprovado! Virou a encomenda ${pedidoId}.`:o.frente==="Obras"?"Aprovado! Virou obra aprovada em Obras.":"Aprovado! Virou pedido em Consultoria.");
+    return {...rec,pedidoId:pid};
+  };
+  const mudarStatus=(status)=>{
+    if(!edit.clienteNome.trim()){alert("Informe o nome do cliente antes.");return;}
+    if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?${status==="Aprovado"?"\n\nEle vai virar um pedido em \"Pedidos e atendimentos\".":""}`))return;
+    const extra=status==="Enviado"?{dataEnvio:pcHoje()}:(status==="Aprovado"||status==="Recusado")?{dataResposta:pcHoje()}:{};
+    let rec={...edit,orcamento:{...edit.orcamento,status,...extra}};
+    if(status==="Aprovado")rec=criarPedido(rec);
+    guardar(rec);
+    showSavedGlobal(status==="Aprovado"?"Orçamento aprovado! Virou pedido em Consultoria.":`Orçamento: ${status}`);
+  };
+  const excluir=(o)=>{if(window.confirm(`Excluir o orçamento ${o.id}?`))setOrcamentos(prev=>prev.filter(x=>x.id!==o.id));};
+
+  // ── documento (mesmo padrão visual do orçamento do Projeto CONTÍNUA) ──
+  const montarDoc=(rec)=>{
+    const o=rec.orcamento,calc=pcCalcOrcamento(o);
+    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}</li>`).join("");
+    const formatoTxt=o.formato==="Online"?"Atendimento 100% online.":o.formato==="Presencial"?"Atendimento presencial.":"Atendimento híbrido (online e presencial).";
+    const validade=new Date(Date.now()+(Number(o.validadeDias)||15)*86400000).toLocaleDateString("pt-BR");
+    const hdr=`<div class="hdr"><div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div><div class="hdr-doc"><b>ORÇAMENTO</b><br>Nº ${rec.id||"—"}<br>Status: ${o.status}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div>`;
+    const cli=`<h2>Cliente</h2><div class="campo"><b>Nome:</b> ${rec.clienteNome}</div>${rec.cpfCnpj?`<div class="campo"><b>CPF/CNPJ:</b> ${rec.cpfCnpj}</div>`:""}${rec.empresa?`<div class="campo"><b>Empresa:</b> ${rec.empresa}</div>`:""}`;
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento ${rec.id||""} — ${rec.clienteNome}</title><style>${pcDocStyles}</style></head><body>
+    ${hdr}
+    ${cli}
+    ${rec.titulo?`<h2>Serviço</h2><div class="campo">${rec.titulo}</div>`:""}
+    ${rec.objetivo?`<h2>Objetivo</h2><div class="campo">${rec.objetivo}</div>`:""}
+    <h2>Escopo do trabalho</h2>${escopoLinhas?`<ul>${escopoLinhas}</ul>`:'<div class="campo">Escopo a ser detalhado.</div>'}
+    ${o.cronograma?`<h2>Cronograma / etapas</h2><div class="campo" style="white-space:pre-line">${o.cronograma}</div>`:""}
+    <h2>Formato de atendimento</h2><div class="campo">${formatoTxt}</div>
+    <h2>Investimento</h2><div class="campo"><b>Valor do trabalho:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>
+    <h2>Pagamento</h2><div class="campo"><b>Forma de pagamento:</b> ${o.formaPagamento}</div>${o.condicoesPagamento?`<div class="campo"><b>Condições:</b> ${o.condicoesPagamento}</div>`:""}
+    <h2>Validade da proposta</h2><div class="campo">Esta proposta é válida até ${validade}.</div>
+    <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${rec.clienteNome}<br>Aceite do cliente</div></div>
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Orcamento ${rec.id||""} ${rec.clienteNome}`,titulo:"Orçamento",legenda:`Olá, ${(rec.clienteNome||"").split(" ")[0]}! Segue o orçamento${rec.titulo?` "${rec.titulo}"`:""} em anexo. 🤎\n*Simara Lobui · Consultoria*`,tel:String(rec.phone||"").replace(/\D/g,"")};
+  };
+  const carregarScript=(src,teste)=>new Promise((res,rej)=>{if(teste())return res();const s=document.createElement("script");s.src=src;s.onload=()=>teste()?res():rej(new Error("biblioteca não iniciou"));s.onerror=()=>rej(new Error("sem conexão"));document.head.appendChild(s);});
+  const htmlParaCanvas=async(html)=>{
+    const fr=document.createElement("iframe");fr.setAttribute("aria-hidden","true");
+    fr.style.cssText="position:fixed;left:-10000px;top:0;width:794px;height:1200px;border:0;";
+    document.body.appendChild(fr);
+    try{
+      await new Promise(res=>{fr.onload=()=>res();fr.srcdoc=html;});
+      const doc=fr.contentDocument;if(doc.fonts&&doc.fonts.ready)await doc.fonts.ready;
+      await new Promise(r=>setTimeout(r,200));
+      const h=Math.max(doc.body.scrollHeight,doc.documentElement.scrollHeight);fr.style.height=h+"px";
+      return await window.html2canvas(doc.body,{scale:2,backgroundColor:"#ffffff",useCORS:true,windowWidth:794,windowHeight:h});
+    } finally { document.body.removeChild(fr); }
+  };
+  const gerarDoc=async(rec,saida)=>{
+    if(!rec.clienteNome.trim()){alert("Informe o nome do cliente.");return;}
+    const d=montarDoc(rec);
+    if(saida==="print"){const w=window.open("","_blank");if(w){w.document.write(d.html);w.document.close();setTimeout(()=>w.print(),600);}else alert("O navegador bloqueou a janela. Permita pop-ups e tente de novo.");return;}
+    setDocBusy(true);
+    try{
+      await carregarScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",()=>!!window.html2canvas);
+      if(saida==="pdf")await carregarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",()=>!!(window.jspdf&&window.jspdf.jsPDF));
+      const canvas=await htmlParaCanvas(d.html);
+      const base=String(d.arquivo).normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^A-Za-z0-9]+/g,"-").replace(/^-|-$/g,"");
+      let file;
+      if(saida==="pdf"){
+        const pdf=new window.jspdf.jsPDF({unit:"pt",format:"a4",compress:true});
+        const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
+        const imgH=canvas.height*pw/canvas.width;const img=canvas.toDataURL("image/jpeg",0.92);
+        let y=0,pg=0;while(y<imgH-2){if(pg>0)pdf.addPage();pdf.addImage(img,"JPEG",0,-y,pw,imgH);y+=ph;pg++;}
+        file=new File([pdf.output("blob")],`${base}.pdf`,{type:"application/pdf"});
+      } else {
+        const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+        file=new File([blob],`${base}.png`,{type:"image/png"});
+      }
+      setDocPrev({titulo:d.titulo,file,prev:canvas.toDataURL("image/jpeg",0.6),texto:d.legenda,tel:waNumero(d.tel)});
+    }catch(e){alert("Não consegui gerar o arquivo ("+((e&&e.message)||"erro")+"). Confira a internet ou use “Imprimir”.");}
+    setDocBusy(false);
+  };
+  const baixarDoc=()=>{if(!docPrev)return;const url=URL.createObjectURL(docPrev.file);const a=document.createElement("a");a.href=url;a.download=docPrev.file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);};
+  const enviarDoc=async()=>{
+    const d=docPrev;if(!d)return;
+    try{if(navigator.canShare&&navigator.canShare({files:[d.file]})){await navigator.share({files:[d.file],text:d.texto});setDocPrev(null);return;}}catch(e){if(e&&e.name==="AbortError")return;}
+    baixarDoc();
+    if(!d.tel||d.tel==="55"){alert("Cliente sem WhatsApp cadastrado — o arquivo foi baixado, é só anexar na conversa.");setDocPrev(null);return;}
+    window.open(`https://wa.me/${d.tel}?text=${encodeURIComponent(d.texto)}`,"_blank");
+    showSavedGlobal("Arquivo baixado — anexe na conversa do WhatsApp.");
   };
 
-  const upI=(id,campo,v)=>setForm(f=>({...f,itens:f.itens.map(i=>i.id===id?{...i,[campo]:v}:i)}));
-  const escolherCliente=(nome)=>{const c=clients.find(x=>norm(x.name)===norm(nome));setForm(f=>({...f,cliente:nome,phone:f.phone||(c?c.phone||"":"")}));};
+  // ───────────────────────── TELA DE EDIÇÃO ─────────────────────────
+  if(edit){
+    const o=edit.orcamento,calc=pcCalcOrcamento(o);
+    return(
+    <div className="fade" style={{padding:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+        <Btn sm v="ghost" onClick={()=>{if(sujo&&!window.confirm("Há alterações não salvas. Sair mesmo assim?"))return;setEdit(null);setSujo(false);}}>← Voltar para a lista</Btn>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase"}}>Status do orçamento</span>
+          <PcChip t={o.status}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+        {o.status!=="Enviado"&&o.status!=="Aprovado"&&<Btn sm v="ghost" onClick={()=>mudarStatus("Enviado")}>📤 Marcar como enviado</Btn>}
+        {o.status!=="Aprovado"&&<Btn sm v="oliva" onClick={()=>mudarStatus("Aprovado")}>✓ Aprovado</Btn>}
+        {o.status!=="Recusado"&&<Btn sm v="danger" onClick={()=>mudarStatus("Recusado")}>✕ Recusado</Btn>}
+        {o.status==="Recusado"&&<Btn sm v="ghost" onClick={()=>mudarStatus("Rascunho")}>↩ Reabrir</Btn>}
+        {edit.pedidoId&&<span style={{fontSize:12,color:"#2E6B2E",alignSelf:"center"}}>✓ já virou pedido em Consultoria</span>}
+      </div>
 
+      <Divider label="Cliente"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:10}}>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase"}}>Cliente</label>
+          <input list="orc-clientes" value={edit.clienteNome} onChange={e=>escolherCliente(e.target.value)} placeholder="Digite ou escolha" style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%"}}/>
+          <datalist id="orc-clientes">{clients.map(c=><option key={c.id} value={c.name}/>)}</datalist>
+        </div>
+        <Inp label="WhatsApp" value={edit.phone} onChange={v=>H("phone",v)} placeholder="(00) 00000-0000"/>
+        <Inp label="CPF/CNPJ" value={edit.cpfCnpj} onChange={v=>H("cpfCnpj",v)}/>
+        <Inp label="Empresa" value={edit.empresa} onChange={v=>H("empresa",v)}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12,marginBottom:10}}>
+        <Inp label="Serviço / título do trabalho" value={edit.titulo} onChange={v=>H("titulo",v)} placeholder="Ex: Organização fiscal e administrativa"/>
+        <Inp label="Objetivo" value={edit.objetivo} onChange={v=>H("objetivo",v)}/>
+      </div>
+
+      <Divider label="Escopo do trabalho"/>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}><Inp placeholder="Descreva um item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
+        <Btn sm onClick={addEscopo}>+ Adicionar</Btn>
+      </div>
+      {(o.escopo||[]).length===0
+        ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
+        :(o.escopo||[]).map(e=>(
+          <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
+            <span style={{flex:1,color:C.cafe}}>{e.texto}</span>
+            <Btn sm v="ghost" onClick={()=>rmEscopo(e.id)}>🗑</Btn>
+          </div>))}
+
+      <Divider label="Formato de atendimento"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Formato" value={o.formato} onChange={v=>O("formato",v)} options={PC_FORMATO_ATEND}/>
+        {(o.formato==="Online"||o.formato==="Híbrido")&&<Inp label="Horas online" type="number" value={o.horasOnline} onChange={v=>O("horasOnline",v)}/>}
+        {(o.formato==="Presencial"||o.formato==="Híbrido")&&<>
+          <Inp label="Horas presenciais" type="number" value={o.horasPresenciais} onChange={v=>O("horasPresenciais",v)}/>
+          <Inp label="Horas de deslocamento" type="number" value={o.horasDeslocamento} onChange={v=>O("horasDeslocamento",v)}/>
+          <Inp label="KM percorridos" type="number" value={o.km} onChange={v=>O("km",v)}/>
+          <Inp label="Valor por KM (R$)" type="number" value={o.valorKm} onChange={v=>O("valorKm",v)}/>
+        </>}
+      </div>
+
+      <Divider label="Custos"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:10}}>
+        <Inp label="Valor por hora (R$)" type="number" value={o.valorHora} onChange={v=>O("valorHora",v)}/>
+        <Inp label="Alimentação (R$)" type="number" value={o.alimentacao} onChange={v=>O("alimentacao",v)}/>
+        <Inp label="Outros custos (R$)" type="number" value={o.outrosCustos} onChange={v=>O("outrosCustos",v)}/>
+        <Inp label="Descrição outros custos" value={o.outrosCustosDesc} onChange={v=>O("outrosCustosDesc",v)}/>
+      </div>
+
+      <Divider label="Complexidade"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Nível de complexidade" value={o.complexidade} onChange={v=>O("complexidade",v)} options={PC_COMPLEXIDADE}/>
+        <Inp label="% Baixa" type="number" value={o.percBaixa} onChange={v=>O("percBaixa",v)}/>
+        <Inp label="% Média" type="number" value={o.percMedia} onChange={v=>O("percMedia",v)}/>
+        <Inp label="% Alta" type="number" value={o.percAlta} onChange={v=>O("percAlta",v)}/>
+      </div>
+
+      <Divider label="Investimento"/>
+      <div style={{background:C.linho,borderRadius:8,padding:14,marginBottom:10}}>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:8}}>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Base</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.base)}</div></div>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Ajuste complexidade ({calc.perc}%)</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.ajuste)}</div></div>
+          <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Valor calculado</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.calculado)}</div></div>
+        </div>
+        <label style={{display:"flex",gap:6,alignItems:"center",fontSize:12,color:C.cafe,marginBottom:8}}>
+          <input type="checkbox" checked={!!o.ajusteManual} onChange={e=>O("ajusteManual",e.target.checked)}/> Ajustar valor manualmente
+        </label>
+        {o.ajusteManual&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:8}}>
+          <Inp label="Valor final manual (R$)" type="number" value={o.valorManual} onChange={v=>O("valorManual",v)}/>
+          <Inp label="Motivo do ajuste" value={o.motivoAjuste} onChange={v=>O("motivoAjuste",v)}/>
+        </div>}
+        <div style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:1}}>Valor final</div>
+        <div style={{fontSize:22,fontWeight:700,color:"#1F7A4D"}}>{fmtBRL(calc.final)}</div>
+        {o.ajusteManual&&!String(o.motivoAjuste||"").trim()&&<div style={{fontSize:11,color:C.vermelho,marginTop:4}}>⚠ Informe o motivo do ajuste manual.</div>}
+      </div>
+
+      <Divider label="Pagamento e cronograma"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:10}}>
+        <Sel label="Forma de pagamento" value={o.formaPagamento} onChange={v=>O("formaPagamento",v)} options={["PIX","Boleto","Cartão","Transferência","Outro"]}/>
+        <Inp label="Condições de pagamento" value={o.condicoesPagamento} onChange={v=>O("condicoesPagamento",v)} placeholder="Ex: 50% na assinatura + 50% na entrega"/>
+        <Inp label="Validade da proposta (dias)" type="number" value={o.validadeDias} onChange={v=>O("validadeDias",v)}/>
+      </div>
+      <Inp label="Cronograma / etapas" rows={4} value={o.cronograma} onChange={v=>O("cronograma",v)} placeholder="Descreva as etapas e prazos previstos"/>
+
+      <div style={{display:"flex",gap:8,marginTop:16,alignItems:"center",flexWrap:"wrap"}}>
+        <Btn onClick={salvar}>💾 Salvar orçamento</Btn>
+        {sujo&&<span style={{fontSize:12,color:C.vermelho,fontWeight:600}}>● alterações não salvas</span>}
+      </div>
+
+      <Divider label="Documento do orçamento"/>
+      <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>💰 Orçamento</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(edit,"print")}>🖨 Imprimir</Btn>
+          <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(edit,"pdf")}>📤 PDF</Btn>
+          <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(edit,"img")}>🖼 Imagem</Btn>
+        </div>
+      </div>
+      {docBusy&&<div style={{fontSize:12,color:C.oliva,marginTop:8}}>Gerando arquivo…</div>}
+      {o.status==="Recusado"&&<div style={{marginTop:14,background:"#F3E1DE",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#c0392b"}}>Orçamento recusado.</div>}
+
+      {docPrev&&<Modal title={`📤 Enviar — ${docPrev.titulo}`} onClose={()=>setDocPrev(null)}>
+        <div style={{maxHeight:"48vh",overflow:"auto",border:`1px solid ${C.areia}`,borderRadius:6,background:"#fff"}}>
+          <img src={docPrev.prev} alt="Prévia do documento" style={{width:"100%",display:"block"}}/>
+        </div>
+        <div style={{fontSize:11,color:C.oliva,margin:"8px 0 2px"}}>📎 {docPrev.file.name}</div>
+        <div style={{fontSize:11,color:C.oliva,marginBottom:10}}>No celular abre a lista de aplicativos para escolher o WhatsApp e o contato. No computador o arquivo é baixado e a conversa abre com a mensagem — é só anexar.</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <Btn v="ghost" onClick={()=>setDocPrev(null)}>Cancelar</Btn>
+          <Btn v="ghost" onClick={baixarDoc}>⬇ Baixar</Btn>
+          <Btn onClick={enviarDoc}>📤 Enviar pelo WhatsApp</Btn>
+        </div>
+      </Modal>}
+    </div>);
+  }
+
+  // ───────────────────────── LISTA ─────────────────────────
   return (
     <div className="fade" style={{padding:24}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
         <div>
-          <div style={{fontSize:12,color:C.oliva}}>Propostas avulsas para qualquer frente. Ao aprovar, viram pedido automaticamente.</div>
-          <div style={{fontSize:12,color:C.cafe,marginTop:2}}>Em aberto: <b>{cont("Abertos")}</b> orçamento(s) · <b>{fmtBRL(abertoValor)}</b></div>
+          <div style={{fontSize:12,color:C.oliva}}>Orçamentos avulsos de consultoria — sem necessidade de aplicar o Método. Ao aprovar, viram pedido em “Pedidos e atendimentos”.</div>
+          <div style={{fontSize:12,color:C.cafe,marginTop:2}}>Em aberto: <b>{abertos.length}</b> orçamento(s) · <b>{fmtBRL(abertos.reduce((a,o)=>a+pcCalcOrcamento(o.orcamento).final,0))}</b></div>
         </div>
-        <Btn onClick={()=>setForm(novoVazio())}>＋ Novo orçamento</Btn>
+        <Btn onClick={()=>{setEdit(orcNovoRegistro());setSujo(false);setEscopoTxt("");}}>＋ Novo orçamento</Btn>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
         {["Abertos","Aprovado","Recusado","Todos"].map(f=><button key={f} onClick={()=>setFiltro(f)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${filtro===f?C.cafe:C.areia}`,background:filtro===f?C.cafe:"transparent",color:filtro===f?"#fff":C.cafe,fontSize:12,fontWeight:600,cursor:"pointer"}}>{f==="Aprovado"?"Aprovados":f==="Recusado"?"Recusados":f}{f!=="Todos"?` (${cont(f)})`:""}</button>)}
@@ -12961,79 +13363,26 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,orders=[]
       </div>
       {lista.length===0&&<div style={{textAlign:"center",padding:"36px 10px",color:C.oliva,fontStyle:"italic",fontFamily:"'Cormorant Garamond',serif",fontSize:15}}>Nenhum orçamento aqui ainda ✦</div>}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {lista.map(o=>{const vencido=["Rascunho","Enviado"].includes(o.status)&&o.validade&&o.validade<today;return(
+        {lista.map(o=>{const calc=pcCalcOrcamento(o.orcamento);return(
           <Card key={o.id} style={{padding:"12px 16px"}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <b style={{fontSize:14}}>{o.cliente}</b>
-                  <span style={{fontSize:10,background:"#F2EAF5",color:"#6B4E7F",padding:"1px 8px",borderRadius:10,fontWeight:700}}>{o.frente}</span>
-                  <span style={{fontSize:10,background:COR_STATUS_ORC[o.status]||"#888",color:"#fff",padding:"1px 8px",borderRadius:10,fontWeight:700}}>{o.status}</span>
-                  {vencido&&<span style={{fontSize:10,color:C.vermelho,fontWeight:700}}>validade vencida</span>}
-                </div>
-                <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{o.id} · {fmtDate(o.data)}{o.titulo?` · ${o.titulo}`:""}</div>
-                <div style={{fontSize:11,color:C.oliva}}>{(o.itens||[]).length} item(ns) · válido até {fmtDate(o.validade)}{o.pedidoId&&o.frente==="Artesanato"?` · virou encomenda ${o.pedidoId}`:o.pedidoId?" · virou pedido":""}</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:14}}>{o.clienteNome}</b><PcChip t={o.orcamento.status} sm/></div>
+                <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{o.id} · {fmtDate(o.criadoEm)}{o.titulo?` · ${o.titulo}`:""}</div>
+                <div style={{fontSize:11,color:C.oliva}}>{(o.orcamento.escopo||[]).length} item(ns) no escopo · validade {o.orcamento.validadeDias||15} dias{o.pedidoId?" · virou pedido":""}</div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(totalOrc(o))}</div>
-              </div>
+              <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(calc.final)}</div>
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
-              {o.status!=="Aprovado"&&<Btn sm v="ghost" onClick={()=>setForm({...novoVazio(),...o,itens:(o.itens||[]).map(i=>({...i,id:i.id||uid()}))})}>✎ Editar</Btn>}
-              <Btn sm v="ghost" onClick={()=>gerarDoc(o)}>📄 Documento</Btn>
-              <Btn sm v="ghost" onClick={()=>enviarZap(o)}>📲 Enviar</Btn>
-              {["Rascunho","Enviado"].includes(o.status)&&<Btn sm onClick={()=>aprovar(o)}>✓ Aprovar → pedido</Btn>}
-              {["Rascunho","Enviado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>setStatus(o,"Recusado")}>✕ Recusado</Btn>}
-              {o.status==="Recusado"&&<Btn sm v="ghost" onClick={()=>setStatus(o,"Rascunho")}>↩ Reabrir</Btn>}
-              {o.status!=="Aprovado"&&<Btn sm v="danger" onClick={()=>excluir(o)}>🗑</Btn>}
+              <Btn sm v="ghost" onClick={()=>{setEdit(o);setSujo(false);setEscopoTxt("");}}>✎ Abrir / editar</Btn>
+              {!o.pedidoId&&<Btn sm v="danger" onClick={()=>excluir(o)}>🗑</Btn>}
             </div>
           </Card>);})}
       </div>
-
-      {form&&(
-        <Modal title={form.id?`Editar ${form.id}`:"Novo orçamento"} onClose={()=>setForm(null)} wide>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase"}}>Cliente</label>
-                <input list="orc-clientes" value={form.cliente} onChange={e=>escolherCliente(e.target.value)} placeholder="Digite ou escolha" style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%"}}/>
-                <datalist id="orc-clientes">{clients.map(c=><option key={c.id} value={c.name}/>)}</datalist>
-              </div>
-              <Inp label="WhatsApp" value={form.phone} onChange={v=>setForm(f=>({...f,phone:v}))} placeholder="(00) 00000-0000"/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10}}>
-              <Sel label="Frente (vira pedido em…)" value={form.frente} onChange={v=>setForm(f=>({...f,frente:v}))} options={FRENTES_ORC}/>
-              <Inp label="Referente a (título)" value={form.titulo} onChange={v=>setForm(f=>({...f,titulo:v}))} placeholder="Ex: Organização fiscal — outubro"/>
-            </div>
-            <div style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase",letterSpacing:"1px"}}>Itens</div>
-            {form.itens.map(i=>(
-              <div key={i.id} style={{display:"grid",gridTemplateColumns:"3fr 70px 110px 28px",gap:6,alignItems:"end"}}>
-                <Inp label="Descrição" value={i.desc} onChange={v=>upI(i.id,"desc",v)}/>
-                <Inp label="Qtd" type="number" value={i.qtd} onChange={v=>upI(i.id,"qtd",v)}/>
-                <Inp label="Valor unit." type="number" value={i.valor} onChange={v=>upI(i.id,"valor",v)}/>
-                <button onClick={()=>setForm(f=>({...f,itens:f.itens.length>1?f.itens.filter(x=>x.id!==i.id):f.itens}))} style={{height:36,border:"none",background:"transparent",color:C.vermelho,cursor:"pointer",fontSize:16}}>✕</button>
-              </div>))}
-            <div><Btn sm v="ghost" onClick={()=>setForm(f=>({...f,itens:[...f.itens,{id:uid(),desc:"",qtd:1,valor:0}]}))}>＋ Adicionar item</Btn></div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <Inp label="Desconto (R$)" type="number" value={form.desconto} onChange={v=>setForm(f=>({...f,desconto:v}))}/>
-              <div style={{background:C.linho,borderRadius:6,padding:"8px 12px",alignSelf:"end"}}><div style={{fontSize:9,color:C.oliva,textTransform:"uppercase",fontWeight:700,letterSpacing:"1px"}}>Total</div><div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(totalOrc(form))}</div></div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              <Inp label="Validade" type="date" value={form.validade} onChange={v=>setForm(f=>({...f,validade:v}))}/>
-              <Inp label="Prazo de entrega/execução" value={form.prazo} onChange={v=>setForm(f=>({...f,prazo:v}))} placeholder="Ex: 15 dias"/>
-              <Sel label="Forma de pagamento" value={form.formaPag} onChange={v=>setForm(f=>({...f,formaPag:v}))} options={FORMAS_ORC}/>
-            </div>
-            <Inp label="Observações" value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))} rows={3}/>
-            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <Btn v="ghost" onClick={()=>setForm(null)}>Cancelar</Btn>
-              <Btn onClick={salvar}>Salvar orçamento</Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 };
+
 
 function App() {
   const isLoja = typeof window!=="undefined" && new URLSearchParams(window.location.search).get("loja")==="1";
@@ -13042,11 +13391,12 @@ function App() {
   const [fichaModal,setFichaModal]=useState(null);
   const [savedMsg,setSavedMsg]=useState("");
   const [saveErrorMsg,setSaveErrorMsg]=useState("");
+  const [semNuvem,setSemNuvem]=useState(false);
 
   // Registra o setter global para o indicador de salvo
   useEffect(()=>{ _setSavedGlobal=(msg)=>{setSavedMsg(msg);setTimeout(()=>setSavedMsg(""),2500);}; },[]);
   // Registra o setter global para avisos de ERRO de salvamento — fica na tela até a pessoa fechar
-  useEffect(()=>{ _setSaveErrorGlobal=(msg)=>setSaveErrorMsg(msg); },[]);
+  useEffect(()=>{ _setSaveErrorGlobal=(msg)=>setSaveErrorMsg(msg); _setSemNuvemGlobal=(v)=>setSemNuvem(v); if(_semNuvem.size>0)setSemNuvem(true); },[]);
 
   // Todos os dados — Firebase é a fonte principal
   const [products,  setProducts  ]=useStorage("products",   INIT.products);
@@ -13175,7 +13525,7 @@ function App() {
     setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today,contaRecebimento:contaId||""}]);
   };
 
-  const allData={orcamentos,products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
+  const allData={consultoria,obras,projetosContinua,prospeccao,implantacoes,compromissos,orcamentos,products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
 
   const copyLink=()=>{
     const link=`${window.location.origin}/?loja=1`;
@@ -13185,7 +13535,6 @@ function App() {
   const TITLES={
     dashboard:["Bem-vinda ✦",new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})],
     site:["Catálogo",""],
-    orcamentos:["Orçamentos","Propostas avulsas — ao aprovar viram pedido"],
     products:["Produtos","Catálogo e precificação"],
     orders:["Encomendas","Gestão de pedidos"],
     production:["Produção","Fila e capacidade"],
@@ -13239,6 +13588,7 @@ function App() {
           </div>
         </div>
         {/* AVISO DE ERRO DE SALVAMENTO — fica visível até a pessoa fechar */}
+        {semNuvem&&<div style={{background:"#FFF4D6",borderBottom:"2px solid #C9A063",padding:"8px 18px",flexShrink:0}}><span style={{fontSize:12,color:"#7A5A12",fontWeight:600,lineHeight:1.4}}>{MODO_SEM_NUVEM?"🛟 MODO SEGURO: você está vendo só o que está guardado NESTE aparelho. Nada é lido nem gravado na nuvem. Vá em Configurações → Backup e armazenamento → “Baixar backup agora” para salvar uma cópia. Depois feche esta aba.":"⏳ Ainda não consegui ler seus dados da nuvem (internet?). Por segurança, nada está sendo gravado na nuvem — o que você fizer fica só neste aparelho até a conexão voltar. Estou tentando de novo sozinho."}</span></div>}
         {saveErrorMsg&&<div style={{background:"#FDE8E8",borderBottom:"2px solid #C0392B",padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
           <span style={{fontSize:12,color:"#8B2E20",fontWeight:600,lineHeight:1.4}}>{saveErrorMsg}</span>
           <button onClick={()=>setSaveErrorMsg("")} style={{background:"none",border:"none",color:"#8B2E20",fontSize:16,cursor:"pointer",flexShrink:0,fontWeight:700}}>✕</button>
@@ -13265,12 +13615,11 @@ function App() {
           {view==="cad_dep" &&<Config modo="cadastros" initialTab="depoimentos" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_prod" &&<Config modo="cadastros" initialTab="producao" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_pag" &&<Config modo="cadastros" initialTab="pagamentos" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
-          {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} orcamentos={orcamentos} setOrcamentos={setOrcamentos} orders={orders} setOrders={setOrders} obras={obras} setObras={setObras} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config} contas={contas} setContas={setContas}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
-          {view==="orcamentos"  &&<Orcamentos orcamentos={orcamentos} setOrcamentos={setOrcamentos} clients={clients} setClients={setClients} orders={orders} setOrders={setOrders} finance={finance} setFinance={setFinance} consultoria={consultoria} setConsultoria={setConsultoria} obras={obras} setObras={setObras} config={config}/>}
           {view==="projects"    &&<Projects projects={projects} setProjects={setProjects}/>}
           {view==="reports"     &&<Reports orders={orders} products={products} finance={finance} clients={clients} contas={contas} personalReceitas={personalReceitas} personalDespesas={personalDespesas}/>}
           {view==="cfg_empresas" &&<Config initialTab="empresas" esconderAbas config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
