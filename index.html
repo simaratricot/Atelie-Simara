@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v88 · 2026-11-04 modo-seguro";
+const APP_BUILD = "v91 · 2026-11-05 checklist-dossie";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -6527,9 +6527,22 @@ const pcRegistrarInd=(p,indId,r)=>{
   return pcEv({...p,indicadores:lista.map(x=>x.id===indId?novo:x)},"indicador",`Indicador ${ind.nome}: ${pcV(ind.valorAtual)} → ${v}${ind.unidade?` ${ind.unidade}`:""}`,data);
 };
 const pcExcluirInd=(p,id)=>({...p,indicadores:(p.indicadores||[]).filter(x=>x.id!==id)});
+// ── ferramentas de gestão (controles, checklists, rotinas) ──
+const PC_DOSSIE=[["d01","01 — Diagnóstico da empresa"],["d02","02 — Mapa de prioridades"],["d03","03 — Plano de ação personalizado"],["d04","04 — Ferramentas e controles"],["d05","05 — Relatório de acompanhamento"],["d06","06 — Evolução e próximos passos"],["d07","PDF único consolidado (entrega final)"]];
+const pcToggleDossie=(p,k)=>{const d={...(p.dossie||{})};if(d[k])delete d[k];else d[k]=pcHoje();return {...p,dossie:d};};
+const PC_TIPOS_FERR=["Controle","Checklist","Rotina","Planilha / modelo","Relatório","Outro"];
+const PC_FREQ_FERR=["Diária","Semanal","Quinzenal","Mensal","Sob demanda"];
+const pcSalvarFerr=(p,f)=>{
+  const lista=p.ferramentas||[];
+  const dados={nome:String(f.nome||"").trim(),tipo:f.tipo||PC_TIPOS_FERR[0],finalidade:f.finalidade||"",frequencia:f.frequencia||PC_FREQ_FERR[0],responsavel:f.responsavel||"",situacao:f.situacao||"A implantar"};
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,ferramentas:lista.map(x=>x.id===f.id?{...x,...dados}:x)};
+  return pcEv({...p,ferramentas:[...lista,{...dados,id:uid()}]},"ferramenta",`Ferramenta de gestão definida: ${dados.nome}`);
+};
+const pcExcluirFerr=(p,id)=>({...p,ferramentas:(p.ferramentas||[]).filter(x=>x.id!==id)});
+const PC_SIT_FERR=["A implantar","Em uso","Pausada"];
 const pcLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
-const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E"};
-const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador",orcamento:"Orçamento"};
+const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E",ferramenta:"#6B7B3A"};
+const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador",orcamento:"Orçamento",ferramenta:"Ferramenta"};
 
 const PcSpark=({pontos})=>{
   if(!pontos||pontos.length<2)return null;
@@ -6737,6 +6750,11 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     if(!String(form.nome||"").trim()){alert("Informe o nome do indicador.");return;}
     upd(pp=>pcSalvarInd(pp,form));setModal(null);showSavedGlobal("Indicador salvo!");
   };
+  const novaFerr=()=>{setForm({nome:"",tipo:PC_TIPOS_FERR[0],finalidade:"",frequencia:PC_FREQ_FERR[0],responsavel:(sel&&sel.responsavel)||"",situacao:PC_SIT_FERR[0]});setModal("ferr");};
+  const salvarFerr=()=>{
+    if(!String(form.nome||"").trim()){alert("Informe o nome da ferramenta.");return;}
+    upd(pp=>pcSalvarFerr(pp,form));setModal(null);showSavedGlobal("Ferramenta de gestão salva!");
+  };
   const registrarInd=()=>{
     if(isNaN(pcNum(form.valor))){alert("Informe o valor atual (número).");return;}
     upd(pp=>pcRegistrarInd(pp,form.indId,form));setModal(null);showSavedGlobal("Acompanhamento registrado!");
@@ -6936,13 +6954,41 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     return {html,arquivo:`Orcamento ${p.nome} ${p.clienteNome}`,titulo:"Orçamento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o orçamento do projeto "${p.nome}" em anexo. 🤎
 *Simara Lobui · Consultoria*`};
   };
+  const docPrioridades=()=>{
+    const l=p.prioridades||[];
+    const bloco=(niv,tit,sub)=>{
+      const g=l.map((x,i)=>({x,i})).filter(({x})=>(x.prioridade||"Média")===niv);
+      if(g.length===0)return "";
+      return `<h2>${tit}</h2><div class="campo" style="font-size:12px;color:#777">${sub}</div><table><tr><th>#</th><th>Problema</th><th>Por que esta prioridade</th><th>Objetivo</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${g.map(({x,i})=>`<tr><td>${i+1}</td><td>${x.problema||"—"}</td><td>${[x.causa?`<b>Causa:</b> ${x.causa}`:"",x.impacto?`<b>Impacto:</b> ${x.impacto}`:""].filter(Boolean).join("<br>")||"—"}</td><td>${x.objetivo||"—"}</td><td>${x.responsavel||"—"}</td><td>${x.prazo?fmtDate(x.prazo):"—"}</td><td>${x.status||"—"}</td></tr>`).join("")}</table>`;
+    };
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mapa de prioridades — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"MAPA DE PRIORIDADES")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    ${l.length===0?'<h2>Prioridades</h2><div class="campo">Nenhuma prioridade definida ainda.</div>':`${bloco("Alta","Resolver primeiro","O que não pode esperar, porque pesa mais na rotina e nos resultados da empresa.")}${bloco("Média","Resolver em seguida","O que deve ser tratado logo depois das prioridades altas.")}${bloco("Baixa","Pode esperar","O que é importante, mas pode ser feito mais adiante sem prejudicar o restante.")}`}
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Mapa de prioridades ${p.nome} ${p.clienteNome}`,titulo:"Mapa de prioridades",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o mapa de prioridades do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
+  const docFerramentas=()=>{
+    const f=p.ferramentas||[];const ind=p.indicadores||[];
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ferramentas de gestão — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
+    ${pcHdr(p,"FERRAMENTAS DE GESTÃO")}
+    ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
+    <h2>Controles, checklists e rotinas (${f.length})</h2>
+    ${f.length===0?'<div class="campo">Nenhuma ferramenta definida ainda.</div>':`<table><tr><th>Ferramenta</th><th>Tipo</th><th>Para que serve</th><th>Frequência</th><th>Responsável</th><th>Situação</th></tr>${f.map(x=>`<tr><td>${x.nome}</td><td>${x.tipo}</td><td>${x.finalidade||"—"}</td><td>${x.frequencia}</td><td>${x.responsavel||"—"}</td><td>${x.situacao}</td></tr>`).join("")}</table>`}
+    <h2>Indicadores (${ind.length})</h2>
+    ${ind.length===0?'<div class="campo">Nenhum indicador definido ainda.</div>':`<table><tr><th>Indicador</th><th>Meta</th><th>Inicial</th><th>Atual</th><th>Meta final</th><th>Progresso</th></tr>${ind.map(i=>{const pr=pcProgInd(i);const un=i.unidade?` ${i.unidade}`:"";return `<tr><td>${i.nome}</td><td>${i.meta||"—"}</td><td>${pcV(i.valorInicial,un)}</td><td>${pcV(i.valorAtual,un)}</td><td>${pcV(i.metaFinal,un)}</td><td>${pr!==null?pr+"%":"—"}</td></tr>`;}).join("")}</table>`}
+    ${pcRodape(config)}</body></html>`;
+    return {html,arquivo:`Ferramentas de gestao ${p.nome} ${p.clienteNome}`,titulo:"Ferramentas de gestão",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Seguem as ferramentas de gestão do projeto "${p.nome}" em anexo. 🤎
+*Simara Lobui · Consultoria*`};
+  };
   const docPlano=()=>{
-    const linhas=(p.acoes||[]).map(a=>`<tr><td>${a.area||"—"}</td><td>${a.acao}</td><td>${a.responsavel||"—"}</td><td>${a.prazo?fmtDate(a.prazo):"—"}</td><td>${pcStatusAcaoEf(a)}</td></tr>`).join("");
+    const linhas=(p.acoes||[]).map(a=>`<tr><td>${a.area||"—"}</td><td>${a.acao}</td><td>${a.responsavel||"—"}</td><td>${a.prazo?fmtDate(a.prazo):"—"}</td><td>${a.resultadoEsperado||"—"}</td><td>${pcStatusAcaoEf(a)}</td></tr>`).join("");
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Plano de ação — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
     ${pcHdr(p,"PLANO DE AÇÃO")}
     ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
     <h2>Ações (${(p.acoes||[]).length})</h2>
-    ${(p.acoes||[]).length>0?`<table><tr><th>Área</th><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${linhas}</table>`:'<div class="campo">Nenhuma ação cadastrada ainda.</div>'}
+    ${(p.acoes||[]).length>0?`<table><tr><th>Área</th><th>Ação</th><th>Responsável</th><th>Prazo</th><th>Resultado esperado</th><th>Status</th></tr>${linhas}</table>`:'<div class="campo">Nenhuma ação cadastrada ainda.</div>'}
     ${pcRodape(config)}</body></html>`;
     return {html,arquivo:`Plano de acao ${p.nome} ${p.clienteNome}`,titulo:"Plano de ação",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o plano de ação do projeto "${p.nome}" em anexo. 🤎
 *Simara Lobui · Consultoria*`};
@@ -6992,7 +7038,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     return {html,arquivo:`Encerramento ${p.nome} ${p.clienteNome}`,titulo:"Encerramento",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o documento de encerramento do projeto "${p.nome}" em anexo. Foi uma jornada e tanto — obrigada pela confiança! 🤎
 *Simara Lobui · Consultoria*`};
   };
-  const PC_DOCS=[["contrato","📑 Contrato do projeto",docContrato],["diag","🔎 Diagnóstico",docDiagnostico],["orc","💰 Orçamento",docOrcamento],["plano","✅ Plano de ação",docPlano],["acomp","📈 Relatório de acompanhamento",docAcompanhamento],["evol","🧭 Relatório de evolução",docEvolucao],["enc","🏁 Encerramento",docEncerramento]];
+  const PC_DOCS=[["contrato","📑 Contrato do projeto",docContrato],["diag","🔎 Diagnóstico",docDiagnostico],["prior","🎯 Mapa de prioridades",docPrioridades],["orc","💰 Orçamento",docOrcamento],["plano","✅ Plano de ação",docPlano],["ferr","🧰 Ferramentas de gestão",docFerramentas],["acomp","📈 Relatório de acompanhamento",docAcompanhamento],["evol","🧭 Relatório de evolução",docEvolucao],["enc","🏁 Encerramento",docEncerramento]];
 
   const btnPill=(ativo,onClick,label)=>(
     <button key={label} onClick={onClick} style={{padding:"7px 14px",borderRadius:20,border:`1.5px solid ${ativo?cor.primaria:C.areia}`,background:ativo?cor.primaria:"#fff",color:ativo?"#fff":C.oliva,fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{label}</button>
@@ -7181,6 +7227,21 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       </div>
     </Modal>}
 
+    {modal==="ferr"&&form&&<Modal title={form.id?"✎ Editar ferramenta":"🧰 Nova ferramenta de gestão"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Nome" value={form.nome} onChange={v=>F("nome",v)} placeholder="Ex: Checklist de fechamento do caixa, Controle de contas a pagar"/></div>
+        <Sel label="Tipo" value={form.tipo} onChange={v=>F("tipo",v)} options={PC_TIPOS_FERR}/>
+        <Sel label="Frequência de uso" value={form.frequencia} onChange={v=>F("frequencia",v)} options={PC_FREQ_FERR}/>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Sel label="Situação" value={form.situacao} onChange={v=>F("situacao",v)} options={PC_SIT_FERR}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Para que serve" rows={2} value={form.finalidade} onChange={v=>F("finalidade",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={salvarFerr}>💾 Salvar ferramenta</Btn>
+      </div>
+    </Modal>}
+
     {modal==="indUpd"&&form&&<Modal title="➕ Registrar acompanhamento" onClose={()=>setModal(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         <div style={{fontSize:13,color:C.cafe,fontWeight:700}}>{form.nome}</div>
@@ -7275,6 +7336,16 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <Btn sm v="ghost" onClick={novoCompromissoProjeto}>📅 Agendar compromisso</Btn>
         <Btn sm onClick={novoLanc}>💰 Lançar recebimento</Btn>
+      </div>
+      <Divider label={`Dossiê CONTÍNUA — checklist interno (${PC_DOSSIE.filter(([k])=>(p.dossie||{})[k]).length}/${PC_DOSSIE.length})`}/>
+      <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"8px 14px",marginBottom:14}}>
+        <div style={{fontSize:11,color:C.oliva,marginBottom:6}}>🔒 Só para o seu controle. Não aparece nos documentos do cliente. Marque cada etapa quando o documento for entregue.</div>
+        {PC_DOSSIE.map(([k,rot])=>{const dt=(p.dossie||{})[k];return(
+          <label key={k} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 0",borderTop:`1px solid ${C.linho}`,cursor:"pointer",fontSize:13,color:dt?C.oliva:C.cafe}}>
+            <input type="checkbox" checked={!!dt} onChange={()=>upd(pp=>pcToggleDossie(pp,k))} style={{width:18,height:18,accentColor:"#7B4FA6"}}/>
+            <span style={{flex:1,fontWeight:dt?400:600,textDecoration:dt?"line-through":"none"}}>{rot}</span>
+            {dt&&<span style={{fontSize:11,color:"#1F7A4D"}}>✓ {fmtDate(dt)}</span>}
+          </label>);})}
       </div>
       {(compromissos||[]).filter(c=>c.projetoId===p.id&&c.status!=="Concluído").length>0&&<>
         <Divider label="Próximos compromissos (Agenda)"/>
@@ -7763,6 +7834,24 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
             <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este indicador e o seu histórico?"))upd(pp=>pcExcluirInd(pp,i.id));}}>🗑</Btn>
           </div>
         </div>);})}
+      <Divider label={`Controles e checklists (${(p.ferramentas||[]).length})`}/>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:10,lineHeight:1.5}}>Defina os controles, checklists e rotinas que a empresa vai usar no dia a dia. Eles entram no documento "Ferramentas de gestão", junto com os indicadores.</div>
+      <div style={{marginBottom:12}}><Btn onClick={novaFerr}>+ Nova ferramenta</Btn></div>
+      {(p.ferramentas||[]).length===0&&<div style={{background:C.linho,borderRadius:8,padding:"16px",textAlign:"center",color:C.oliva,fontSize:13}}>Nenhuma ferramenta definida ainda.</div>}
+      {(p.ferramentas||[]).map(f=>(
+        <div key={f.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${PC_EV_COR.ferramenta}`,borderRadius:8,padding:"10px 14px",marginBottom:8}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>{f.nome}</div>
+              <div style={{fontSize:12,color:C.oliva}}>{f.tipo} · {f.frequencia}{f.responsavel?` · ${f.responsavel}`:""} · <b>{f.situacao}</b></div>
+              {f.finalidade&&<div style={{fontSize:12,color:C.cafe,marginTop:4}}>{f.finalidade}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"flex-start"}}>
+              <Btn sm v="ghost" onClick={()=>{setForm({...f});setModal("ferr");}}>✎ Editar</Btn>
+              <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta ferramenta?"))upd(pp=>pcExcluirFerr(pp,f.id));}}>🗑</Btn>
+            </div>
+          </div>
+        </div>))}
     </div>);
   };
 
