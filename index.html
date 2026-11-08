@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v91 · 2026-11-05 checklist-dossie";
+const APP_BUILD = "v93 · 2026-11-07 consultoria-menu-execucao";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1176,6 +1176,11 @@ const NAV = [
   {k:"agenda",i:"📅",l:"Agenda"},
   {k:"diario",i:"✍🏻",l:"Diário da Simara"},
   {k:"consultoria",i:"💼",l:"Consultoria"},
+  {k:"cons_prospec",i:"📡",l:"Prospecção Comercial"},
+  {k:"cons_orc",i:"📋",l:"Orçamentos"},
+  {k:"cons_continua",i:"🧭",l:"Método CONTÍNUA — Projetos"},
+  {k:"cons_implant",i:"🖥️",l:"Implantação e Treinamento"},
+  {k:"cons_pedidos",i:"📑",l:"Pedidos e atendimentos"},
   {k:"obras",i:"🏗️",l:"Obras"},
   {k:"projects",i:"✧",l:"Projetos & Sonhos"},
   {k:"reports",i:"▦",l:"Relatórios"},
@@ -1187,7 +1192,7 @@ const NAV_BY_KEY=Object.fromEntries(NAV.map(n=>[n.k,n]));
 const NAV_GROUPS=[
   {label:"Início",items:[NAV_BY_KEY.dashboard]},
   {label:"Artesanato",items:[NAV_BY_KEY.site,NAV_BY_KEY.products,NAV_BY_KEY.modelos,NAV_BY_KEY.orders,NAV_BY_KEY.production,NAV_BY_KEY.stock,NAV_BY_KEY.orcamento]},
-  {label:"Consultoria",items:[NAV_BY_KEY.consultoria]},
+  {label:"Consultoria",items:[NAV_BY_KEY.cons_prospec,NAV_BY_KEY.cons_orc,NAV_BY_KEY.cons_continua,NAV_BY_KEY.cons_implant,NAV_BY_KEY.cons_pedidos]},
   {label:"Obras",items:[NAV_BY_KEY.obras]},
   {label:"Financeiro",items:[NAV_BY_KEY.fin_receber,NAV_BY_KEY.fin_pagar,NAV_BY_KEY.fin_cartoes,NAV_BY_KEY.fin_fluxo,NAV_BY_KEY.reports]},
   {label:"Cadastros",items:["cad_part","cad_cat","cad_centros","cad_frases","cad_banners","cad_dep","cad_prod","cad_pag"].map(k=>NAV_BY_KEY[k])},
@@ -5747,7 +5752,7 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
               <div key={c.id} style={{padding:"8px 10px",background:c.status==="Concluído"?"#E8EDE1":c.status==="Adiado"?"#FEF3E9":c.prioridade==="Alta"?"rgba(192,57,43,0.06)":C.linho,borderRadius:4,marginBottom:6,borderLeft:`3px solid ${c.status==="Concluído"?C.oliva:c.status==="Adiado"?C.dourado:c.prioridade==="Alta"?C.vermelho:C.cafe}`}}>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   {c.hora&&<span style={{fontSize:11,fontWeight:700,color:C.cafe,minWidth:36}}>{c.hora}</span>}
-                  <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}</span>
+                  <span style={{flex:1,fontSize:12,fontWeight:600,textDecoration:c.status==="Concluído"?"line-through":"none",color:c.status==="Concluído"?C.oliva:C.cafe}}>{c.desc}{c.obs?<span style={{display:"block",fontWeight:400,fontSize:11,color:C.oliva,whiteSpace:"pre-line"}}>{c.obs}</span>:null}</span>
                   <select value={c.status} onChange={e=>{
                     const ns=e.target.value;
                     setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:ns}:x));
@@ -5841,7 +5846,8 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
       {/* Modal compromisso */}
       {(modal==="comp"||modal==="editComp")&&<Modal title={modal==="editComp"?"Editar Compromisso":"Novo Compromisso"} onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Descrição" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))} placeholder="Ex: Enviar encomenda, Reunião..."/>
+          <Inp label="Título" value={form.desc} onChange={v=>setForm(f=>({...f,desc:v}))} placeholder="Ex: Enviar encomenda, Reunião..."/>
+          <Inp label="Observação (o que será feito)" rows={2} value={form.obs||""} onChange={v=>setForm(f=>({...f,obs:v}))} placeholder="Detalhes, o que precisa ser feito..."/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Data" type="date" value={form.data} onChange={v=>setForm(f=>({...f,data:v}))}/>
             <Inp label="Horário" value={form.hora} onChange={v=>setForm(f=>({...f,hora:v}))} placeholder="Ex: 08:00"/>
@@ -6540,9 +6546,75 @@ const pcSalvarFerr=(p,f)=>{
 };
 const pcExcluirFerr=(p,id)=>({...p,ferramentas:(p.ferramentas||[]).filter(x=>x.id!==id)});
 const PC_SIT_FERR=["A implantar","Em uso","Pausada"];
+// ── execução (o que foi feito de fato) ──
+const pcSalvarExec=(p,f)=>{
+  const lista=p.execucoes||[];
+  const dados={data:f.data||pcHoje(),acaoId:f.acaoId||"",descricao:String(f.descricao||"").trim(),responsavel:f.responsavel||"",horas:f.horas===""||f.horas==null?"":Number(f.horas)||0,resultado:f.resultado||""};
+  if(f.id&&lista.some(x=>x.id===f.id))return {...p,execucoes:lista.map(x=>x.id===f.id?{...x,...dados}:x)};
+  return pcEv({...p,execucoes:[...lista,{...dados,id:uid()}]},"execucao",`Execução registrada: ${dados.descricao.slice(0,90)}`);
+};
+const pcExcluirExec=(p,id)=>({...p,execucoes:(p.execucoes||[]).filter(x=>x.id!==id)});
+// ── materiais de apoio (gerados pelo sistema, sem arquivos externos) ──
+const PC_DEVOLUTIVAS={"CONTÍNUA ESSENCIAL": {"num": "Nível 1", "tit": "CONTÍNUA ESSENCIAL", "lead": "Seu negócio precisa de uma base mais organizada. E é por aqui que vamos começar.", "intro": ["Seu resultado no diagnóstico indica que algumas práticas importantes para a organização do negócio ainda não estão estabelecidas ou acontecem de maneira irregular.", "Isso não significa que seu negócio não tenha potencial. Significa que existem oportunidades para diminuir a improvisação, ganhar clareza e construir uma rotina que funcione melhor para você.", "Muitos empreendedores começam fazendo tudo sozinhos: atendem clientes, vendem, compram materiais, executam serviços e cuidam do dinheiro. Com o tempo, tantas responsabilidades podem fazer com que decisões importantes sejam tomadas de última hora ou que informações fiquem apenas na memória.", "O Método CONTÍNUA começa ajudando você a enxergar o que precisa ser organizado primeiro."], "indica": "Neste momento, sua prioridade é construir controles simples e criar o hábito de utilizá-los. Antes de buscar ferramentas complexas ou tentar melhorar tudo ao mesmo tempo, precisamos estabelecer uma base que possa ser mantida no dia a dia.", "foco": [["Comercial", "entender quem são seus clientes, registrar contatos e estabelecer uma rotina possível de divulgação ou prospecção."], ["Financeiro", "registrar entradas e saídas, acompanhar compromissos e começar a separar o dinheiro pessoal do dinheiro do negócio."], ["Organização operacional", "organizar tarefas, pedidos, serviços e prazos para depender menos da memória."], ["Gestão e planejamento", "escolher prioridades, definir pequenas melhorias e verificar se o que foi planejado está sendo realizado."]], "nota": "Esses são os pontos de atenção gerais. A sua prioridade específica será definida pelas respostas do diagnóstico, especialmente pelas questões em que você marcou 0 — não realizo a prática.", "avtit": "Como começar sem se sobrecarregar", "av": [["Escolha uma prioridade.", "Observe as áreas com menor pontuação e identifique a prática que mais prejudica sua rotina atualmente."], ["Transforme o problema em uma ação simples.", "Em vez de tentar organizar todo o financeiro de uma vez, por exemplo, comece registrando todas as entradas e saídas durante a semana."], ["Defina quando a ação será realizada.", "Uma ação sem data ou frequência definida corre o risco de continuar sendo adiada."], ["Acompanhe o que aconteceu.", "Ao final do período, verifique o que conseguiu fazer, o que dificultou a execução e qual ajuste será necessário."]], "planoIntro": "Utilize o Plano de Ação disponibilizado no kit para registrar:", "bul": ["A prática que precisa ser organizada.", "A ação que você decidiu executar.", "O prazo para realizá-la.", "A situação da ação: não iniciada, em andamento ou concluída.", "O resultado observado e o próximo ajuste."], "planoNota": "Não é necessário resolver tudo de uma vez. Comece com poucas ações e avance conforme conseguir incorporá-las à rotina.", "constr": ["Uma base de organização que ajude você a enxergar melhor o dinheiro, os clientes, as tarefas e as prioridades do negócio."], "prox": "Seu próximo passo: escolha a primeira ação do seu Plano de Ação e comece a executá-la.", "fecho": "Você não precisa ter tudo organizado para começar. Precisa começar pelo que mais importa."}, "CONTÍNUA EM AÇÃO": {"num": "Nível 2", "tit": "CONTÍNUA EM AÇÃO", "lead": "Você já construiu parte da sua organização. Agora, é hora de transformar práticas isoladas em uma rotina mais consistente.", "intro": ["Seu resultado no diagnóstico indica que algumas práticas importantes já existem no seu negócio, mas ainda podem depender de esforço individual, acontecer sem regularidade ou não estar conectadas entre si.", "Você pode, por exemplo, registrar as movimentações financeiras, mas não utilizar essas informações para planejar os próximos compromissos. Pode divulgar seus serviços, mas não acompanhar quais ações geram mais oportunidades. Pode organizar as tarefas, mas ter dificuldade para manter os prazos e revisar os resultados.", "O próximo passo não é necessariamente fazer mais. É organizar melhor o que você já faz e utilizar essas informações para tomar decisões."], "indica": "Seu negócio está em uma etapa de consolidação. Existem práticas que podem ser fortalecidas, padronizadas e acompanhadas para reduzir falhas, retrabalho e decisões tomadas apenas quando surge um problema.", "foco": [["Comercial", "organizar o acompanhamento dos contatos e das oportunidades, estabelecer uma frequência de divulgação e observar a origem das vendas."], ["Financeiro", "manter os registros atualizados, acompanhar contas a pagar e valores a receber e utilizar essas informações para planejar compromissos."], ["Organização operacional", "estabelecer padrões para as tarefas recorrentes, acompanhar prazos e esclarecer responsabilidades quando houver outras pessoas envolvidas."], ["Gestão e planejamento", "definir objetivos práticos, acompanhar as ações planejadas e revisar os resultados para identificar o que precisa mudar."]], "nota": "Esses são os focos gerais do nível. A pontuação de cada área e as respostas individuais ajudarão você a decidir quais práticas merecem atenção primeiro.", "avtit": "Como avançar nesta etapa", "av": [["Identifique o que já funciona.", "Reconheça as práticas que você realiza e evite abandonar controles que já ajudam o negócio."], ["Encontre as falhas de continuidade.", "Pergunte-se: faço isso com regularidade? As informações estão atualizadas? Utilizo o que registro para decidir o que fazer?"], ["Estabeleça um padrão simples.", "Defina como, quando e com que frequência cada atividade importante será realizada. O padrão precisa ser viável para a realidade do seu negócio."], ["Acompanhe os resultados.", "Não basta concluir uma tarefa. Observe se ela resolveu o problema, reduziu dificuldades ou trouxe informações úteis para a próxima decisão."]], "planoIntro": "Nesta etapa, utilize o Plano de Ação para fortalecer práticas existentes e corrigir pontos de descontinuidade. Para cada ação, registre:", "bul": ["O que precisa ser melhorado ou padronizado.", "Como a atividade será realizada.", "Quem será responsável, quando aplicável.", "Qual é a frequência ou o prazo.", "Como você verificará se houve melhoria."], "planoNota": "Sempre que possível, defina um sinal concreto de avanço. Por exemplo: manter os registros financeiros atualizados semanalmente ou revisar os contatos comerciais pendentes em um dia definido.", "constr": ["Uma rotina mais confiável, com controles atualizados, atividades organizadas e decisões apoiadas em informações do próprio negócio.", "O objetivo não é criar burocracia. É diminuir a dependência da memória, evitar que tudo vire urgência e tornar a organização sustentável no dia a dia."], "prox": "Seu próximo passo: escolha uma prática que já existe, mas ainda falha na regularidade ou nos resultados. Defina um padrão simples, aplique-o e acompanhe o que muda.", "fecho": ""}, "CONTÍNUA ESTRATÉGICA": {"num": "Nível 3", "tit": "CONTÍNUA ESTRATÉGICA", "lead": "Você já apresenta uma base de organização. Agora, o desafio é utilizar essa estrutura para melhorar decisões e preparar o negócio para evoluir.", "intro": ["Seu resultado no diagnóstico indica que várias práticas importantes de organização já estão presentes de forma consistente nas suas respostas.", "Isso oferece uma oportunidade para avançar: analisar os resultados dessas práticas, identificar gargalos, aperfeiçoar processos e conectar as diferentes áreas do negócio.", "Entretanto, uma boa pontuação não significa que tudo esteja resolvido ou que o negócio esteja necessariamente apresentando bons resultados financeiros. O diagnóstico mostra as práticas que você declarou realizar. A efetividade delas precisa ser verificada na realidade.", "Por isso, nesta etapa, o foco passa de apenas organizar para avaliar, integrar e melhorar continuamente."], "indica": "Seu negócio apresenta sinais de uma estrutura de gestão mais estabelecida. O próximo desafio é verificar se essa estrutura está ajudando você a alcançar seus objetivos, utilizar melhor os recursos e responder aos problemas com mais clareza.", "foco": [["Comercial", "analisar quais canais, ações e tipos de clientes geram oportunidades e vendas; utilizar essas informações para orientar as próximas iniciativas."], ["Financeiro", "acompanhar a evolução das receitas, despesas e compromissos; avaliar a disponibilidade de recursos e utilizar os dados para apoiar decisões."], ["Organização operacional", "revisar processos, identificar gargalos e retrabalho e buscar melhorias que economizem tempo ou recursos."], ["Gestão e planejamento", "acompanhar objetivos, comparar o planejado com o realizado, investigar problemas recorrentes e ajustar as prioridades conforme os resultados."]], "nota": "Esses são os focos gerais do nível. As pontuações por área e as respostas individuais continuam importantes para identificar onde a melhoria terá maior utilidade.", "avtit": "Como avançar nesta etapa", "av": [["Verifique se as práticas geram resultados.", "Uma atividade pode estar organizada e, ainda assim, não produzir o efeito esperado. Analise os resultados antes de concluir que o processo funciona bem."], ["Identifique gargalos e oportunidades.", "Procure atrasos recorrentes, desperdícios, falhas de comunicação, perda de oportunidades comerciais ou dificuldades de planejamento."], ["Escolha melhorias com impacto prático.", "Priorize ações que contribuam para os objetivos do negócio, reduzam problemas relevantes ou melhorem a utilização dos recursos disponíveis."], ["Acompanhe indicadores adequados.", "Utilize medidas simples e pertinentes à realidade da empresa, como vendas realizadas, propostas convertidas, despesas, valores a receber, entregas no prazo ou ações concluídas. Nem todo negócio precisa acompanhar os mesmos indicadores."], ["Revise e ajuste.", "Compare os resultados ao longo do tempo. Mantenha o que funciona, corrija o que não funciona e reavalie as prioridades quando o cenário mudar."]], "planoIntro": "Neste nível, o Plano de Ação deve ajudar você a transformar análises em melhorias concretas. Para cada ação, registre:", "bul": ["O gargalo ou a oportunidade identificada.", "A causa provável, quando puder ser investigada.", "A melhoria que será implementada.", "O resultado esperado e como será observado.", "O prazo e a responsabilidade pela execução, quando aplicável.", "O resultado obtido e a decisão seguinte."], "planoNota": "Sempre que possível, registre uma referência inicial antes de implementar a melhoria. Isso facilita a comparação posterior e ajuda a verificar se houve avanço real.", "constr": ["Uma gestão que não se limita a manter controles, mas utiliza informações para tomar decisões, corrigir desvios, aprimorar processos e sustentar o desenvolvimento do negócio.", "O objetivo não é sofisticar a gestão sem necessidade. É garantir que cada ferramenta, rotina e indicador tenha uma função clara e contribua para os resultados que você deseja alcançar."], "prox": "Seu próximo passo: escolha um gargalo ou uma oportunidade relevante, defina como avaliar a situação atual e implemente uma melhoria que possa ser acompanhada.", "fecho": "Organizar é importante. Saber se a organização está funcionando e o que fazer com essa informação é o próximo avanço."}};
+const pcEsc=(t)=>String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const pcHtmlDevolutiva=(p,nivel,cliente,config)=>{
+  const d=PC_DEVOLUTIVAS[nivel];if(!d)return "";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Devolutiva ${d.tit}</title><style>${pcDocStyles}</style></head><body>
+  ${pcHdr(p,"DEVOLUTIVA CONTÍNUA")}
+  ${pcCliBloco(p,cliente)}
+  <h2>${pcEsc(d.num)} — ${pcEsc(d.tit)}</h2>
+  <div class="campo" style="font-size:15px;font-weight:700">${pcEsc(d.lead)}</div>
+  ${d.intro.map(t=>`<div class="campo">${pcEsc(t)}</div>`).join("")}
+  <h2>O que seu resultado indica?</h2>
+  <div class="campo">${pcEsc(d.indica)}</div>
+  <h2>Seu foco agora</h2>
+  ${d.foco.map(([a,t])=>`<div class="campo">• <b>${pcEsc(a)}:</b> ${pcEsc(t)}</div>`).join("")}
+  <div class="campo" style="font-size:12px;color:#777">${pcEsc(d.nota)}</div>
+  <h2>${pcEsc(d.avtit)}</h2>
+  ${d.av.map(([a,t],i)=>`<div class="campo"><b>${i+1}. ${pcEsc(a)}</b><br>${pcEsc(t)}</div>`).join("")}
+  <h2>Como usar seu Plano de Ação</h2>
+  <div class="campo">${pcEsc(d.planoIntro)}</div>
+  ${d.bul.map(t=>`<div class="campo">• ${pcEsc(t)}</div>`).join("")}
+  <div class="campo">${pcEsc(d.planoNota)}</div>
+  <h2>O que esperamos construir nesta etapa?</h2>
+  ${d.constr.map(t=>`<div class="campo">${pcEsc(t)}</div>`).join("")}
+  <div class="campo" style="font-weight:700">${pcEsc(d.prox)}</div>
+  ${d.fecho?`<div class="campo"><i>${pcEsc(d.fecho)}</i></div>`:""}
+  <div class="campo" style="text-align:center;font-size:12px;color:#777;margin-top:14px">Método CONTÍNUA — Saia do improviso. Organize seu negócio com clareza e ação.</div>
+  ${pcRodape(config)}</body></html>`;
+};
+const pcHtmlCaderninho=(p,cliente,config)=>{
+  const linhas=(n,cols)=>Array.from({length:n}).map(()=>`<tr>${cols.map(()=>'<td style="height:26px">&nbsp;</td>').join("")}</tr>`).join("");
+  const tab=(cols)=>`<table><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr>${linhas(14,cols)}</table>`;
+  const perg=["Quais são os principais produtos ou serviços?","Quem são os clientes mais frequentes?","Como os clientes chegam até o negócio?","Como são registrados pedidos, vendas ou serviços?","Como são controladas as entradas e saídas de dinheiro?","Como são organizadas tarefas e prazos?","Quais atividades dependem somente da memória?","Quais dificuldades aparecem com frequência?","O que mais toma tempo na rotina?","O que gostaria de organizar primeiro?"];
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Caderninho de Registros Básicos</title><style>${pcDocStyles}</style></head><body>
+  ${pcHdr(p,"CADERNINHO DE REGISTROS BÁSICOS")}
+  <div class="campo" style="font-weight:700">MATERIAL DE APOIO — MÉTODO CONTÍNUA: GESTÃO NA PRÁTICA</div>
+  <div class="campo"><b>Nome do negócio:</b> ${pcEsc(p.empresa||p.clienteNome||"")} ${p.empresa?"":"_______________________"}</div>
+  <div class="campo"><b>Responsável:</b> ${pcEsc((cliente&&cliente.name)||p.clienteNome||"")}</div>
+  <div class="campo"><b>Período dos registros:</b> ______________________________</div>
+  <div class="campo"><b>Como usar:</b> imprima as páginas que fizerem sentido para sua rotina. Registre o que já acontece e identifique o que ainda precisa ser organizado. Não é necessário preencher tudo de uma vez.</div>
+  <div class="campo"><b>Importante:</b> este caderninho é um apoio inicial. Não substitui a planilha principal do método nem controles especializados.</div>
+  <h2>1. Clientes, contatos e vendas</h2>
+  <div class="campo">Registre quem procurou seu negócio, o que solicitou e como chegou até você.</div>
+  ${tab(["Data","Cliente / contato","Produto ou serviço","Origem","Valor (R$)","Situação"])}
+  <h2 style="page-break-before:always">2. Entradas e saídas</h2>
+  <div class="campo">Anote as movimentações do negócio. Registre entradas e saídas separadamente.</div>
+  ${tab(["Data","Descrição","Categoria","Entrada (R$)","Saída (R$)","Pagamento"])}
+  <h2 style="page-break-before:always">3. Rotina, pedidos e tarefas</h2>
+  <div class="campo">Organize atividades, prazos e andamento das tarefas.</div>
+  ${tab(["Data","Atividade / pedido","Responsável","Prazo","Status","Observações"])}
+  <h2 style="page-break-before:always">4. Conhecendo a realidade do negócio</h2>
+  <div class="campo">Responda com frases curtas. Se não souber, deixe em branco e retome depois.</div>
+  ${perg.map(q=>`<div class="campo"><b>${q}</b><div style="border-bottom:1px solid #bbb;height:30px"></div><div style="border-bottom:1px solid #bbb;height:30px"></div></div>`).join("")}
+  <h2 style="page-break-before:always">5. Anotações livres</h2>
+  <div class="campo">Registre observações, dúvidas ou informações que possam ajudar no diagnóstico.</div>
+  ${Array.from({length:18}).map(()=>'<div style="border-bottom:1px solid #bbb;height:30px"></div>').join("")}
+  ${pcRodape(config)}</body></html>`;
+};
 const pcLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
-const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E",ferramenta:"#6B7B3A"};
-const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador",orcamento:"Orçamento",ferramenta:"Ferramenta"};
+const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E",ferramenta:"#6B7B3A",execucao:"#2F7D6B",sistema:"#3D5A8A"};
+const PC_EV_ROT={projeto:"Projeto",status:"Status",diagnostico:"Diagnóstico",prioridades:"Prioridades",acao:"Ação",atendimento:"Atendimento",indicador:"Indicador",orcamento:"Orçamento",ferramenta:"Ferramenta",execucao:"Execução",sistema:"Sistema"};
 
 const PcSpark=({pontos})=>{
   if(!pontos||pontos.length<2)return null;
@@ -6557,7 +6629,7 @@ const PcNivel=({n})=>n
   :<span style={{background:"#F3F0F7",color:"#8C8499",border:"1px dashed #C9BEDB",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>Nível a definir</span>;
 const PcBarra=({pct,cor})=><div style={{height:8,background:"#EEE8F4",borderRadius:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor||CORES_CONSUL.primaria,transition:"width .3s"}}/></div>;
 
-const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],setFinance,compromissos=[],setCompromissos,config})=>{
+const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],setFinance,compromissos=[],setCompromissos,config,implantacoes=[],setImplantacoes})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -6750,10 +6822,33 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     if(!String(form.nome||"").trim()){alert("Informe o nome do indicador.");return;}
     upd(pp=>pcSalvarInd(pp,form));setModal(null);showSavedGlobal("Indicador salvo!");
   };
+  const novaExec=(acaoId)=>{const a=(p.acoes||[]).find(x=>x.id===acaoId);setForm({data:pcHoje(),acaoId:acaoId||"",descricao:a?a.acao:"",responsavel:(a&&a.responsavel)||(sel&&sel.responsavel)||"",horas:"",resultado:""});setModal("exec");setTab("exec");};
+  const salvarExec=(agendar)=>{
+    if(!String(form.descricao||"").trim()){alert("Descreva o que foi executado.");return;}
+    const f={...form};
+    upd(pp=>pcSalvarExec(pp,f));
+    showSavedGlobal("Execução registrada!");
+    if(agendar){setForm({desc:`Execução — ${p.clienteNome}: ${String(f.descricao).slice(0,60)}`,obs:f.resultado||"",data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");}
+    else setModal(null);
+  };
+  const agendarExec=(x)=>{setForm({desc:`Execução — ${p.clienteNome}: ${String(x.descricao).slice(0,60)}`,obs:x.resultado||"",data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");};
   const novaFerr=()=>{setForm({nome:"",tipo:PC_TIPOS_FERR[0],finalidade:"",frequencia:PC_FREQ_FERR[0],responsavel:(sel&&sel.responsavel)||"",situacao:PC_SIT_FERR[0]});setModal("ferr");};
   const salvarFerr=()=>{
     if(!String(form.nome||"").trim()){alert("Informe o nome da ferramenta.");return;}
     upd(pp=>pcSalvarFerr(pp,form));setModal(null);showSavedGlobal("Ferramenta de gestão salva!");
+  };
+  const vincularSistema=()=>{
+    if(!setImplantacoes){alert("Não foi possível acessar a Implantação.");return;}
+    if(!String(form.sistema||"").trim()){alert("Informe o nome do sistema.");return;}
+    const novo=isNovo({clientId:p.clientId,clienteNome:p.clienteNome,empresa:p.empresa,sistema:String(form.sistema).trim(),responsavel:p.responsavel||"Simara Lobui",desenvolvedor:form.desenvolvedor||"",dataInicio:pcHoje(),dataPrevista:"",horasContratadas:form.horas||0,status:"Em implantação",obs:`Encaminhado do Método CONTÍNUA — projeto "${p.nome}".`});
+    novo.origemProjetoContinuaId=p.id;
+    setImplantacoes(prev=>[...(prev||[]),novo]);
+    upd(pp=>{
+      const base={...pp,implantacaoId:novo.id,implantacaoEm:pcHoje()};
+      const comEv=pcEv(base,"sistema",`Cliente encaminhado para a implantação do sistema: ${novo.sistema}`);
+      return pp.status==="Concluído"?comEv:pcEncerrar(comEv,{resultados:`Cliente encaminhado para a implantação do sistema ${novo.sistema}. A evolução continua no projeto de Implantação.`,licoes:(pp.encerramento&&pp.encerramento.licoes)||"",recomendacoes:(pp.encerramento&&pp.encerramento.recomendacoes)||""});
+    });
+    setModal(null);showSavedGlobal("Projeto criado na Implantação e CONTÍNUA concluído!");
   };
   const registrarInd=()=>{
     if(isNaN(pcNum(form.valor))){alert("Informe o valor atual (número).");return;}
@@ -6772,11 +6867,11 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const excluirLanc=(f)=>{if(window.confirm("Excluir este lançamento do financeiro?"))setFinance(prev=>prev.filter(x=>x.id!==f.id));};
 
   // ── compromisso/agendamento (direto aqui, sem precisar ir na Agenda) ──
-  const novoCompromissoProjeto=()=>{setForm({desc:`Consultoria — ${p.clienteNome}`,data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");};
+  const novoCompromissoProjeto=()=>{setForm({desc:`Consultoria — ${p.clienteNome}`,obs:"",data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");};
   const salvarCompromissoProjeto=()=>{
     if(!form.desc||!form.data){alert("Preencha a descrição e a data.");return;}
     if(!setCompromissos)return;
-    setCompromissos(prev=>[...prev,{id:uid(),desc:form.desc,data:form.data,hora:form.hora||"09:00",prioridade:form.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",projetoId:p.id}]);
+    setCompromissos(prev=>[...prev,{id:uid(),desc:form.desc,obs:form.obs||"",data:form.data,hora:form.hora||"09:00",prioridade:form.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",projetoId:p.id}]);
     setModal(null);showSavedGlobal("Adicionado à Agenda!");
   };
   const toggleCompromissoProjeto=(c)=>{if(setCompromissos)setCompromissos(prev=>prev.map(x=>x.id===c.id?{...x,status:x.status==="Concluído"?"Pendente":"Concluído"}:x));};
@@ -6976,6 +7071,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
     <h2>Controles, checklists e rotinas (${f.length})</h2>
     ${f.length===0?'<div class="campo">Nenhuma ferramenta definida ainda.</div>':`<table><tr><th>Ferramenta</th><th>Tipo</th><th>Para que serve</th><th>Frequência</th><th>Responsável</th><th>Situação</th></tr>${f.map(x=>`<tr><td>${x.nome}</td><td>${x.tipo}</td><td>${x.finalidade||"—"}</td><td>${x.frequencia}</td><td>${x.responsavel||"—"}</td><td>${x.situacao}</td></tr>`).join("")}</table>`}
+    <h2>Material de apoio</h2>
+    ${(()=>{const d=PC_DEVOLUTIVAS[p.nivel];return `${d?`<div class="campo">📎 <b>Devolutiva ${d.tit} (${d.num})</b> — entregue junto com este documento.</div>`:""}<div class="campo">📎 <b>Caderninho de Registros Básicos</b> — para o cliente registrar clientes, entradas e saídas e rotina.</div>`;})()}
     <h2>Indicadores (${ind.length})</h2>
     ${ind.length===0?'<div class="campo">Nenhum indicador definido ainda.</div>':`<table><tr><th>Indicador</th><th>Meta</th><th>Inicial</th><th>Atual</th><th>Meta final</th><th>Progresso</th></tr>${ind.map(i=>{const pr=pcProgInd(i);const un=i.unidade?` ${i.unidade}`:"";return `<tr><td>${i.nome}</td><td>${i.meta||"—"}</td><td>${pcV(i.valorInicial,un)}</td><td>${pcV(i.valorAtual,un)}</td><td>${pcV(i.metaFinal,un)}</td><td>${pr!==null?pr+"%":"—"}</td></tr>`;}).join("")}</table>`}
     ${pcRodape(config)}</body></html>`;
@@ -7142,7 +7239,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
     {modal==="comp"&&form&&<Modal title="📅 Agendar compromisso" onClose={()=>setModal(null)}>
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <Inp label="Descrição" value={form.desc} onChange={v=>F("desc",v)}/>
+        <Inp label="Título" value={form.desc} onChange={v=>F("desc",v)}/>
+        <Inp label="Observação (o que será feito)" rows={3} value={form.obs||""} onChange={v=>F("obs",v)}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
           <Inp label="Horário" type="time" value={form.hora} onChange={v=>F("hora",v)}/>
@@ -7224,6 +7322,35 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarInd}>💾 Salvar indicador</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="exec"&&form&&<Modal wide title={form.id?"✎ Editar execução":"🛠 Registrar execução"} onClose={()=>setModal(null)}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="O que foi executado" rows={2} value={form.descricao} onChange={v=>F("descricao",v)}/></div>
+        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <Inp label="Horas (opcional)" type="number" value={form.horas} onChange={v=>F("horas",v)}/>
+        <Inp label="Responsável" value={form.responsavel} onChange={v=>F("responsavel",v)}/>
+        <Sel label="Ação do plano (opcional)" value={form.acaoId||""} onChange={v=>F("acaoId",v)} options={[{v:"",l:"Execução avulsa"},...((sel&&sel.acoes)||[]).map(a=>({v:a.id,l:a.acao}))]}/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Resultado / observações" rows={2} value={form.resultado} onChange={v=>F("resultado",v)}/></div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn v="ghost" onClick={()=>salvarExec(true)}>💾 Salvar e agendar</Btn>
+        <Btn onClick={()=>salvarExec(false)}>💾 Salvar</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="sistema"&&form&&<Modal title="🖥️ Encaminhar para Implantação" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Inp label="Sistema" value={form.sistema} onChange={v=>F("sistema",v)} placeholder="Nome do sistema que será implantado"/>
+        <Inp label="Desenvolvedor" value={form.desenvolvedor} onChange={v=>F("desenvolvedor",v)}/>
+        <Inp label="Horas contratadas (opcional)" type="number" value={form.horas} onChange={v=>F("horas",v)}/>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,marginTop:10,lineHeight:1.5}}>Será criado o projeto na Implantação e este projeto CONTÍNUA passará para <b>Concluído</b>. Se precisar, você pode reabri-lo depois.</div>
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+        <Btn onClick={vincularSistema}>🖥️ Criar na Implantação</Btn>
       </div>
     </Modal>}
 
@@ -7309,7 +7436,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["perg","❓ Perguntas avulsas"],["diag","🔎 Diagnóstico"],["prior","🎯 Prioridades"],["orc","💰 Orçamento"],["plano","✅ Plano de ação"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["evol","🧭 Evolução"],["doc","📄 Documentos"]];
+  const abas=[["resumo","📊 Resumo"],["perg","❓ Perguntas avulsas"],["diag","🔎 Diagnóstico"],["orc","💰 Orçamento"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["exec","🛠 Execução"],["evol","🧭 Evolução"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["doc","📄 Documentos"],["sistema","🖥️ Sistema"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
@@ -7352,7 +7479,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         {(compromissos||[]).filter(c=>c.projetoId===p.id&&c.status!=="Concluído").slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).map(c=>(
           <div key={c.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"7px 12px",marginBottom:6,fontSize:12}}>
             <span style={{flex:1,minWidth:120,color:C.cafe,fontWeight:700}}>{fmtDate(c.data)}{c.hora?` · ${c.hora}`:""}</span>
-            <span style={{color:C.oliva}}>{c.desc}</span>
+            <span style={{color:C.oliva}}>{c.desc}{c.obs?` — ${c.obs}`:""}</span>
             <Btn sm v="ghost" onClick={()=>toggleCompromissoProjeto(c)}>✓ Concluído</Btn>
             <Btn sm v="ghost" onClick={()=>excluirCompromissoProjeto(c)}>🗑</Btn>
           </div>))}
@@ -7760,6 +7887,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           {campo("Resultado esperado",a.resultadoEsperado)}{campo("Resultado alcançado",a.resultadoAlcancado)}{campo("Obs.",a.obs)}
           <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
             {st!=="Concluída"&&st!=="Em andamento"&&<Btn sm v="ghost" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Em andamento"))}>▶ Iniciar</Btn>}
+            <Btn sm v="ghost" onClick={()=>novaExec(a.id)}>🛠 Registrar execução</Btn>
             {st!=="Concluída"&&<Btn sm v="oliva" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Concluída"))}>✓ Concluir</Btn>}
             {st==="Concluída"&&<Btn sm v="ghost" onClick={()=>upd(pp=>pcStatusAcao(pp,a.id,"Pendente"))}>↩ Reabrir</Btn>}
             <Btn sm v="ghost" onClick={()=>{setForm({...a});setModal("acao");}}>✎ Editar</Btn>
@@ -7855,6 +7983,51 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     </div>);
   };
 
+  const renderExec=()=>{
+    const lista=(p.execucoes||[]).slice().sort((a,b)=>String(b.data||"").localeCompare(String(a.data||"")));
+    const totalH=lista.reduce((t,x)=>t+(Number(x.horas)||0),0);
+    return(<div>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <Btn onClick={()=>novaExec("")}>+ Registrar execução avulsa</Btn>
+        <span style={{fontSize:12,color:C.oliva}}>{lista.length} registro(s){totalH>0?` · ${totalH}h`:""}</span>
+      </div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:12,lineHeight:1.5}}>Aqui fica tudo o que foi feito na prática. Para ligar uma execução a uma ação, use o botão <b>🛠 Registrar execução</b> dentro do Plano de ação. Pode também registrar algo avulso, sem ação ligada.</div>
+      {lista.length===0&&<div style={{background:C.linho,borderRadius:8,padding:"22px 16px",textAlign:"center",color:C.oliva,fontSize:13}}>Nenhuma execução registrada ainda.</div>}
+      {lista.map(x=>{const a=(p.acoes||[]).find(y=>y.id===x.acaoId);return(
+        <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderLeft:`4px solid ${PC_EV_COR.execucao}`,borderRadius:8,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{fontSize:11,color:PC_EV_COR.execucao,fontWeight:700}}>{fmtDate(x.data)}{x.horas?` · ${x.horas}h`:""}{x.responsavel?` · 👤 ${x.responsavel}`:""}</div>
+              <div style={{color:C.cafe,fontWeight:600,fontSize:14,marginTop:2}}>{x.descricao}</div>
+              {a&&<div style={{fontSize:12,color:C.oliva,marginTop:2}}>✅ Ação: {a.acao}</div>}
+              {x.resultado&&<div style={{fontSize:12,color:C.cafe,marginTop:4,whiteSpace:"pre-line"}}><b>Resultado:</b> {x.resultado}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"flex-start",flexWrap:"wrap"}}>
+              <Btn sm v="ghost" onClick={()=>agendarExec(x)}>📅 Agendar</Btn>
+              <Btn sm v="ghost" onClick={()=>{setForm({...x,horas:x.horas===""?"":String(x.horas)});setModal("exec");}}>✎ Editar</Btn>
+              <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este registro de execução?"))upd(pp=>pcExcluirExec(pp,x.id));}}>🗑</Btn>
+            </div>
+          </div>
+        </div>);})}
+    </div>);
+  };
+
+  const renderSistema=()=>{
+    const impl=p.implantacaoId?(implantacoes||[]).find(x=>x.id===p.implantacaoId):null;
+    return(<div>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:12,lineHeight:1.5}}>Esta aba é a ponte para a implantação do sistema. Quando o cliente for direcionado ao sistema, o projeto é criado automaticamente em <b>Implantação e Treinamento</b>, ligado a este cliente, e o projeto CONTÍNUA passa para <b>Concluído</b>. Daí em diante a evolução acontece na Implantação.</div>
+      {impl?<div style={{background:"#E6F3F6",border:"1px solid #BFE0E6",borderRadius:8,padding:"14px 16px"}}>
+        <div style={{color:"#1F6F7A",fontWeight:700,fontSize:14,marginBottom:4}}>🖥️ Vinculado à Implantação</div>
+        <div style={{fontSize:13,color:C.cafe}}><b>{impl.sistema}</b> · {impl.status}{impl.desenvolvedor?` · Desenvolvedor: ${impl.desenvolvedor}`:""}</div>
+        <div style={{fontSize:12,color:C.oliva,marginTop:4}}>Encaminhado em {fmtDate(p.implantacaoEm||impl.criadoEm)}. Acompanhe em <b>Consultoria → Implantação e Treinamento</b>.</div>
+      </div>
+      :<div style={{background:C.linho,borderRadius:8,padding:"16px",textAlign:"center"}}>
+        <div style={{fontSize:13,color:C.oliva,marginBottom:10}}>{p.implantacaoId?"O projeto de Implantação vinculado não foi encontrado.":"Este projeto ainda não foi encaminhado para a implantação do sistema."}</div>
+        <Btn onClick={()=>{setForm({sistema:"",desenvolvedor:"",horas:""});setModal("sistema");}}>🖥️ Encaminhar para Implantação</Btn>
+      </div>}
+    </div>);
+  };
+
   const renderEvol=()=>{
     const dd=p.diagnostico||{};
     const ac=p.acoes||[];
@@ -7926,6 +8099,21 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
           </div>);
       })}
       <div style={{fontSize:11,color:C.oliva,marginTop:6}}>PDF e Imagem abrem uma prévia com a opção de enviar direto pelo WhatsApp do cliente.</div>
+      <Divider label="Materiais de apoio (Ferramentas de gestão)"/>
+      {(()=>{
+        const cli=clients.find(c=>c.id===p.clientId);
+        const itens=[...Object.keys(PC_DEVOLUTIVAS).map(n=>({rot:`📋 Devolutiva ${PC_DEVOLUTIVAS[n].tit} (${PC_DEVOLUTIVAS[n].num})`,nivel:n,html:pcHtmlDevolutiva(p,n,cli,config),arq:`Devolutiva ${PC_DEVOLUTIVAS[n].tit} ${p.clienteNome}`,leg:`Olá, ${String(p.clienteNome||"").split(" ")[0]}! Segue a devolutiva do seu diagnóstico (${PC_DEVOLUTIVAS[n].tit}) em anexo. 🤎\n*Simara Lobui · Consultoria*`})),{rot:"📓 Caderninho de Registros Básicos",nivel:"",html:pcHtmlCaderninho(p,cli,config),arq:`Caderninho de Registros Basicos ${p.clienteNome}`,leg:`Olá, ${String(p.clienteNome||"").split(" ")[0]}! Segue o Caderninho de Registros Básicos em anexo. 🤎\n*Simara Lobui · Consultoria*`}];
+        return itens.map(m=>{
+          const meu=m.nivel&&m.nivel===p.nivel;
+          return(<div key={m.rot} style={{background:meu?"#F3ECFA":"#fff",border:`1px solid ${meu?cor.primaria:C.areia}`,borderRadius:8,padding:"12px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div style={{color:C.cafe,fontWeight:700,fontSize:14}}>{m.rot}{meu?<span style={{marginLeft:8,fontSize:11,color:cor.primaria}}>← nível deste projeto</span>:null}</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(m.rot,m.arq,m.html,"print",m.leg)}>🖨 Imprimir</Btn>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(m.rot,m.arq,m.html,"pdf",m.leg)}>📤 PDF</Btn>
+              <Btn sm v="ghost" disabled={docBusy} onClick={()=>gerarDoc(m.rot,m.arq,m.html,"img",m.leg)}>🖼 Imagem</Btn>
+            </div>
+          </div>);});
+      })()}
     </div>);
   };
 
@@ -7957,6 +8145,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       {tab==="ind"&&renderInd()}
       {tab==="evol"&&renderEvol()}
       {tab==="doc"&&renderDoc()}
+      {tab==="exec"&&renderExec()}
+      {tab==="sistema"&&renderSistema()}
       {modais}
     </div>
   );
@@ -10003,29 +10193,34 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
 // Wrapper: duas abas no topo. A aba "Pedidos e atendimentos" é o módulo que já existia, sem alterações.
 const Consultoria=(props)=>{
-  const [aba,setAba]=useState("prospec");
-  const [visitouContinua,setVisitouContinua]=useState(false);
-  const [visitouProspec,setVisitouProspec]=useState(true);
-  const [visitouImplant,setVisitouImplant]=useState(false);
+  const fixa=props.abaFixa||null;
+  const [abaEst,setAba]=useState("prospec");
+  const aba=fixa||abaEst;
+  const [visitouContinuaE,setVisitouContinua]=useState(false);
+  const [visitouProspecE,setVisitouProspec]=useState(true);
+  const [visitouImplantE,setVisitouImplant]=useState(false);
+  const visitouContinua=visitouContinuaE||fixa==="continua";
+  const visitouProspec=visitouProspecE||fixa==="prospec";
+  const visitouImplant=visitouImplantE||fixa==="implant";
   const abrir=(k)=>{setAba(k);if(k==="continua")setVisitouContinua(true);if(k==="prospec")setVisitouProspec(true);if(k==="implant")setVisitouImplant(true);};
   const tabBtn=(k,l)=>(
     <button key={k} onClick={()=>abrir(k)} style={{padding:"9px 16px",borderRadius:"8px 8px 0 0",border:`1.5px solid ${aba===k?CORES_CONSUL.primaria:C.areia}`,borderBottom:"none",background:aba===k?CORES_CONSUL.primaria:"#fff",color:aba===k?"#fff":C.oliva,fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit"}}>{l}</button>
   );
   return(
     <div>
-      <div style={{display:"flex",gap:6,padding:"10px 14px 0",overflowX:"auto"}}>
+      {!fixa&&<div style={{display:"flex",gap:6,padding:"10px 14px 0",overflowX:"auto"}}>
         {tabBtn("prospec","📡 Prospecção Comercial")}
         {tabBtn("orcamentos","📋 Orçamentos")}
         {tabBtn("continua","🧭 Projetos CONTÍNUA")}
         {tabBtn("implant","🖥️ Implantação Sistema")}
         {tabBtn("pedidos","📋 Pedidos e atendimentos")}
-      </div>
+      </div>}
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
       <div style={{display:aba==="orcamentos"?"block":"none"}}>
         <Orcamentos orcamentos={props.orcamentos||[]} setOrcamentos={props.setOrcamentos} clients={props.clients||[]} setClients={props.setClients} orders={props.orders||[]} setOrders={props.setOrders} finance={props.finance||[]} setFinance={props.setFinance} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria} obras={props.obras||[]} setObras={props.setObras} config={props.config}/>
       </div>
       {visitouContinua&&<div style={{display:aba==="continua"?"block":"none"}}>
-        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config}/>
+        <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config} implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes}/>
       </div>}
       {visitouProspec&&<div style={{display:aba==="prospec"?"block":"none"}}>
         <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients} projetosContinua={props.projetosContinua||[]} setProjetosContinua={props.setProjetosContinua}/>
@@ -10084,7 +10279,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
   const [compForm,setCompForm]=useState(null);
   const salvarComp=()=>{
     if(!compForm.desc||!compForm.data){alert("Preencha a descrição e a data.");return;}
-    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:sel.id}]);
+    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,obs:compForm.obs||"",data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Consultoria",pedidoId:sel.id}]);
     setModal(null);showSavedGlobal("Adicionado à Agenda!");
   };
   const [wppView,setWppView]=useState("menu");
@@ -10684,7 +10879,7 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
           {sel.tipo==="Fixo mensal"&&<Btn sm v="oliva" onClick={lancarMensal}>💰 Lançar mês</Btn>}
           {sel.lancado===false&&Number(sel.valor)>0&&!sel.orcamento&&<Btn sm v="oliva" onClick={lancarPedidoFin}>💰 Lançar no financeiro</Btn>}
           {(sel.tipo==="Por medição"||sel.tipo==="Pacote de horas")&&<Btn sm v="oliva" onClick={()=>{setSelAtends([]);setMedForm({obs:"",dataVencimento:"",formaPag:"PIX"});setMedHora(taxaHora(sel)>0?String(taxaHora(sel)):"");setMedSalvaHora(true);setModal("medicao");}}>📏 Fechar medição</Btn>}
-          <Btn sm v="ghost" onClick={()=>{setCompForm({desc:`Consultoria — ${sel.clienteNome}`,data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");}}>📅 Agenda</Btn>
+          <Btn sm v="ghost" onClick={()=>{setCompForm({desc:`Consultoria — ${sel.clienteNome}`,obs:"",data:"",hora:"09:00",prioridade:"Alta"});setModal("comp");}}>📅 Agenda</Btn>
           <Btn sm onClick={()=>{setAtendForm(EFA);setModal("atend");}}>+ Atendimento</Btn>
           <Btn sm v="ghost" onClick={()=>{setForm({...sel});setModal("pedido");}}>✎</Btn>
         </div>
@@ -10893,7 +11088,8 @@ const ConsultoriaPedidos=({consultoria,setConsultoria,finance,setFinance,comprom
 
       {modal==="comp"&&compForm&&<Modal title="📅 Adicionar à Agenda" onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Descrição" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <Inp label="Título" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <Inp label="Observação (o que será feito)" rows={2} value={compForm.obs||""} onChange={v=>setCompForm(f=>({...f,obs:v}))}/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <Inp label="Data" type="date" value={compForm.data} onChange={v=>setCompForm(f=>({...f,data:v}))}/>
             <Inp label="Horário" type="time" value={compForm.hora} onChange={v=>setCompForm(f=>({...f,hora:v}))}/>
@@ -12904,10 +13100,10 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     if(finEntry&&finEntry.pago&&finEntry.contaId)setContas(prev=>prev.map(c=>c.id===finEntry.contaId?{...c,saldo:(c.saldo||0)-Number(finEntry.value||0)}:c));
   };
 
-  const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
+  const abrirAgendar=o=>{setSelId(o.id);setCompForm({desc:`Visita/orçamento — ${o.clienteNome}`,obs:"",data:today,hora:"09:00",prioridade:"Alta"});setModal("comp");};
   const salvarComp=()=>{
     if(!compForm.desc||!compForm.data){alert("Preencha a descrição e a data.");return;}
-    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Obra",pedidoId:sel?sel.id:null}]);
+    setCompromissos(prev=>[...prev,{id:uid(),desc:compForm.desc,obs:compForm.obs||"",data:compForm.data,hora:compForm.hora||"09:00",prioridade:compForm.prioridade||"Alta",status:"Pendente",tipo:"Obra",pedidoId:sel?sel.id:null}]);
     setModal(null);showSavedGlobal("Adicionado à Agenda!");
   };
 
@@ -13012,7 +13208,8 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
 
       {modal==="comp"&&compForm&&<Modal title="Agendar visita/orçamento" onClose={()=>setModal(null)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Descrição" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <Inp label="Título" value={compForm.desc} onChange={v=>setCompForm(f=>({...f,desc:v}))}/>
+          <Inp label="Observação (o que será feito)" rows={2} value={compForm.obs||""} onChange={v=>setCompForm(f=>({...f,obs:v}))}/>
           <Inp label="Data" type="date" value={compForm.data} onChange={v=>setCompForm(f=>({...f,data:v}))}/>
           <Inp label="Hora" type="time" value={compForm.hora} onChange={v=>setCompForm(f=>({...f,hora:v}))}/>
         </div>
@@ -13704,7 +13901,7 @@ function App() {
           {view==="cad_dep" &&<Config modo="cadastros" initialTab="depoimentos" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_prod" &&<Config modo="cadastros" initialTab="producao" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_pag" &&<Config modo="cadastros" initialTab="pagamentos" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
-          {view==="consultoria"  &&<Consultoria implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} orcamentos={orcamentos} setOrcamentos={setOrcamentos} orders={orders} setOrders={setOrders} obras={obras} setObras={setObras} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
+          {(view==="consultoria"||view.startsWith("cons_")) &&<Consultoria abaFixa={view==="consultoria"?"prospec":({cons_prospec:"prospec",cons_orc:"orcamentos",cons_continua:"continua",cons_implant:"implant",cons_pedidos:"pedidos"})[view]} implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} orcamentos={orcamentos} setOrcamentos={setOrcamentos} orders={orders} setOrders={setOrders} obras={obras} setObras={setObras} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
           {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config} contas={contas} setContas={setContas}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
