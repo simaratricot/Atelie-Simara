@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v93 · 2026-11-07 consultoria-menu-execucao";
+const APP_BUILD = "v94 · 2026-11-08 diagnostico-praticas";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -6390,11 +6390,70 @@ const pcSalvarRespostaDiag=(p,idx,pontos)=>{
   let n={...p,diagnostico:{...(p.diagnostico||{}),respostas}};
   if(Object.keys(respostas).length===PC_QUESTIONARIO.length){
     const total=Object.values(respostas).reduce((s,v)=>s+v,0);
-    const nivel=pcNivelPorPontos(total);
+    const nivel=pcNivelCombinado(n.diagnostico)||pcNivelPorPontos(total);
     n={...n,diagnostico:{...n.diagnostico,pontuacaoTotal:total},nivel};
     n=pcEv(n,"diagnostico",`Nível do Método CONTÍNUA definido pelo questionário: ${nivel} (${total} pts)`);
   }
   return n;
+};
+const PC_PRATICAS=[{"id":"p1","n":1,"area":"Comercial","txt":"Sei descrever quem é o cliente que mais se beneficia do meu produto ou serviço.","kit":true,"sug":["Descrever em poucas frases quem é o cliente ideal (necessidade, motivo de compra) e anotar isso em um lugar fixo de consulta.","Revisar e detalhar o perfil do cliente ideal com base nas vendas reais dos últimos meses, ajustando comunicação e oferta.","Validar e atualizar periodicamente o perfil do cliente ideal com dados de vendas e feedback, usando-o para orientar decisões de produto e divulgação."]},{"id":"p2","n":2,"area":"Comercial","txt":"Registro potenciais clientes e acompanho os retornos.","kit":true,"sug":["Criar uma lista simples (caderno ou planilha) para anotar contatos de interessados e marcar quando retornar.","Padronizar o registro de potenciais clientes (origem, data de contato, status) e revisar semanalmente quem ainda não recebeu retorno.","Acompanhar indicadores de conversão de potenciais clientes em vendas e ajustar a abordagem comercial com base nesses números."]},{"id":"p3","n":3,"area":"Comercial","txt":"Tenho uma rotina simples de divulgação ou prospecção.","kit":true,"sug":["Definir um dia fixo na semana dedicado a divulgar o trabalho ou buscar novos clientes.","Padronizar os canais de divulgação e criar uma rotina regular (frequência, conteúdo, responsável) de prospecção.","Medir o retorno de cada canal de divulgação/prospecção e direcionar esforço e investimento para os que trazem mais resultado."]},{"id":"p4","n":4,"area":"Comercial","txt":"Acompanho as vendas e observo de onde vêm os clientes.","kit":true,"sug":["Anotar, a cada venda, de onde veio o cliente (indicação, Instagram, etc.) para começar a identificar padrões.","Organizar um registro mensal de vendas por origem do cliente e revisar qual canal traz mais resultado.","Usar os dados de origem das vendas para decidir onde investir tempo e recursos de divulgação."]},{"id":"p17","n":17,"area":"Comercial","txt":"Sei explicar o que diferencia meu produto ou serviço e por que o cliente deve escolher o meu.","kit":false,"sug":["Escrever em 2 ou 3 frases o que torna seu produto ou serviço especial e usar isso ao apresentar o trabalho.","Revisar o diferencial com base no que os clientes já elogiaram e padronizar como ele é apresentado nas conversas e na divulgação.","Comparar sua oferta com a de outras empresas e testar mensagens de diferencial, mantendo as que mais geram interesse e vendas."]},{"id":"p18","n":18,"area":"Comercial","txt":"Envio propostas ou orçamentos por escrito e acompanho se o cliente respondeu.","kit":false,"sug":["Passar a enviar toda proposta por escrito e anotar a data para voltar a falar com o cliente.","Padronizar um modelo de proposta e definir prazos para o retorno, registrando o resultado de cada uma (aprovada, perdida, em negociação).","Acompanhar a taxa de propostas aprovadas e os motivos das perdidas para ajustar preço, oferta e abordagem."]},{"id":"p19","n":19,"area":"Comercial","txt":"Mantenho contato com os clientes depois da venda (pós-venda, nova compra, indicação).","kit":false,"sug":["Depois de cada entrega, enviar uma mensagem perguntando se ficou tudo certo.","Criar uma rotina de pós-venda (contato após a entrega e novo contato em data definida) e registrar quem comprou novamente ou indicou.","Medir recompra e indicações e usar o feedback dos clientes para melhorar a oferta e o atendimento."]},{"id":"p20","n":20,"area":"Comercial","txt":"Tenho uma meta de vendas ou de novos clientes para o período.","kit":false,"sug":["Definir uma meta simples para o próximo mês, como número de vendas ou de novos contatos.","Transformar a meta em acompanhamento semanal, comparando o que foi vendido com o previsto.","Desdobrar a meta por canal ou tipo de cliente e revisá-la periodicamente com base nos resultados."]},{"id":"p5","n":5,"area":"Financeiro","txt":"Registro as entradas e saídas de dinheiro do negócio.","kit":true,"sug":["Criar um controle simples (planilha ou caderno) para anotar todas as entradas e saídas, mesmo que de forma resumida.","Padronizar o registro financeiro com categorias (ex.: material, divulgação, entrega) e atualizá-lo semanalmente.","Analisar mensalmente entradas e saídas por categoria para identificar onde o negócio pode economizar ou crescer."]},{"id":"p6","n":6,"area":"Financeiro","txt":"Acompanho contas a pagar e valores a receber.","kit":true,"sug":["Listar as contas e valores a receber pendentes, com data de vencimento, em um só lugar.","Criar uma rotina semanal de revisão de contas a pagar e a receber, com alertas de vencimento.","Acompanhar indicadores de inadimplência/atraso e ajustar prazos e condições de pagamento com base nesses dados."]},{"id":"p7","n":7,"area":"Financeiro","txt":"Separo o dinheiro pessoal do dinheiro do negócio, mesmo trabalhando sozinho.","kit":true,"sug":["Reservar ou abrir uma conta separada só para o negócio e evitar misturar gastos pessoais.","Definir uma retirada fixa (pró-labore) e registrar separadamente o que é pessoal e o que é do negócio.","Revisar periodicamente a saúde financeira do negócio isolada das finanças pessoais, usando isso para decisões de investimento e crescimento."]},{"id":"p8","n":8,"area":"Financeiro","txt":"Reviso se o dinheiro disponível cobre despesas e compromissos previstos.","kit":true,"sug":["Antes de gastar, checar rapidamente se há dinheiro reservado para as contas já previstas.","Criar uma projeção simples de caixa para os próximos 30 dias, revisando-a semanalmente.","Manter uma projeção de caixa de médio prazo (60–90 dias) para apoiar decisões de investimento e evitar aperto financeiro."]},{"id":"p21","n":21,"area":"Financeiro","txt":"Sei quanto custa produzir ou entregar cada produto ou serviço que vendo.","kit":false,"sug":["Listar o que é gasto em cada produto ou serviço (material, tempo, entrega) e calcular o custo de um deles.","Montar uma ficha de custo para os principais produtos ou serviços e atualizá-la quando os valores mudarem.","Revisar os custos periodicamente, identificar onde há desperdício e usar a informação nas decisões de compra e de preço."]},{"id":"p22","n":22,"area":"Financeiro","txt":"Defino meus preços considerando custos, tempo gasto e margem de lucro.","kit":false,"sug":["Conferir se o preço cobrado de um produto ou serviço cobre o custo e deixa lucro.","Estabelecer uma forma padrão de calcular preços (custo + tempo + margem) e aplicá-la aos principais itens.","Revisar preços e margens por produto ou serviço e ajustar a oferta conforme a rentabilidade."]},{"id":"p23","n":23,"area":"Financeiro","txt":"Retiro uma remuneração definida para mim (pró-labore) em vez de retirar conforme a necessidade.","kit":false,"sug":["Definir um valor mensal que será retirado para uso pessoal e registrar cada retirada.","Estabelecer uma retirada fixa, compatível com o resultado do negócio, e acompanhar se ela cabe no caixa.","Revisar a retirada periodicamente com base no resultado do negócio e nas metas de reinvestimento."]},{"id":"p24","n":24,"area":"Financeiro","txt":"Tenho uma reserva ou uma estratégia para os meses de menor receita.","kit":false,"sug":["Começar a separar uma pequena quantia a cada recebimento para os meses de vendas mais fracas.","Definir um valor-alvo de reserva e um percentual fixo de cada recebimento para alcançá-lo.","Dimensionar a reserva com base nos meses de menor receita e revisar o valor conforme o negócio cresce."]},{"id":"p25","n":25,"area":"Financeiro","txt":"Estou em dia com a formalização e as obrigações fiscais do negócio (ex.: MEI, notas, impostos).","kit":false,"sug":["Verificar a situação do negócio (CNPJ/MEI, guias, notas) e anotar o que está pendente.","Criar um calendário com as datas das obrigações e uma rotina para conferir cada uma.","Revisar o enquadramento fiscal e as obrigações periodicamente, com apoio de contador quando necessário."]},{"id":"p9","n":9,"area":"Organização operacional","txt":"Tenho uma rotina para as atividades importantes do negócio.","kit":true,"sug":["Listar as atividades mais importantes da semana e definir em que dia cada uma será feita.","Padronizar a rotina semanal/mensal das atividades principais, com dias ou horários fixos.","Revisar periodicamente a rotina operacional para eliminar gargalos e melhorar o uso do tempo."]},{"id":"p10","n":10,"area":"Organização operacional","txt":"Acompanho pedidos, serviços, entregas ou prazos sem depender só da memória.","kit":true,"sug":["Criar uma lista ou planilha simples para anotar pedidos/serviços e seus prazos.","Padronizar o controle de pedidos/entregas com status (em produção, pronto, entregue) e revisão regular.","Acompanhar indicadores de prazo (cumprido/atrasado) e usar isso para ajustar a capacidade de produção ou atendimento."]},{"id":"p11","n":11,"area":"Organização operacional","txt":"Realizo as tarefas principais seguindo um padrão que funciona.","kit":true,"sug":["Anotar o passo a passo das tarefas mais repetidas, para não depender da memória.","Documentar um padrão (checklist ou roteiro) para as principais tarefas e seguir esse padrão.","Revisar e melhorar periodicamente os padrões de trabalho com base nos resultados e problemas identificados."]},{"id":"p12","n":12,"area":"Organização operacional","txt":"Quando outras pessoas participam, as responsabilidades estão claras.","kit":true,"sug":["Definir, mesmo informalmente, quem faz o quê quando outra pessoa ajuda no negócio.","Formalizar por escrito as responsabilidades de cada pessoa envolvida (parceiro, ajudante, fornecedor fixo).","Revisar periodicamente a divisão de responsabilidades para acompanhar o crescimento do negócio e evitar sobrecarga."]},{"id":"p26","n":26,"area":"Organização operacional","txt":"Controlo os materiais, o estoque ou os insumos para não faltar nem sobrar.","kit":false,"sug":["Fazer uma lista dos materiais mais usados e anotar quanto há de cada um.","Padronizar o controle de estoque, com quantidade mínima para recompra e conferência periódica.","Analisar o giro dos materiais e planejar as compras com base na demanda, para reduzir sobras e faltas."]},{"id":"p27","n":27,"area":"Organização operacional","txt":"Acompanho os prazos dos fornecedores e parceiros dos quais dependo.","kit":false,"sug":["Anotar, para cada fornecedor ou parceiro, o prazo combinado e a data em que será cobrado.","Criar um registro de fornecedores com prazos, condições e histórico de entregas.","Avaliar o desempenho dos fornecedores e parceiros e definir alternativas para os que atrasam com frequência."]},{"id":"p28","n":28,"area":"Organização operacional","txt":"Existe um padrão de qualidade na entrega e eu confiro antes de entregar ao cliente.","kit":false,"sug":["Criar uma pequena lista do que conferir antes de cada entrega.","Transformar a conferência em um checklist de qualidade usado em todas as entregas.","Registrar falhas e reclamações, identificar as causas recorrentes e ajustar o processo para reduzi-las."]},{"id":"p29","n":29,"area":"Organização operacional","txt":"Meus documentos e arquivos importantes (contratos, notas, cadastros, fotos) estão organizados e fáceis de encontrar.","kit":false,"sug":["Separar uma pasta (física ou digital) para os documentos mais importantes do negócio.","Padronizar nomes e pastas, separando por cliente, período ou tipo de documento.","Definir um padrão de arquivamento com cópia de segurança e revisão periódica dos documentos."]},{"id":"p13","n":13,"area":"Gestão e planejamento","txt":"Defino prioridades para a semana ou para o mês.","kit":true,"sug":["Escrever, no início da semana, as 3 prioridades mais importantes a cumprir.","Criar uma rotina fixa de planejamento semanal/mensal de prioridades, revisando o que foi cumprido.","Alinhar as prioridades de curto prazo a objetivos maiores do negócio, revisando o progresso periodicamente."]},{"id":"p14","n":14,"area":"Gestão e planejamento","txt":"Tenho objetivos práticos para melhorar o negócio.","kit":true,"sug":["Definir 1 ou 2 objetivos simples e concretos para os próximos meses.","Formalizar objetivos com prazos e formas de medir se foram alcançados.","Revisar e atualizar os objetivos do negócio periodicamente, com base em resultados e no planejamento geral."]},{"id":"p15","n":15,"area":"Gestão e planejamento","txt":"Reviso resultados e verifico se as ações foram realizadas.","kit":true,"sug":["Reservar um momento fixo (ex.: fim de semana) para olhar o que foi feito e o que ficou pendente.","Criar uma rotina periódica de revisão de resultados, comparando o planejado com o realizado.","Usar indicadores simples para acompanhar resultados ao longo do tempo e orientar decisões futuras."]},{"id":"p16","n":16,"area":"Gestão e planejamento","txt":"Quando um problema se repete, procuro a causa e ajusto a forma de trabalhar.","kit":true,"sug":["Quando um problema se repetir, anotar o que aconteceu e pensar em uma solução simples.","Criar o hábito de registrar problemas recorrentes e as mudanças feitas para resolvê-los.","Revisar periodicamente os problemas recorrentes e as melhorias implementadas, integrando aprendizados entre as áreas do negócio."]},{"id":"p30","n":30,"area":"Gestão e planejamento","txt":"Acompanho alguns indicadores do negócio (vendas, receita, entregas no prazo, atrasos).","kit":false,"sug":["Escolher 2 ou 3 números simples, como vendas do mês e valores a receber, e anotá-los toda semana.","Definir os indicadores principais, registrá-los com regularidade e compará-los mês a mês.","Analisar a evolução dos indicadores, identificar tendências e usar os números para decidir onde agir."]},{"id":"p31","n":31,"area":"Gestão e planejamento","txt":"Minhas metas têm prazo e uma forma de medir se foram alcançadas.","kit":false,"sug":["Escolher uma meta e definir até quando ela deve ser cumprida e como saber se foi atingida.","Formalizar as metas com prazo e medida e revisá-las em um dia fixo do mês.","Conectar as metas de curto prazo aos objetivos maiores do negócio e acompanhar o progresso com indicadores."]},{"id":"p32","n":32,"area":"Gestão e planejamento","txt":"Peço ajuda ou delego quando a demanda passa da minha capacidade.","kit":false,"sug":["Identificar uma tarefa que consome tempo e pode ser feita por outra pessoa ou ferramenta.","Definir quais atividades podem ser delegadas ou apoiadas, com instruções simples e acompanhamento.","Revisar periodicamente a divisão do trabalho e a capacidade da operação para sustentar o crescimento."]},{"id":"p33","n":33,"area":"Gestão e planejamento","txt":"Uso ferramentas (planilha, aplicativo ou sistema) que ajudam a organizar o negócio.","kit":false,"sug":["Escolher uma ferramenta simples (caderno, planilha ou aplicativo) para registrar clientes, vendas ou tarefas.","Padronizar o uso da ferramenta escolhida e manter as informações atualizadas semanalmente.","Avaliar se as ferramentas atuais atendem à operação e integrar as informações entre as áreas."]}];
+const PC_PRAT_AREAS=["Comercial","Financeiro","Organização operacional","Gestão e planejamento"];
+const PC_PRAT_AREA_ACAO={"Comercial":"Comercial","Financeiro":"Financeiro","Organização operacional":"Operações","Gestão e planejamento":"Administrativo"};
+const PC_PRAT_OPCOES=[{v:0,l:"Não faço"},{v:1,l:"Parcialmente"},{v:2,l:"Consistentemente"}];
+const pcFaixaArea=(pct)=>pct<=25?"🔴 Atenção prioritária":pct<=50?"🟠 Precisa organizar":pct<=75?"🟡 Em consolidação":"🟢 Consistente";
+const pcNivelPorIndice=(pct)=>pct<=39?"CONTÍNUA ESSENCIAL":pct<=69?"CONTÍNUA EM AÇÃO":"CONTÍNUA ESTRATÉGICA";
+const pcCalcPraticas=(rp)=>{
+  rp=rp||{};
+  const areas=PC_PRAT_AREAS.map(area=>{
+    const lista=PC_PRATICAS.filter(x=>x.area===area);
+    const resp=lista.filter(x=>rp[x.id]!==undefined);
+    const soma=resp.reduce((s,x)=>s+rp[x.id],0);
+    const pct=resp.length?Math.round(soma/(lista.length*2)*100):0;
+    return {area,n:lista.length,respondidas:resp.length,soma,max:lista.length*2,pct,faixa:pcFaixaArea(pct),completa:resp.length===lista.length};
+  });
+  const total=PC_PRATICAS.filter(x=>rp[x.id]!==undefined).length;
+  const completo=total===PC_PRATICAS.length;
+  const geral=Math.round(areas.reduce((s,a)=>s+a.pct,0)/areas.length);
+  return {areas,total,completo,geral};
+};
+// Nível combinado: só muda quando o bloco de práticas está completo. Se o questionário (10 blocos) também estiver completo, os dois pesam igual.
+const pcNivelCombinado=(dd)=>{
+  dd=dd||{};
+  const rq=dd.respostas||{};
+  const qCompleto=Object.keys(rq).length===PC_QUESTIONARIO.length;
+  const c=pcCalcPraticas(dd.respostasPraticas);
+  if(!c.completo)return "";
+  if(qCompleto){
+    const tot=Object.values(rq).reduce((s,v)=>s+v,0);
+    const estrut=Math.round((tot-PC_QUESTIONARIO.length)/(PC_QUESTIONARIO.length*3)*100);
+    return pcNivelPorIndice(Math.round((estrut+c.geral)/2));
+  }
+  return pcNivelPorIndice(c.geral);
+};
+const pcSalvarRespostaPratica=(p,id,v)=>{
+  const rp={...((p.diagnostico||{}).respostasPraticas||{}),[id]:v};
+  let n={...p,diagnostico:{...(p.diagnostico||{}),respostasPraticas:rp}};
+  const c=pcCalcPraticas(rp);
+  if(c.completo){
+    const nivel=pcNivelCombinado(n.diagnostico);
+    if(nivel&&nivel!==p.nivel){
+      n={...n,nivel};
+      n=pcEv(n,"diagnostico",`Nível do Método CONTÍNUA definido pelo diagnóstico completo: ${nivel} (índice ${c.geral}%)`);
+    }
+  }
+  return n;
+};
+const pcGerarAcoesPraticas=(p)=>{
+  const rp=((p.diagnostico||{}).respostasPraticas)||{};
+  const ja=new Set((p.acoes||[]).map(a=>a.origemPratica).filter(Boolean));
+  const novas=[];
+  PC_PRATICAS.forEach(x=>{
+    const v=rp[x.id];
+    if(v===undefined||v>=2||ja.has(x.id))return;
+    novas.push({id:`${uid()}${novas.length}`,acao:x.sug[v],area:PC_PRAT_AREA_ACAO[x.area]||"Outro",responsavel:"",prazo:"",status:"Pendente",prioridade:v===0?"Alta":"Média",resultadoEsperado:"Prática: "+x.txt,origemPratica:x.id});
+  });
+  if(!novas.length)return p;
+  return pcEv({...p,acoes:[...(p.acoes||[]),...novas]},"acao",`${novas.length} ação(ões) sugerida(s) a partir das práticas do diagnóstico`);
 };
 const pcImportar=(p)=>{
   const linhas=String((p.diagnostico||{}).problemas||"").split("\n").map(s=>s.replace(/^[-•*\d.)\s]+/,"").trim()).filter(Boolean);
@@ -7005,12 +7064,18 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     }else{
       blocoResultado=`<h2>Resultado do diagnóstico</h2><div class="campo">O questionário de diagnóstico ainda está em andamento (${Object.keys(respostas).length}/${totalQ} perguntas respondidas). O resultado completo será gerado assim que o questionário for concluído.</div>`;
     }
+    const cp=pcCalcPraticas(dd.respostasPraticas);
+    const blocoPraticas=cp.total>0?`<h2>Maturidade por área de gestão</h2>
+      <table><tr><th>Área</th><th>Índice</th><th>Leitura</th></tr>${cp.areas.map(a=>`<tr><td>${a.area}</td><td>${a.pct}%</td><td>${a.respondidas?a.faixa:"—"}</td></tr>`).join("")}</table>
+      <div class="campo"><b>Índice geral de práticas:</b> ${cp.geral}%${cp.completo?"":` (parcial — ${cp.total}/${PC_PRATICAS.length} práticas avaliadas)`}</div>
+      ${PC_PRAT_AREAS.map(area=>{const itens=PC_PRATICAS.filter(x=>x.area===area&&(dd.respostasPraticas||{})[x.id]!==undefined&&(dd.respostasPraticas||{})[x.id]<2);return itens.length?`<h2>${area} — o que merece atenção</h2><ul>${itens.map(x=>`<li>${x.txt} <i>(${(dd.respostasPraticas||{})[x.id]===0?"ainda não faz":"faz parcialmente"})</i></li>`).join("")}</ul>`:"";}).join("")}`:"";
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Diagnóstico — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
     ${pcHdr(p,"DIAGNÓSTICO",dd.concluido?`Concluído em ${fmtDate(dd.dataConclusao)}`:"Em andamento")}
     ${pcCliBloco(p,cli)}
     ${blocoCampos}
     ${blocoAvulsas}
     ${blocoResultado}
+    ${blocoPraticas}
     ${blocoFechamento}
     ${pcRodape(config)}</body></html>`;
     return {html,arquivo:`Diagnostico ${p.nome} ${p.clienteNome}`,titulo:"Diagnóstico",legenda:`Olá, ${p.clienteNome.split(" ")[0]}! Segue o diagnóstico do projeto "${p.nome}" em anexo. 🤎
@@ -7684,6 +7749,43 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
             <Btn v="ghost" onClick={salvarNivel}>💾 Salvar nível</Btn>
           </div>
           <div style={{fontSize:11,color:C.oliva,marginTop:8}}>{nivelDg!==(p.nivel||"")?<b style={{color:C.vermelho}}>● nível ainda não salvo. </b>:null}Respondendo as {totalQ} perguntas, o nível é preenchido sozinho; o campo acima serve para ajustar manualmente se precisar.</div>
+        </div>);
+      })()}
+      {(()=>{
+        const rp=dd.respostasPraticas||{};
+        const c=pcCalcPraticas(rp);
+        const nivelC=pcNivelCombinado(dd);
+        const qCompleto=Object.keys(dd.respostas||{}).length===PC_QUESTIONARIO.length;
+        const nSug=PC_PRATICAS.filter(x=>rp[x.id]!==undefined&&rp[x.id]<2&&!(p.acoes||[]).some(a=>a.origemPratica===x.id)).length;
+        return(<div style={{marginTop:16,background:C.linho,borderRadius:8,padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Diagnóstico aprofundado — práticas de gestão</div>
+            <div style={{fontSize:12,color:C.cafe,fontWeight:600}}>{c.total}/{PC_PRATICAS.length} respondidas · índice {c.geral}%</div>
+          </div>
+          <div style={{fontSize:11,color:C.oliva,marginBottom:10,lineHeight:1.5}}>{PC_PRATICAS.length} práticas em 4 áreas (as 16 do autodiagnóstico do curso, com a mesma numeração, + {PC_PRATICAS.filter(x=>!x.kit).length} de aprofundamento). Marque: Não faço (0) · Parcialmente (1) · Consistentemente (2). Quando todas forem respondidas, o nível é calculado pelo índice (até 39% Essencial · até 69% Em Ação · acima Estratégica){qCompleto?", junto com o questionário acima (peso igual)":""}.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:8,marginBottom:12}}>
+            {c.areas.map(a=>(<div key={a.area} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"8px 10px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.oliva}}>{a.area}</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.cafe}}>{a.pct}%</div>
+              <div style={{fontSize:11,color:C.cafe}}>{a.respondidas?a.faixa:"—"} <span style={{color:C.oliva}}>({a.respondidas}/{a.n})</span></div>
+            </div>))}
+          </div>
+          {c.completo&&nivelC&&<div style={{background:"#fff",border:"2px solid #1F7A4D",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:13,color:C.cafe}}><b>Nível pelo diagnóstico completo:</b> 🔧 {nivelC}</div>}
+          {PC_PRAT_AREAS.map(area=>(<div key={area} style={{marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",margin:"6px 0"}}>{area}</div>
+            {PC_PRATICAS.filter(x=>x.area===area).map(x=>(
+              <div key={x.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                <div style={{fontSize:13,color:C.cafe,marginBottom:6}}><b>{x.n}.</b> {x.txt}{!x.kit&&<span style={{fontSize:10,color:C.oliva,marginLeft:6}}>(aprofundamento)</span>}</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {PC_PRAT_OPCOES.map(o=>{const sel=rp[x.id]===o.v;return(<button key={o.v} type="button" onClick={()=>upd(pp=>pcSalvarRespostaPratica(pp,x.id,o.v))}
+                    style={{border:`1px solid ${sel?C.oliva:C.areia}`,background:sel?C.oliva:"#fff",color:sel?"#fff":C.cafe,borderRadius:6,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>{o.v} — {o.l}</button>);})}
+                </div>
+              </div>))}
+          </div>))}
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:8}}>
+            <Btn v="oliva" onClick={()=>{if(nSug===0){showSavedGlobal("Nenhuma ação nova para sugerir.");return;}upd(pcGerarAcoesPraticas);showSavedGlobal(nSug+" ação(ões) sugerida(s) adicionadas ao Plano de ação!");}}>➕ Gerar ações sugeridas no Plano de ação</Btn>
+            <span style={{fontSize:11,color:C.oliva}}>{nSug} prática(s) com “Não faço” ou “Parcialmente” ainda sem ação. Não duplica o que já foi gerado.</span>
+          </div>
         </div>);
       })()}
       {!dd.concluido&&<div style={{marginTop:12,background:C.linho,borderRadius:8,padding:14}}>
