@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v94d · 2026-11-08 diagnostico-unificado";
+const APP_BUILD = "v96 · 2026-11-11 orcamento-itens-cobranca";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -6265,13 +6265,14 @@ const pcOrcDefault=()=>({
   status:"Rascunho",dataEnvio:"",dataResposta:"",motivoRecusa:""
 });
 const pcPercComplexidade=(orc)=>({"Baixa":Number(orc.percBaixa)||0,"Média":Number(orc.percMedia)||0,"Alta":Number(orc.percAlta)||0}[orc.complexidade]||0);
+const pcSomaItens=(orc)=>((orc&&orc.escopo)||[]).reduce((s,e)=>s+(Number(e.valor)||0),0);
 const pcCalcOrcBase=(orc)=>{
   const horas=(Number(orc.horasOnline)||0)+(Number(orc.horasPresenciais)||0)+(Number(orc.horasDeslocamento)||0);
   const vHora=horas*(Number(orc.valorHora)||0);
   const vKm=(Number(orc.km)||0)*(Number(orc.valorKm)||0);
   const alim=Number(orc.alimentacao)||0;
   const outros=Number(orc.outrosCustos)||0;
-  return vHora+vKm+alim+outros;
+  return vHora+vKm+alim+outros+pcSomaItens(orc);
 };
 const pcCalcOrcamento=(orc)=>{
   const base=pcCalcOrcBase(orc);
@@ -6279,7 +6280,7 @@ const pcCalcOrcamento=(orc)=>{
   const ajuste=base*(perc/100);
   const calculado=base+ajuste;
   const final=orc.ajusteManual?(Number(orc.valorManual)||0):calculado;
-  return {base,perc,ajuste,calculado,final};
+  return {base,perc,ajuste,calculado,final,itens:pcSomaItens(orc)};
 };
 const pcSalvarOrcamento=(p,orcNovo)=>pcEv({...p,orcamento:{...orcNovo}},"orcamento","Orçamento atualizado");
 const pcDefinirStatusOrc=(p,status)=>{
@@ -6517,6 +6518,18 @@ const pcStatusAcao=(p,id,status)=>{
   return pcSalvarAcao(p,{...a,status});
 };
 const pcExcluirAcao=(p,id)=>({...p,acoes:(p.acoes||[]).filter(x=>x.id!==id)});
+// Evolução do plano: cada ação vale 100% quando concluída, 50% quando em andamento ou com execução registrada, 0% quando pendente. A média chega a 100% quando tudo está concluído.
+const pcProgAcao=(p,a)=>{
+  if(a.status==="Concluída")return 100;
+  if(a.status==="Em andamento"||(p.execucoes||[]).some(e=>e.acaoId===a.id))return 50;
+  return 0;
+};
+const pcProgPlano=(p)=>{
+  const acoes=p.acoes||[];
+  const grupo=(lista)=>({n:lista.length,concluidas:lista.filter(a=>a.status==="Concluída").length,andamento:lista.filter(a=>a.status!=="Concluída"&&pcProgAcao(p,a)===50).length,pct:lista.length?Math.round(lista.reduce((s,a)=>s+pcProgAcao(p,a),0)/lista.length):0});
+  const nomes=[...new Set(acoes.map(a=>a.area||"Outro"))];
+  return {geral:grupo(acoes),areas:nomes.map(n=>({area:n,...grupo(acoes.filter(a=>(a.area||"Outro")===n))})).sort((x,y)=>x.pct-y.pct)};
+};
 const pcStatusAcaoEf=(a)=>a.status!=="Concluída"&&a.prazo&&a.prazo<pcHoje()?"Atrasada":a.status;
 const pcResumoAcoes=(p)=>{
   const s={total:0,concluidas:0,andamento:0,pendentes:0,atrasadas:0,pct:0};
@@ -6660,33 +6673,38 @@ const pcHtmlDevolutiva=(p,nivel,cliente,config)=>{
   ${pcRodape(config)}</body></html>`;
 };
 const pcHtmlCaderninho=(p,cliente,config)=>{
-  const linhas=(n,cols)=>Array.from({length:n}).map(()=>`<tr>${cols.map(()=>'<td style="height:26px">&nbsp;</td>').join("")}</tr>`).join("");
-  const tab=(cols)=>`<table><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr>${linhas(14,cols)}</table>`;
-  const perg=["Quais são os principais produtos ou serviços?","Quem são os clientes mais frequentes?","Como os clientes chegam até o negócio?","Como são registrados pedidos, vendas ou serviços?","Como são controladas as entradas e saídas de dinheiro?","Como são organizadas tarefas e prazos?","Quais atividades dependem somente da memória?","Quais dificuldades aparecem com frequência?","O que mais toma tempo na rotina?","O que gostaria de organizar primeiro?"];
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Caderninho de Registros Básicos</title><style>${pcDocStyles}</style></head><body>
+  const nome=pcEsc(p.empresa||p.clienteNome||"");
+  const linhas=(n,cols)=>Array.from({length:n}).map(()=>`<tr>${cols.map(()=>'<td style="height:24px">&nbsp;</td>').join("")}</tr>`).join("");
+  const tab=(cols)=>`<table><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr>${linhas(17,cols)}</table>`;
+  const perg=["Quais são os principais produtos ou serviços?","Quem são os clientes mais frequentes?","Como os clientes chegam até o negócio?","Como são registrados pedidos, vendas ou serviços?","Como são controladas as entradas e saídas de dinheiro?"];
+  const topo=`<div class="campo" style="font-size:11px;color:#777;border-bottom:1px solid #ddd;padding-bottom:6px;margin-bottom:10px"><b>Caderninho de Registros Básicos</b> · Negócio: ${nome||"_______________"} · Período: ____________________</div>`;
+  const pag=(titulo,texto,corpo)=>`<div class="pg">${topo}<h2>${titulo}</h2><div class="campo">${texto}</div>${corpo}</div>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Caderninho de Registros Básicos</title><style>${pcDocStyles}
+  @page{size:A4;margin:12mm}
+  .pg{page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid}
+  .pg:last-of-type{page-break-after:auto;break-after:auto}
+  tr{page-break-inside:avoid}
+  @media print{body{padding:0}}</style></head><body>
+  <div class="pg">
   ${pcHdr(p,"CADERNINHO DE REGISTROS BÁSICOS")}
   <div class="campo" style="font-weight:700">MATERIAL DE APOIO — MÉTODO CONTÍNUA: GESTÃO NA PRÁTICA</div>
-  <div class="campo"><b>Nome do negócio:</b> ${pcEsc(p.empresa||p.clienteNome||"")} ${p.empresa?"":"_______________________"}</div>
+  <div class="campo"><b>Nome do negócio:</b> ${nome} ${p.empresa||p.clienteNome?"":"_______________________"}</div>
   <div class="campo"><b>Responsável:</b> ${pcEsc((cliente&&cliente.name)||p.clienteNome||"")}</div>
   <div class="campo"><b>Período dos registros:</b> ______________________________</div>
-  <div class="campo"><b>Como usar:</b> imprima as páginas que fizerem sentido para sua rotina. Registre o que já acontece e identifique o que ainda precisa ser organizado. Não é necessário preencher tudo de uma vez.</div>
-  <div class="campo"><b>Importante:</b> este caderninho é um apoio inicial. Não substitui a planilha principal do método nem controles especializados.</div>
-  <h2>1. Clientes, contatos e vendas</h2>
-  <div class="campo">Registre quem procurou seu negócio, o que solicitou e como chegou até você.</div>
-  ${tab(["Data","Cliente / contato","Produto ou serviço","Origem","Valor (R$)","Situação"])}
-  <h2 style="page-break-before:always">2. Entradas e saídas</h2>
-  <div class="campo">Anote as movimentações do negócio. Registre entradas e saídas separadamente.</div>
-  ${tab(["Data","Descrição","Categoria","Entrada (R$)","Saída (R$)","Pagamento"])}
-  <h2 style="page-break-before:always">3. Rotina, pedidos e tarefas</h2>
-  <div class="campo">Organize atividades, prazos e andamento das tarefas.</div>
-  ${tab(["Data","Atividade / pedido","Responsável","Prazo","Status","Observações"])}
-  <h2 style="page-break-before:always">4. Conhecendo a realidade do negócio</h2>
-  <div class="campo">Responda com frases curtas. Se não souber, deixe em branco e retome depois.</div>
-  ${perg.map(q=>`<div class="campo"><b>${q}</b><div style="border-bottom:1px solid #bbb;height:30px"></div><div style="border-bottom:1px solid #bbb;height:30px"></div></div>`).join("")}
-  <h2 style="page-break-before:always">5. Anotações livres</h2>
-  <div class="campo">Registre observações, dúvidas ou informações que possam ajudar no diagnóstico.</div>
-  ${Array.from({length:18}).map(()=>'<div style="border-bottom:1px solid #bbb;height:30px"></div>').join("")}
-  ${pcRodape(config)}</body></html>`;
+  <h2>Como usar</h2>
+  <div class="campo">Imprima apenas as páginas que fizerem sentido para a sua rotina — cada assunto está em uma página separada. Registre o que já acontece e identifique o que ainda precisa ser organizado. Não é necessário preencher tudo de uma vez.</div>
+  <h2>Assuntos deste caderninho</h2>
+  <div class="campo">Página 2 — Clientes, contatos e vendas<br>Página 3 — Entradas e saídas<br>Página 4 — Rotina, pedidos e tarefas<br>Página 5 — Conhecendo a realidade do negócio<br>Página 6 — Anotações livres</div>
+  <h2>Importante</h2>
+  <div class="campo">Este caderninho é um apoio inicial. Não substitui a planilha principal do método nem controles especializados.</div>
+  </div>
+  ${pag("1. Clientes, contatos e vendas","Registre quem procurou seu negócio, o que solicitou e como chegou até você.",tab(["Data","Cliente / contato","Produto ou serviço","Origem","Valor (R$)","Situação"]))}
+  ${pag("2. Entradas e saídas","Anote as movimentações do negócio. Registre entradas e saídas separadamente.",tab(["Data","Descrição","Categoria","Entrada (R$)","Saída (R$)","Pagamento"]))}
+  ${pag("3. Rotina, pedidos e tarefas","Organize atividades, prazos e andamento das tarefas.",tab(["Data","Atividade / pedido","Responsável","Prazo","Status","Observações"]))}
+  ${pag("4. Conhecendo a realidade do negócio","Responda com frases curtas. Se não souber, deixe em branco e retome depois.",perg.map(q=>`<div class="campo"><b>${q}</b><div style="border-bottom:1px solid #bbb;height:30px"></div><div style="border-bottom:1px solid #bbb;height:30px"></div></div>`).join(""))}
+  <div class="pg">${topo}<h2>5. Anotações livres</h2><div class="campo">Registre observações, dúvidas ou informações que possam ajudar no diagnóstico.</div>
+  ${Array.from({length:20}).map(()=>'<div style="border-bottom:1px solid #bbb;height:30px"></div>').join("")}
+  ${pcRodape(config)}</div></body></html>`;
 };
 const pcLinhaTempo=(p)=>(p.eventos||[]).map((e,i)=>({e,i})).sort((x,y)=>x.e.data===y.e.data?x.i-y.i:String(x.e.data).localeCompare(String(y.e.data))).map(x=>x.e).reverse();
 const PC_EV_COR={projeto:"#7B4FA6",status:"#8A6D1F",diagnostico:"#3D5A8A",prioridades:"#c0392b",acao:"#1F7A4D",atendimento:"#1F6F7A",indicador:"#9B6DC0",orcamento:"#B5832E",ferramenta:"#6B7B3A",execucao:"#2F7D6B",sistema:"#3D5A8A"};
@@ -6722,6 +6740,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const [novoCli,setNovoCli]=useState(null);
   const [docBusy,setDocBusy]=useState(false);
   const [docPrev,setDocPrev]=useState(null);
+  const [cobr,setCobr]=useState(null);
   useEffect(()=>{if(modal!=="projeto")setNovoCli(null);},[modal]);
   const sel=projetos.find(p=>p.id===selId)||null;
 
@@ -6831,13 +6850,16 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
   // ── orçamento ──
   const [escopoTxt,setEscopoTxt]=useState("");
+  const [escopoVal,setEscopoVal]=useState("");
   const O=(k,v)=>{setOrc(o=>({...o,[k]:v}));setOrcSujo(true);};
   const addEscopoItem=()=>{
     const t=String(escopoTxt||"").trim();
     if(!t)return;
-    setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:""}]}));
-    setEscopoTxt("");setOrcSujo(true);
+    setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:"",valor:Number(escopoVal)||0}]}));
+    setEscopoTxt("");setEscopoVal("");setOrcSujo(true);
   };
+  const valorEscopoItem=(id,v)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).map(e=>e.id===id?{...e,valor:v===""?"":Number(v)}:e)}));setOrcSujo(true);};
+  const cobrarItemEscopo=(e)=>{setForm({valor:Number(e.valor)||"",dataVencimento:"",formaPag:orc.formaPagamento||"PIX",obs:e.texto});setModal("lanc");};
   const removerEscopoItem=(id)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).filter(e=>e.id!==id)}));setOrcSujo(true);};
   const importarPrioridadesEscopo=()=>{
     const existentes=new Set((orc.escopo||[]).map(e=>e.prioridadeId).filter(Boolean));
@@ -6933,6 +6955,24 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   };
 
   // ── financeiro ──
+  const abertosProj=()=>(finance||[]).filter(f=>f.projetoId===p.id&&f.type==="receita"&&!f.pago).slice().sort((a,b)=>String(a.dataVencimento||"").localeCompare(String(b.dataVencimento||"")));
+  const abrirCobranca=()=>{
+    const ab=abertosProj();
+    if(!ab.length){alert("Não há lançamentos em aberto neste projeto. Use “Lançar recebimento” para registrar o que será cobrado.");return;}
+    const cli=clients.find(c=>c.id===p.clientId)||{};
+    const prim=String(p.clienteNome||"").split(" ")[0];
+    const linhas=ab.map(f=>{const partes=String(f.desc||"").split(" — ");const det=partes.length>3?partes.slice(3).join(" — "):"Consultoria";return `• ${det} — ${fmtBRL(f.value)}${f.dataVencimento?` (venc. ${fmtDate(f.dataVencimento)})`:""}`;}).join("\n");
+    const total=ab.reduce((s,f)=>s+Number(f.value||0),0);
+    const txt=`Olá, ${prim}! 🤎 Tudo bem?\n\nPassando para lembrar com carinho dos valores em aberto do projeto "${p.nome}":\n\n${linhas}\n\n*Total em aberto:* ${fmtBRL(total)}\n*Forma de pagamento:* ${p.formaPag||"PIX"}\n\nSe já realizou o pagamento, é só me avisar. Qualquer dúvida estou à disposição! 🤎\n*Simara Lobui · Consultoria*`;
+    setCobr({txt,tel:String(cli.phone||"").replace(/\D/g,""),total,n:ab.length});setModal("cobranca");
+  };
+  const enviarCobranca=()=>{
+    if(!cobr)return;
+    if(!cobr.tel){alert("Cliente sem WhatsApp cadastrado. Copie o texto e envie manualmente.");return;}
+    const d=cobr.tel;window.open(`https://wa.me/${d.length<=11?"55"+d:d}?text=${encodeURIComponent(cobr.txt)}`,"_blank");
+    upd(pp=>pcEv(pp,"orcamento",`Cobrança enviada: ${cobr.n} lançamento(s), ${fmtBRL(cobr.total)}`));
+  };
+  const copiarCobranca=()=>{try{navigator.clipboard.writeText(cobr.txt);showSavedGlobal("Texto copiado!");}catch(e){alert("Não consegui copiar. Selecione o texto e copie manualmente.");}};
   const novoLanc=()=>{const pend=Math.max(0,(Number(p.valor)||0)-pcFin(finance,p).recebido);setForm({valor:pend>0?pend:"",dataVencimento:"",formaPag:"PIX",obs:""});setModal("lanc");};
   const salvarLanc=()=>{
     if(!(Number(form.valor)>0)){alert("Informe um valor maior que zero.");return;}
@@ -7136,7 +7176,8 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     const nivel=p.nivel||(completo?pcNivelPorPontos(totalPts):"");
     const atencao=completo?pcPontosAtencao(respostas):[];
     const direcionamento=completo?pcDirecionamento(nivel):"";
-    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}</li>`).join("");
+    const temValorItens=(o.escopo||[]).some(e=>Number(e.valor)>0);
+    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}${Number(e.valor)>0?` — <b>${fmtBRL(Number(e.valor))}</b>`:""}</li>`).join("");
     const formatoTxt=o.formato==="Online"?"Atendimento 100% online.":o.formato==="Presencial"?"Atendimento presencial.":"Atendimento híbrido (online e presencial).";
     const validade=new Date(Date.now()+(Number(o.validadeDias)||15)*86400000).toLocaleDateString("pt-BR");
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
@@ -7149,7 +7190,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     <h2>Escopo do projeto</h2>${escopoLinhas?`<ul>${escopoLinhas}</ul>`:'<div class="campo">Escopo a ser detalhado.</div>'}
     ${o.cronograma?`<h2>Cronograma / etapas</h2><div class="campo" style="white-space:pre-line">${o.cronograma}</div>`:""}
     <h2>Formato de atendimento</h2><div class="campo">${formatoTxt}</div>
-    <h2>Investimento</h2><div class="campo"><b>Valor do projeto:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>
+    <h2>Investimento</h2>${temValorItens?`<div class="campo"><b>Soma dos itens do escopo:</b> ${fmtBRL(pcSomaItens(o))}</div>`:""}<div class="campo"><b>Valor do projeto:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>
     <h2>Pagamento</h2><div class="campo"><b>Forma de pagamento:</b> ${o.formaPagamento}</div>${o.condicoesPagamento?`<div class="campo"><b>Condições:</b> ${o.condicoesPagamento}</div>`:""}
     <h2>Validade da proposta</h2><div class="campo">Esta proposta é válida até ${validade}.</div>
     <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${p.clienteNome}<br>Aceite do cliente</div></div>
@@ -7222,6 +7263,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     ${pcHdr(p,"RELATÓRIO DE EVOLUÇÃO")}
     ${pcCliBloco(p,clients.find(c=>c.id===p.clientId))}
     <h2>Situação inicial</h2>${(dd.situacao||dd.objetivoCliente)?`${dd.situacao?`<div class="campo"><b>Situação:</b> ${dd.situacao}</div>`:""}${dd.objetivoCliente?`<div class="campo"><b>Objetivo do cliente:</b> ${dd.objetivoCliente}</div>`:""}`:'<div class="campo">Não registrada.</div>'}
+    ${(()=>{const pg=pcProgPlano(p);return pg.geral.n?`<h2>Evolução do plano de ação</h2><div class="campo"><b>Plano completo:</b> ${pg.geral.pct}% (${pg.geral.concluidas} de ${pg.geral.n} ação(ões) concluída(s))</div><table><tr><th>Área</th><th>Evolução</th><th>Ações concluídas</th></tr>${pg.areas.map(a=>`<tr><td>${a.area}</td><td>${a.pct}%</td><td>${a.concluidas}/${a.n}</td></tr>`).join("")}</table>`:"";})()}
     ${inds?`<h2>Indicadores</h2>${inds}`:""}
     <h2>Linha do tempo</h2>${evs||'<div class="campo">Sem registros.</div>'}
     ${pcRodape(config)}</body></html>`;
@@ -7342,6 +7384,17 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
         <Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
         <Btn onClick={salvarLanc}>💾 Lançar</Btn>
+      </div>
+    </Modal>}
+
+    {modal==="cobranca"&&cobr&&<Modal title="💬 Cobrança — só o que está em aberto" onClose={()=>setModal(null)}>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:8}}>{cobr.n} lançamento(s) em aberto · total {fmtBRL(cobr.total)}. Edite o texto se quiser antes de enviar.</div>
+      <Inp rows={12} value={cobr.txt} onChange={v=>setCobr(c=>({...c,txt:v}))}/>
+      {!cobr.tel&&<div style={{fontSize:11,color:C.vermelho,marginTop:6}}>⚠ Esta cliente não tem WhatsApp cadastrado: use “Copiar texto”.</div>}
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end",flexWrap:"wrap"}}>
+        <Btn v="ghost" onClick={()=>setModal(null)}>Fechar</Btn>
+        <Btn v="ghost" onClick={copiarCobranca}>📋 Copiar texto</Btn>
+        <Btn onClick={enviarCobranca}>📲 Enviar no WhatsApp</Btn>
       </div>
     </Modal>}
 
@@ -7571,6 +7624,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <Btn sm v="ghost" onClick={novoCompromissoProjeto}>📅 Agendar compromisso</Btn>
         <Btn sm onClick={novoLanc}>💰 Lançar recebimento</Btn>
+        <Btn sm v="ghost" onClick={abrirCobranca}>💬 Enviar cobrança{abertosProj().length>0?` (${abertosProj().length})`:""}</Btn>
       </div>
       <Divider label={`Dossiê CONTÍNUA — checklist interno (${PC_DOSSIE.filter(([k])=>(p.dossie||{})[k]).length}/${PC_DOSSIE.length})`}/>
       <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"8px 14px",marginBottom:14}}>
@@ -7879,6 +7933,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <Divider label="Escopo do projeto"/>
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200}}><Inp placeholder="Descreva um item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
+        <div style={{width:140}}><Inp type="number" placeholder="Valor (R$)" value={escopoVal} onChange={setEscopoVal}/></div>
         <Btn sm onClick={addEscopoItem}>+ Adicionar</Btn>
         {priorDisponiveis.length>0&&<Btn sm v="ghost" onClick={importarPrioridadesEscopo}>📥 Trazer das prioridades</Btn>}
       </div>
@@ -7886,10 +7941,14 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
         :(orc.escopo||[]).map(e=>(
           <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
-            <span style={{flex:1,color:C.cafe}}>{e.texto}</span>
+            <span style={{flex:1,color:C.cafe,minWidth:140}}>{e.texto}</span>
             {e.prioridadeId&&<span style={{fontSize:10,color:C.oliva}}>🔗 prioridade</span>}
+            <span style={{fontSize:11,color:C.oliva}}>R$</span>
+            <input type="number" value={e.valor===undefined?"":e.valor} placeholder="0" onChange={ev=>valorEscopoItem(e.id,ev.target.value)} style={{width:100,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:13,background:C.linho}}/>
+            <Btn sm v="ghost" onClick={()=>cobrarItemEscopo(e)}>💰 Cobrar</Btn>
             <Btn sm v="ghost" onClick={()=>removerEscopoItem(e.id)}>🗑</Btn>
           </div>))}
+      {(orc.escopo||[]).length>0&&calc.itens>0&&<div style={{textAlign:"right",fontSize:13,color:C.cafe,margin:"4px 0 10px"}}>Soma dos itens: <b>{fmtBRL(calc.itens)}</b> <span style={{fontSize:11,color:C.oliva}}>(entra no valor do orçamento)</span></div>}
 
       <Divider label="Formato de atendimento"/>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:10}}>
@@ -7922,6 +7981,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       <Divider label="Investimento"/>
       <div style={{background:C.linho,borderRadius:8,padding:14,marginBottom:10}}>
         <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:8}}>
+          {calc.itens>0&&<div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Itens do escopo</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.itens)}</div></div>}
           <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Base</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.base)}</div></div>
           <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Ajuste complexidade ({calc.perc}%)</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.ajuste)}</div></div>
           <div><div style={{fontSize:10,color:C.oliva,textTransform:"uppercase"}}>Valor calculado</div><div style={{fontSize:15,fontWeight:700,color:C.cafe}}>{fmtBRL(calc.calculado)}</div></div>
@@ -8047,7 +8107,24 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
   const renderInd=()=>{
     const lista=p.indicadores||[];
+    const pg=pcProgPlano(p);
     return(<div>
+      <div style={{background:"#fff",border:`2px solid ${C.oliva}`,borderRadius:8,padding:"14px 16px",marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>📈 Evolução do plano de ação (automático)</div>
+        {pg.geral.n===0?<div style={{fontSize:13,color:C.oliva,lineHeight:1.6}}>Ainda não há ações no Plano de ação. Assim que houver, este indicador mostra o avanço até 100%, e cada ação em andamento, com execução registrada ou concluída faz a barra evoluir.</div>:<>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:6}}>
+            <div style={{fontSize:13,color:C.cafe,fontWeight:700}}>Plano completo</div>
+            <div style={{fontSize:22,fontWeight:700,color:pg.geral.pct>=100?"#1F7A4D":C.cafe}}>{pg.geral.pct}%</div>
+          </div>
+          <PcBarra pct={pg.geral.pct} cor={pg.geral.pct>=100?"#1F7A4D":undefined}/>
+          <div style={{fontSize:11,color:C.oliva,margin:"4px 0 12px"}}>{pg.geral.concluidas} de {pg.geral.n} ação(ões) concluída(s){pg.geral.andamento?` · ${pg.geral.andamento} em andamento`:""}</div>
+          {pg.areas.map(a=>(<div key={a.area} style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.cafe}}><span><b>{a.area}</b> · {a.concluidas}/{a.n} concluída(s)</span><b>{a.pct}%</b></div>
+            <PcBarra pct={a.pct} cor={a.pct>=100?"#1F7A4D":undefined}/>
+          </div>))}
+          <div style={{fontSize:11,color:C.oliva,marginTop:8,lineHeight:1.5}}>Como conta: ação concluída = 100% · em andamento ou com execução registrada = 50% · pendente = 0%. Atualiza sozinho conforme você muda o status das ações ou registra execuções.</div>
+        </>}
+      </div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         <Btn onClick={novoInd}>+ Novo indicador</Btn>
         <span style={{fontSize:12,color:C.oliva}}>{lista.length} indicador(es)</span>
