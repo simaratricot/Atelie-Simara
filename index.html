@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v102 · 2026-11-12 vincular-recebimento-medicao";
+const APP_BUILD = "v103 · 2026-11-12 botao-receber-sempre";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -13315,7 +13315,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   // ── recebimentos (único ponto que lança no Financeiro) ──
   const abrirNovoRecebimento=medicaoId=>{
     const m=medicaoId&&sel?(sel.medicoes||[]).find(x=>x.id===medicaoId):null;
-    setRecForm({...recDefault,medicaoId:medicaoId||"",valor:m?saldoMedicao(sel,m):0});
+    setRecForm({...recDefault,medicaoId:medicaoId||"",valor:m?Math.max(0,saldoMedicao(sel,m)):0});
     setRecFormOpen(true);
   };
   const salvarRecebimento=()=>{
@@ -13550,7 +13550,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
                   <div style={{fontSize:10,color:C.oliva}}>Recebido {fmtBRL(recebido)} · Saldo <b style={{color:saldo>0?(vencida?C.vermelho:C.dourado):"#2E6B2E"}}>{fmtBRL(saldo)}</b></div>
                 </div>
                 <Btn sm v="ghost" onClick={()=>gerarMedicaoDoc(sel,m,(sel.medicoes||[]).length-i)}>📄 Medição</Btn>
-                {m.status!=="Cancelada"&&saldo>0&&<Btn sm v="oliva" onClick={()=>{abrirNovoRecebimento(m.id);setDetTab("recebimentos");}}>💰 Receber</Btn>}
+                {m.status!=="Cancelada"&&<Btn sm v="oliva" onClick={()=>{abrirNovoRecebimento(m.id);setDetTab("recebimentos");}}>💰 Receber</Btn>}
                 {m.status!=="Cancelada"&&<button onClick={()=>cancelarMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>✕ Cancelar</button>}
                 <button onClick={()=>excluirMedicao(m)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.vermelho}`,background:"transparent",color:C.vermelho,cursor:"pointer"}}>🗑 Excluir</button>
               </div>
@@ -13561,7 +13561,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
         {detTab==="recebimentos"&&<div>
           {!recFormOpen&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}><Btn sm onClick={()=>abrirNovoRecebimento()}>+ Lançar recebimento</Btn></div>}
           {recFormOpen&&<div style={{background:C.linho,borderRadius:6,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
-            <Sel label="Vincular à medição" value={recForm.medicaoId} onChange={v=>{const m=(sel.medicoes||[]).find(x=>x.id===v);setRecForm(f=>({...f,medicaoId:v,valor:m?saldoMedicao(sel,m):f.valor}));}} options={[{v:"",l:"Avulso (sem medição)"},...((sel.medicoes||[]).filter(m=>m.status!=="Cancelada"&&saldoMedicao(sel,m)>0).map(m=>({v:m.id,l:`Medição ${fmtDate(m.data)} — saldo ${fmtBRL(saldoMedicao(sel,m))}`})))]}/>
+            <Sel label="Vincular à medição" value={recForm.medicaoId} onChange={v=>{const m=(sel.medicoes||[]).find(x=>x.id===v);setRecForm(f=>({...f,medicaoId:v,valor:m?saldoMedicao(sel,m):f.valor}));}} options={[{v:"",l:"Avulso (sem medição)"},...((sel.medicoes||[]).filter(m=>m.status!=="Cancelada"&&(m.id===recForm.medicaoId||saldoMedicao(sel,m)>0)).map(m=>({v:m.id,l:`Medição ${fmtDate(m.data)} — saldo ${fmtBRL(saldoMedicao(sel,m))}`})))]}/>
             <Inp label="Valor recebido (R$)" type="number" value={recForm.valor} onChange={v=>setRecForm(f=>({...f,valor:v}))}/>
             <Inp label="Data" type="date" value={recForm.data} onChange={v=>setRecForm(f=>({...f,data:v}))}/>
             <Sel label="Forma de pagamento" value={recForm.formaPag} onChange={v=>setRecForm(f=>({...f,formaPag:v}))} options={["PIX","Dinheiro","Cartão de crédito","Cartão de débito","Transferência","Boleto","Outro"]}/>
