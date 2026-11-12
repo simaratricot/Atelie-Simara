@@ -110,8 +110,9 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v99 · 2026-11-12 contas-ids-duplicados";
+const APP_BUILD = "v101 · 2026-11-12 contas-ordem-alfabetica";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
+const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
 // grandes demais pra salvar na nuvem (fotos de celular costumam vir enormes).
@@ -3313,7 +3314,7 @@ const BaixaForm = ({order,contas,onConfirm}) => {
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <Inp label="Valor pago agora (R$)" type="number" value={valor} onChange={setValor}/>
         <Inp label="Data do pagamento" type="date" value={data} onChange={setData}/>
-        <Sel label="Conta que recebeu" value={contaId} onChange={setContaId} options={contas.map(c=>({v:c.id,l:c.nome}))}/>
+        <Sel label="Conta que recebeu" value={contaId} onChange={setContaId} options={porNomeAZ(contas).map(c=>({v:c.id,l:c.nome}))}/>
       </div>
       <div style={{background:C.linho,borderRadius:4,padding:"10px",marginTop:10,textAlign:"center"}}>
         <span style={{fontSize:12,color:C.oliva}}>Saldo restante: </span>
@@ -3789,7 +3790,7 @@ const BaixaModal = ({lancamento,contas,onConfirm,onClose}) => {
         <Inp label="Motivo da diferença (opcional)" value={motivo} onChange={setMotivo} placeholder="Ex: atraso, desconto à vista, arredondamento..."/>
         <Inp label="Data do pagamento" type="date" value={dataPag} onChange={setDataPag}/>
         <Sel label="Banco/Conta" value={contaId} onChange={setContaId}
-          options={[{v:"",l:"Selecionar conta..."},...contas.map(c=>({v:c.id,l:`${c.nome} (${fmtBRL(c.saldo||0)})`}))]}/>
+          options={[{v:"",l:"Selecionar conta..."},...porNomeAZ(contas).map(c=>({v:c.id,l:`${c.nome} (${fmtBRL(c.saldo||0)})`}))]}/>
       </div>
       <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginTop:10,fontSize:12,color:C.cafe}}>
         Original {fmtBRL(orig)}{Number(juros)>0?` + juros ${fmtBRL(Number(juros))}`:""}{Number(desconto)>0?` − desconto ${fmtBRL(Number(desconto))}`:""} = <b>{fmtBRL(esperado)}</b> esperado · {lancamento.type==="receita"?"recebido":"pago"} <b>{fmtBRL(pago)}</b>
@@ -3839,6 +3840,9 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
   const [subCx,setSubCx]=useState("res");
   const [modoPer,setModoPer]=useState("venc"); // Receber/Pagar: venc = vencem no período · pago = pagos no período · ambos
   const [subContas,setSubContas]=useState(initialSubContas);
+  const [confData,setConfData]=useState("2026-01-01");
+  const [confDraft,setConfDraft]=useState({});
+  const [confVinc,setConfVinc]=useState({});
   const [form,setForm]=useState({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
   const formVazio=()=>({type:"receita",desc:"",value:0,date:today,dataVencimento:today,category:"Moda",centrocusto:"Artesanato",tipoNegocio:"Artesanato",formaPagamento:"Dinheiro",cartaoContaId:"",parcelado:false,numParcelas:2,pago:false,fixa:false,diaFixo:10,qtdMeses:12,anoFixo:new Date().getFullYear(),contaId:"",clientName:"",orderId:""});
   const [cForm,setCForm]=useState({nome:"",tipo:"Conta corrente",saldo:0,cor:"#B08D57",limite:0,limitePix:0,diaFechamento:1,diaVencimento:10,titular:"Simara",frente:""});
@@ -4120,7 +4124,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {tab==="contas"&&<div>
         <div style={{display:"flex",gap:6,marginBottom:14}}>
-          {[{k:"contas",l:"Saldos"},{k:"cartao",l:"💳 Faturas do cartão"}].map(s=><button key={s.k} onClick={()=>setSubContas(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subContas===s.k?C.cafe:C.areia}`,background:subContas===s.k?C.cafe:"transparent",color:subContas===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
+          {[{k:"contas",l:"Saldos"},{k:"cartao",l:"💳 Faturas do cartão"},{k:"conferir",l:"🧮 Conferir saldos"}].map(s=><button key={s.k} onClick={()=>setSubContas(s.k)} style={{padding:"5px 13px",borderRadius:20,border:`1.5px solid ${subContas===s.k?C.cafe:C.areia}`,background:subContas===s.k?C.cafe:"transparent",color:subContas===s.k?"#fff":C.cafe,fontSize:12,fontWeight:700,cursor:"pointer"}}>{s.l}</button>)}
         </div>
         {subContas==="contas"&&(()=>{
           const naoCartao=contas.filter(c=>c.tipo!=="Cartão de crédito");
@@ -4168,6 +4172,83 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
               </div>);})}
           </div>}
           </>);
+        })()}
+        {subContas==="conferir"&&(()=>{
+          const contasConf=contas.filter(c=>c.tipo!=="Cartão de crédito");
+          const dataEf=(f)=>f.dataPagamento||f.date||f.dataVencimento||"";
+          const calc=(c)=>{
+            const ini=c.saldoInicialData||confData;
+            const mov=finance.filter(f=>f.pago&&f.contaId===c.id&&dataEf(f)>=ini);
+            const rec=mov.filter(f=>f.type==="receita").reduce((a,f)=>a+vef(f),0);
+            const pag=mov.filter(f=>f.type==="despesa").reduce((a,f)=>a+vef(f),0);
+            const siTxt=confDraft[c.id]!==undefined?confDraft[c.id]:(c.saldoInicial!==undefined&&c.saldoInicial!==null?String(c.saldoInicial):"");
+            const informado=siTxt!==""&&!isNaN(Number(siTxt));
+            const si=informado?Number(siTxt):0;
+            return {rec,pag,n:mov.length,siTxt,informado,calculado:si+rec-pag};
+          };
+          const semConta=finance.filter(f=>f.pago&&!f.contaId&&!f.isTransferencia&&dataEf(f)>=confData).sort((a,b)=>dataEf(a).localeCompare(dataEf(b)));
+          const salvarIniciais=()=>{
+            setContas(prev=>prev.map(c=>{if(confDraft[c.id]===undefined)return c;const v=confDraft[c.id];return v===""?c:{...c,saldoInicial:Number(v),saldoInicialData:confData};}));
+            setConfDraft({});showSavedGlobal("Saldos iniciais salvos! O saldo gravado das contas NÃO foi alterado.");
+          };
+          const usarCalculado=(c,valor)=>{
+            if(!window.confirm(`Trocar o saldo de "${c.nome}" de ${fmtBRL(c.saldo||0)} para ${fmtBRL(valor)}?\n\nOs lançamentos não mudam, só o número do saldo da conta.`))return;
+            setContas(prev=>prev.map(x=>x.id===c.id?{...x,saldo:Math.round(valor*100)/100}:x));
+            showSavedGlobal("Saldo da conta atualizado!");
+          };
+          const vincular=(f)=>{
+            const cid=confVinc[f.id];if(!cid)return;
+            setFinance(prev=>prev.map(x=>x.id===f.id?{...x,contaId:cid}:x));
+            setConfVinc(v=>{const n={...v};delete n[f.id];return n;});
+            showSavedGlobal("Conta vinculada ao lançamento! (o saldo gravado não muda)");
+          };
+          const inp={padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:13,background:C.linho,width:110};
+          return(<div>
+            <div style={{background:C.linho,borderRadius:8,padding:"12px 14px",marginBottom:14,fontSize:12,color:C.cafe,lineHeight:1.6}}>
+              <b>Como funciona:</b> informe o <b>saldo inicial</b> de cada conta na data de início. O sistema soma os recebimentos e pagamentos já baixados daquela conta desde essa data e mostra o <b>saldo calculado</b> ao lado do saldo gravado. Nada muda sozinho: você escolhe se quer usar o valor calculado. Nenhum lançamento é apagado ou alterado aqui.
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
+              <span style={{fontSize:12,fontWeight:700,color:C.cafe}}>Data de início da conferência:</span>
+              <input type="date" value={confData} onChange={e=>setConfData(e.target.value)} style={{...inp,width:150}}/>
+              <span style={{fontSize:11,color:C.oliva}}>Só entram baixas a partir desta data.</span>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8}}>Passo 1 — Baixas sem conta ({semConta.length})</div>
+            {semConta.length===0?<div style={{fontSize:12,color:C.oliva,marginBottom:14}}>Nenhuma baixa sem conta a partir de {fmtDate(confData)}. ✓</div>:
+            <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,marginBottom:14,overflow:"hidden"}}>
+              {semConta.map(f=>(<div key={f.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"8px 12px",borderTop:`1px solid ${C.linho}`}}>
+                <span style={{fontSize:11,color:C.oliva,width:78}}>{fmtDate(dataEf(f))}</span>
+                <span style={{flex:1,minWidth:160,fontSize:12,color:C.cafe}}>{f.type==="receita"?"➕":"➖"} {f.desc}</span>
+                <span style={{fontSize:13,fontWeight:700,color:f.type==="receita"?C.verde:C.vermelho}}>{fmtBRL(vef(f))}</span>
+                <select value={confVinc[f.id]||""} onChange={e=>setConfVinc(v=>({...v,[f.id]:e.target.value}))} style={{...inp,width:170}}>
+                  <option value="">Escolher conta…</option>
+                  {contasConf.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+                <Btn sm v="ghost" onClick={()=>vincular(f)}>Vincular</Btn>
+              </div>))}
+            </div>}
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",color:C.oliva,marginBottom:8}}>Passo 2 — Saldo inicial e conferência</div>
+            <div style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:C.linho,textAlign:"left"}}>{["Conta","Saldo inicial","Recebido","Pago","Calculado","Gravado","Diferença",""].map(h=><th key={h} style={{padding:"8px 10px",fontSize:10,letterSpacing:"1px",textTransform:"uppercase",color:C.cafe}}>{h}</th>)}</tr></thead>
+                <tbody>{contasConf.map(c=>{const r=calc(c);const dif=r.informado?Math.round((r.calculado-Number(c.saldo||0))*100)/100:null;return(
+                  <tr key={c.id} style={{borderTop:`1px solid ${C.linho}`}}>
+                    <td style={{padding:"8px 10px",fontWeight:600}}>{c.nome}</td>
+                    <td style={{padding:"8px 10px"}}><input type="number" placeholder="0,00" value={r.siTxt} onChange={e=>setConfDraft(d=>({...d,[c.id]:e.target.value}))} style={inp}/></td>
+                    <td style={{padding:"8px 10px",color:C.verde}}>{fmtBRL(r.rec)}</td>
+                    <td style={{padding:"8px 10px",color:C.vermelho}}>{fmtBRL(r.pag)}</td>
+                    <td style={{padding:"8px 10px",fontWeight:700}}>{r.informado?fmtBRL(r.calculado):"—"}</td>
+                    <td style={{padding:"8px 10px"}}>{fmtBRL(c.saldo||0)}</td>
+                    <td style={{padding:"8px 10px",fontWeight:700,color:dif===null?C.oliva:Math.abs(dif)<0.01?C.verde:C.vermelho}}>{dif===null?"informe o inicial":Math.abs(dif)<0.01?"✓ confere":fmtBRL(dif)}</td>
+                    <td style={{padding:"8px 10px"}}>{r.informado&&dif!==null&&Math.abs(dif)>=0.01&&<Btn sm v="ghost" onClick={()=>usarCalculado(c,r.calculado)}>Usar calculado</Btn>}</td>
+                  </tr>);})}</tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:12}}>
+              <Btn onClick={salvarIniciais} disabled={Object.keys(confDraft).length===0}>💾 Salvar saldos iniciais</Btn>
+              <span style={{fontSize:11,color:C.oliva}}>Salvar os saldos iniciais não altera o saldo gravado nem os lançamentos. Só guarda o ponto de partida para a conferência.</span>
+            </div>
+            <div style={{fontSize:11,color:C.oliva,marginTop:10,lineHeight:1.5}}>Dica: o saldo inicial é o dinheiro que a conta tinha no início da conferência (veja no extrato do banco). Se a diferença sobrar, falta lançar ou vincular alguma baixa. Se ela confere, o saldo gravado está certo.</div>
+          </div>);
         })()}
         {subContas==="cartao"&&<>
         {cartoes.length===0?<div style={{textAlign:"center",padding:"30px",color:C.oliva,fontFamily:"'Cormorant Garamond',serif",fontStyle:"italic",fontSize:14}}>Nenhum cartão de crédito cadastrado ainda — crie um na aba "Saldos", em "+ Nova conta/cartão" ✦</div>:
@@ -4498,8 +4579,8 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
 
       {transModal&&<Modal title="Transferência entre contas" onClose={()=>setTransModal(false)}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Sel label="Da conta" value={tForm.de} onChange={v=>setTForm(f=>({...f,de:v}))} options={contas.map(c=>({v:c.id,l:c.nome}))}/>
-          <Sel label="Para conta" value={tForm.para} onChange={v=>setTForm(f=>({...f,para:v}))} options={contas.map(c=>({v:c.id,l:c.nome}))}/>
+          <Sel label="Da conta" value={tForm.de} onChange={v=>setTForm(f=>({...f,de:v}))} options={porNomeAZ(contas).map(c=>({v:c.id,l:c.nome}))}/>
+          <Sel label="Para conta" value={tForm.para} onChange={v=>setTForm(f=>({...f,para:v}))} options={porNomeAZ(contas).map(c=>({v:c.id,l:c.nome}))}/>
           <Inp label="Valor (R$)" type="number" value={tForm.valor} onChange={v=>setTForm(f=>({...f,valor:v}))}/>
           <Inp label="Data" type="date" value={tForm.data} onChange={v=>setTForm(f=>({...f,data:v}))}/>
           <Inp label="Observação" value={tForm.nota} onChange={v=>setTForm(f=>({...f,nota:v}))}/>
@@ -4526,7 +4607,7 @@ const PFConfirmMov = ({registro,contas,tipo,onConfirm,onCancel}) => {
         <Inp label={tipo==="pagar"?"Valor pago agora (R$)":"Valor recebido agora (R$)"} type="number" value={valor} onChange={setValor}/>
         <Inp label={tipo==="pagar"?"Data do pagamento":"Data do recebimento"} type="date" value={data} onChange={setData}/>
         {contas.length>0?
-          <Sel label={tipo==="pagar"?"Conta de onde saiu":"Conta que recebeu"} value={contaId} onChange={setContaId} options={contas.map(c=>({v:c.id,l:c.nome}))}/>:
+          <Sel label={tipo==="pagar"?"Conta de onde saiu":"Conta que recebeu"} value={contaId} onChange={setContaId} options={porNomeAZ(contas).map(c=>({v:c.id,l:c.nome}))}/>:
           <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Nenhuma conta cadastrada ainda — cadastre em "Contas/Cartões" pra poder escolher aqui. Pode confirmar sem escolher conta por enquanto.</div>}
       </div>
       {restante>0&&<div style={{background:"#FEF3E9",borderRadius:4,padding:"10px",marginTop:10,textAlign:"center"}}>
