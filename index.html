@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v101 · 2026-11-12 contas-ordem-alfabetica";
+const APP_BUILD = "v102 · 2026-11-12 vincular-recebimento-medicao";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -13059,6 +13059,8 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const recDefault={id:null,data:today,valor:0,formaPag:"PIX",medicaoId:"",obs:""};
   const [recForm,setRecForm]=useState(recDefault);
   const [recFormOpen,setRecFormOpen]=useState(false);
+  const [vincRecId,setVincRecId]=useState(null);
+  const [vincMedId,setVincMedId]=useState("");
   useEffect(()=>{setServFormOpen(false);setMedFormOpen(false);setRecFormOpen(false);setMedSelecionados([]);},[selId,modal]);
 
   const filtered=obras.filter(o=>{
@@ -13328,6 +13330,17 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     setFinance(prev=>[...prev,{id:finId,type:"receita",tipoReceita:"Obras",tipoNegocio:"Obras",centrocusto:"Obras",desc:`Obra — ${sel.clienteNome} — recebimento${recForm.obs?` — ${recForm.obs}`:""}`,value:valor,date:recForm.data||today,dataVencimento:recForm.data||today,formaPag:recForm.formaPag||"PIX",pago:false,category:"Obras",clientName:sel.clienteNome,pedidoId:sel.id}]);
     setRecFormOpen(false);showSavedGlobal("Recebimento registrado! Agora é só ir em Financeiro → A Receber pra dar baixa e escolher a conta.");
   };
+  // Vincular (ou trocar/desvincular) um recebimento já lançado a uma medição — não mexe no Financeiro nem nos saldos.
+  const vincularRecebimento=(r,medId)=>{
+    if(!sel)return;
+    if(medId){
+      const m=(sel.medicoes||[]).find(x=>x.id===medId);
+      if(m&&Number(r.valor||0)>saldoMedicao(sel,m)+0.005&&!window.confirm("Esse recebimento é maior que o saldo em aberto da medição escolhida. Vincular mesmo assim?"))return;
+    }
+    setObras(prev=>prev.map(o=>o.id===sel.id?{...o,recebimentos:(o.recebimentos||[]).map(x=>x.id===r.id?{...x,medicaoId:medId||""}:x)}:o));
+    setVincRecId(null);setVincMedId("");
+    showSavedGlobal(medId?"Recebimento vinculado à medição!":"Recebimento voltou a ficar avulso.");
+  };
   const excluirRecebimento=r=>{
     if(!sel||!window.confirm("Excluir este recebimento? O lançamento no financeiro também será removido (e, se já tiver sido baixado, o saldo da conta será revertido)."))return;
     const finEntry=finance.find(f=>f.id===r.financeiroId);
@@ -13567,9 +13580,15 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
                   <div style={{fontSize:13,fontWeight:700}}>{fmtBRL(r.valor)} <span style={{fontSize:10,color:C.oliva,fontWeight:400}}>· {r.formaPag}</span></div>
                   <div style={{fontSize:11,color:C.oliva}}>{fmtDate(r.data)}{r.medicaoId?" · vinculado a medição":" · avulso"}{statusTxt?` · ${statusTxt}`:""}{r.obs?` · ${r.obs}`:""}</div>
                 </div>
+                <Btn sm v="ghost" onClick={()=>{setVincRecId(vincRecId===r.id?null:r.id);setVincMedId(r.medicaoId||"");}}>{r.medicaoId?"🔗 Trocar medição":"🔗 Vincular medição"}</Btn>
                 <Btn sm v="ghost" onClick={()=>gerarReciboRecebimento(r)}>🧾 Recibo</Btn>
                 <Btn sm v="danger" onClick={()=>excluirRecebimento(r)}>✕</Btn>
               </div>
+              {vincRecId===r.id&&<div style={{marginTop:10,background:C.linho,borderRadius:6,padding:10,display:"flex",flexDirection:"column",gap:8}}>
+                <Sel label="Vincular a qual medição?" value={vincMedId} onChange={setVincMedId} options={[{v:"",l:"Avulso (sem medição)"},...((sel.medicoes||[]).filter(m=>m.status!=="Cancelada"&&(m.id===r.medicaoId||saldoMedicao(sel,m)>0)).map(m=>({v:m.id,l:`Medição ${fmtDate(m.data)} — saldo ${fmtBRL(saldoMedicao(sel,m))}`})))]}/>
+                <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Só liga o recebimento à medição. O valor no Financeiro e o saldo da conta não mudam.</div>
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn v="ghost" sm onClick={()=>setVincRecId(null)}>Cancelar</Btn><Btn sm v="oliva" onClick={()=>vincularRecebimento(r,vincMedId)}>✓ Salvar vínculo</Btn></div>
+              </div>}
             </Card>;
           })}
         </div>}
