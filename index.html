@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v96 · 2026-11-11 orcamento-itens-cobranca";
+const APP_BUILD = "v98 · 2026-11-12 agenda-sem-checklist-fixo";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -1523,19 +1523,6 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
               style={{fontSize:11,background:C.dourado,border:"none",color:"#fff",padding:"6px 14px",borderRadius:20,cursor:"pointer",fontWeight:600}}>🖼️ Baixar Story</button>
           </div>
         </>}
-        {/* Linha divisória */}
-        <div style={{height:1,background:"rgba(255,255,255,0.2)",marginBottom:14}}/>
-        {/* Botões rápidos */}
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-          <button onClick={()=>setView("diario")}
-            style={{fontSize:11,background:"rgba(255,255,255,0.12)",border:"1.5px solid rgba(255,255,255,0.25)",color:C.branco,padding:"7px 16px",borderRadius:20,cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:5}}>✍🏻 Nova carta</button>
-          <button onClick={()=>setFraseModal(true)}
-            style={{fontSize:11,background:"rgba(255,255,255,0.18)",border:"1.5px solid rgba(255,255,255,0.3)",color:C.branco,padding:"7px 16px",borderRadius:20,cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:5}}>✨ Nova frase</button>
-          <button onClick={()=>setInspModal(true)}
-            style={{fontSize:11,background:"rgba(255,255,255,0.08)",border:"1.5px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.9)",padding:"7px 16px",borderRadius:20,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>💡 Sem inspiração</button>
-          <button onClick={()=>setEncerrModal(true)}
-            style={{fontSize:11,background:"rgba(0,0,0,0.18)",border:"1.5px solid rgba(255,255,255,0.25)",color:"rgba(255,255,255,0.9)",padding:"7px 16px",borderRadius:20,cursor:"pointer",marginLeft:"auto",display:"flex",alignItems:"center",gap:5}}>🌙 Encerrar dia</button>
-        </div>
       </div>{/* fecha saudação */}
 
       {/* FOCO DO DIA · AGENDA DE HOJE · CONTEÚDO DE HOJE */}
@@ -1760,6 +1747,14 @@ const Dashboard = ({orders,finance,stockSup,frases,clients,config,compromissos,s
             style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>📦 Nova encomenda</button>
           <button onClick={()=>setView("agenda")}
             style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>📣 Novo conteúdo</button>
+          <button onClick={()=>setView("diario")}
+            style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>✍🏻 Nova carta</button>
+          <button onClick={()=>setFraseModal(true)}
+            style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>✨ Nova frase</button>
+          <button onClick={()=>setInspModal(true)}
+            style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>💡 Sem inspiração</button>
+          <button onClick={()=>setEncerrModal(true)}
+            style={{fontSize:11,background:"#fff",border:`1px solid ${C.areia}`,color:C.cafe,padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>🌙 Encerrar dia</button>
           <button onClick={()=>setView("fin_receber")}
             style={{fontSize:11,background:C.dourado,border:"none",color:"#fff",padding:"7px 14px",borderRadius:20,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>💰 Registrar receita</button>
         </div>
@@ -5697,41 +5692,6 @@ const Agenda = ({orders,compromissos,setCompromissos,publicacoes,setPublicacoes,
               <Btn sm onClick={()=>{setForm({desc:"",data:getDiaStr(diaSel),hora:"",prioridade:"Normal",status:"Pendente",tipo:"Compromisso",repetir:"nao",diasSemanaRep:[],repetirAte:""});setModal("comp");}}>+ Compromisso</Btn>
               <Btn sm v="ghost" onClick={()=>{setFormPub({data:getDiaStr(diaSel),tipo:"",status:"Pendente",obs:""});setModal("pub");}}>+ Publicação</Btn>
             </div>
-          </div>
-
-          {/* CHECKLIST DE TAREFAS DIÁRIAS */}
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,fontWeight:700,color:C.oliva,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:8}}>✅ Tarefas do dia</div>
-            {TIPOS_PUB.map(tarefa=>{
-              const dStr=getDiaStr(diaSel);
-              const pub=publicacoes.find(p=>p.data===dStr&&p.tipo===tarefa);
-              const conc=pub?.status==="Concluído";
-              return(
-                <div key={tarefa} onClick={()=>{
-                  if(pub){
-                    setPublicacoes(prev=>prev.map(x=>x.id===pub.id?{...x,status:conc?"Pendente":"Concluído"}:x));
-                  } else {
-                    setPublicacoes(prev=>[...prev,{id:uid(),data:dStr,tipo:tarefa,status:"Concluído",obs:""}]);
-                  }
-                }} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 8px",marginBottom:3,borderRadius:4,cursor:"pointer",background:conc?"#EDF7ED":"transparent",transition:"all 0.2s"}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{conc?"✅":"⬜"}</span>
-                  <span style={{fontSize:12,textDecoration:conc?"line-through":"none",color:conc?C.oliva:C.cafe}}>{tarefa}</span>
-                </div>
-              );
-            })}
-            {(()=>{
-              const dStr=getDiaStr(diaSel);
-              const total=TIPOS_PUB.length;
-              const conc=publicacoes.filter(p=>p.data===dStr&&p.status==="Concluído").length;
-              const pct=Math.round((conc/total)*100);
-              return<div style={{marginTop:8,padding:"6px 8px",background:C.linho,borderRadius:4}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}>
-                  <span style={{color:C.oliva}}>{conc}/{total} concluídas</span>
-                  <span style={{fontWeight:700,color:pct===100?C.verde:C.cafe}}>{pct}%</span>
-                </div>
-                <PBar pct={pct} color={pct===100?C.verde:C.cafe} h={4}/>
-              </div>;
-            })()}
           </div>
 
           {/* Encomendas do dia */}
