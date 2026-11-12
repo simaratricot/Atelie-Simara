@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v98 · 2026-11-12 agenda-sem-checklist-fixo";
+const APP_BUILD = "v99 · 2026-11-12 contas-ids-duplicados";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
 // Lê a imagem e já reduz/comprime antes de guardar — evita que os produtos fiquem
@@ -13892,6 +13892,18 @@ function App() {
     setFinance(prev=>prev.map(f=>(!f.isTransferencia&&(!f.centrocusto||f.centrocusto==="Vendas"))?{...f,centrocusto:f.tipoNegocio||"Artesanato"}:f));
     setConfig(c=>({...c,ccPorFrenteMigrado:true}));
   },[finance,config.ccPorFrenteMigrado]);
+  // Contas com o MESMO id (duplicadas por restauração/migração): excluir ou editar uma mexia em todas.
+  // Aqui só damos um id novo às repetidas — nome, saldo e dados permanecem exatamente como estão.
+  useEffect(()=>{
+    if(!_fbLoaded.contas||!Array.isArray(contas)||!contas.length)return;
+    const vistos=new Set();let achou=false;
+    const novas=contas.map(c=>{
+      if(c&&c.id!=null&&vistos.has(c.id)){achou=true;return {...c,id:uid()+"x"};}
+      if(c&&c.id!=null)vistos.add(c.id);
+      return c;
+    });
+    if(achou)setContas(novas);
+  },[contas]);
   const finMigRodou=useRef(false);
   useEffect(()=>{
     if(finMigRodou.current)return;
@@ -13938,7 +13950,8 @@ function App() {
       if((personalContasAtual||[]).length){
         setContas(prev=>{
           const nomesExistentes=new Set(prev.map(c=>c.nome));
-          const novas=personalContasAtual.filter(c=>!nomesExistentes.has(c.nome)).map(c=>({
+          const idsExistentes=new Set(prev.map(c=>c.id));
+          const novas=personalContasAtual.filter(c=>!nomesExistentes.has(c.nome)&&!idsExistentes.has(c.id)).map(c=>({
             id:c.id,nome:c.nome,tipo:c.tipo==="Cartão"?"Cartão de crédito":(c.tipo||"Conta corrente"),
             saldo:0,cor:c.tipo==="Cartão"?"#8E44AD":"#B08D57",
             limite:Number(c.limite)||0,diaFechamento:Number(c.diaFechamento)||1,diaVencimento:Number(c.diaVencimento)||10,
