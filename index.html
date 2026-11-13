@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v105 · 2026-11-13 obra-fotos-termo";
+const APP_BUILD = "v106 · 2026-11-13 orcamento-modelos-obs";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -6899,6 +6899,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:"",valor:Number(escopoVal)||0}]}));
     setEscopoTxt("");setEscopoVal("");setOrcSujo(true);
   };
+  const obsEscopoItem=(id,v)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).map(e=>e.id===id?{...e,obs:v}:e)}));setOrcSujo(true);};
   const valorEscopoItem=(id,v)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).map(e=>e.id===id?{...e,valor:v===""?"":Number(v)}:e)}));setOrcSujo(true);};
   const cobrarItemEscopo=(e)=>{setForm({valor:Number(e.valor)||"",dataVencimento:"",formaPag:orc.formaPagamento||"PIX",obs:e.texto});setModal("lanc");};
   const removerEscopoItem=(id)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).filter(e=>e.id!==id)}));setOrcSujo(true);};
@@ -7218,7 +7219,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
     const atencao=completo?pcPontosAtencao(respostas):[];
     const direcionamento=completo?pcDirecionamento(nivel):"";
     const temValorItens=(o.escopo||[]).some(e=>Number(e.valor)>0);
-    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}${Number(e.valor)>0?` — <b>${fmtBRL(Number(e.valor))}</b>`:""}</li>`).join("");
+    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.obs?`<b>${e.texto}</b>`:e.texto}${Number(e.valor)>0?` — <b>${fmtBRL(Number(e.valor))}</b>`:""}${e.obs?`<div style="font-size:12px;color:#555;white-space:pre-line;margin-top:2px">${String(e.obs).replace(/</g,"&lt;")}</div>`:""}</li>`).join("");
     const formatoTxt=o.formato==="Online"?"Atendimento 100% online.":o.formato==="Presencial"?"Atendimento presencial.":"Atendimento híbrido (online e presencial).";
     const validade=new Date(Date.now()+(Number(o.validadeDias)||15)*86400000).toLocaleDateString("pt-BR");
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Orçamento — ${p.nome}</title><style>${pcDocStyles}</style></head><body>
@@ -7981,13 +7982,14 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
       {(orc.escopo||[]).length===0
         ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
         :(orc.escopo||[]).map(e=>(
-          <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
+          <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
             <span style={{flex:1,color:C.cafe,minWidth:140}}>{e.texto}</span>
             {e.prioridadeId&&<span style={{fontSize:10,color:C.oliva}}>🔗 prioridade</span>}
             <span style={{fontSize:11,color:C.oliva}}>R$</span>
             <input type="number" value={e.valor===undefined?"":e.valor} placeholder="0" onChange={ev=>valorEscopoItem(e.id,ev.target.value)} style={{width:100,padding:"5px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:13,background:C.linho}}/>
             <Btn sm v="ghost" onClick={()=>cobrarItemEscopo(e)}>💰 Cobrar</Btn>
             <Btn sm v="ghost" onClick={()=>removerEscopoItem(e.id)}>🗑</Btn>
+            <textarea value={e.obs||""} onChange={ev=>obsEscopoItem(e.id,ev.target.value)} rows={2} placeholder="Descrição / observação deste serviço (aparece embaixo do nome no orçamento)" style={{flexBasis:"100%",padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:12,background:C.linho,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"}}/>
           </div>))}
       {(orc.escopo||[]).length>0&&calc.itens>0&&<div style={{textAlign:"right",fontSize:13,color:C.cafe,margin:"4px 0 10px"}}>Soma dos itens: <b>{fmtBRL(calc.itens)}</b> <span style={{fontSize:11,color:C.oliva}}>(entra no valor do orçamento)</span></div>}
 
@@ -13768,6 +13770,20 @@ const Obras=({obras=[],setObras,obrasFotos=[],setObrasFotos,finance=[],setFinanc
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 // ─── ORÇAMENTOS AVULSOS DE CONSULTORIA (mesmo modelo do orçamento do Projeto CONTÍNUA, sem o Método) ───
 // Ao ser aprovado, vira um pedido na aba "Pedidos e atendimentos".
+// Modelos prontos de escopo para o orçamento avulso (botões). Só ADICIONAM itens; tudo pode ser editado/removido depois.
+const ORC_PRESETS={
+  metodo:{titulo:"Projeto Método CONTÍNUA",objetivo:"Organizar a gestão do negócio com método, do diagnóstico à rotina, para gerar resultado de forma contínua.",itens:[
+    ["Diagnóstico do negócio","Levantamento da situação atual nas áreas comercial, financeira, organizacional e de planejamento, com identificação dos principais problemas e gargalos."],
+    ["Priorização dos problemas","Definição do que é mais crítico e urgente, para começar pelo que traz mais resultado."],
+    ["Plano de ação","Plano com ações práticas, responsáveis e prazos, organizado por área e nível de maturidade do negócio."],
+    ["Execução acompanhada","Acompanhamento da aplicação das ações no dia a dia, com orientação e ajustes ao longo do caminho."],
+    ["Indicadores e acompanhamento","Definição dos indicadores, medição da evolução do plano e revisões periódicas."]]},
+  implantacao:{titulo:"Implantação do sistema CONTÍNUA",objetivo:"Colocar o sistema de gestão para funcionar na rotina do negócio, com treinamento prático de uso.",itens:[
+    ["Configuração inicial do sistema","Configuração do sistema para a realidade do negócio: dados da empresa, cadastros e ajustes iniciais."],
+    ["Treinamento prático de uso","Treinamento aplicado, usando o próprio negócio como exemplo, para a equipe aprender a usar no dia a dia."],
+    ["Orientação da rotina de lançamentos","Combinados de como e quando lançar vendas, pagamentos e demais registros para o sistema ficar sempre em dia."],
+    ["Acompanhamento pós-implantação","Suporte para tirar dúvidas e corrigir o uso nos primeiros dias, até a rotina ficar firme."]]}
+};
 const orcNovoRegistro=()=>({id:null,clienteNome:"",phone:"",cpfCnpj:"",empresa:"",titulo:"",objetivo:"",criadoEm:pcHoje(),orcamento:pcOrcDefault()});
 // converte orçamentos criados no formato antigo (lista de itens) para o formato novo
 const orcMigrarLegado=(o)=>{
@@ -13803,6 +13819,15 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
   };
   const addEscopo=()=>{const t=escopoTxt.trim();if(!t)return;O("escopo",[...(edit.orcamento.escopo||[]),{id:uid(),texto:t}]);setEscopoTxt("");};
   const rmEscopo=(id)=>O("escopo",(edit.orcamento.escopo||[]).filter(e=>e.id!==id));
+  const obsEscopo=(id,v)=>O("escopo",(edit.orcamento.escopo||[]).map(e=>e.id===id?{...e,obs:v}:e));
+  const addPreset=(k)=>{
+    const pr=ORC_PRESETS[k];if(!pr)return;
+    const atuais=edit.orcamento.escopo||[];
+    const jaTem=new Set(atuais.map(e=>e.texto));
+    const novos=pr.itens.filter(i=>!jaTem.has(i[0])).map(i=>({id:uid(),texto:i[0],obs:i[1]}));
+    setEdit(e=>({...e,titulo:e.titulo||pr.titulo,objetivo:e.objetivo||pr.objetivo,orcamento:{...e.orcamento,escopo:[...atuais,...novos]}}));
+    setSujo(true);
+  };
 
   const guardar=(rec)=>{
     const id=rec.id||proximoId();
@@ -13839,7 +13864,7 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
   // ── documento (mesmo padrão visual do orçamento do Projeto CONTÍNUA) ──
   const montarDoc=(rec)=>{
     const o=rec.orcamento,calc=pcCalcOrcamento(o);
-    const escopoLinhas=(o.escopo||[]).map(e=>`<li>${e.texto}</li>`).join("");
+    const escopoLinhas=(o.escopo||[]).map(e=>`<li><b>${e.texto}</b>${e.obs?`<div style="font-size:12px;color:#555;white-space:pre-line;margin-top:2px">${String(e.obs).replace(/</g,"&lt;")}</div>`:""}</li>`).join("");
     const formatoTxt=o.formato==="Online"?"Atendimento 100% online.":o.formato==="Presencial"?"Atendimento presencial.":"Atendimento híbrido (online e presencial).";
     const validade=new Date(Date.now()+(Number(o.validadeDias)||15)*86400000).toLocaleDateString("pt-BR");
     const hdr=`<div class="hdr"><div><div class="hdr-nome">SIMARA LOBUI</div><div class="hdr-sub">Consultoria Comercial e Administrativa</div></div><div class="hdr-doc"><b>ORÇAMENTO</b><br>Nº ${rec.id||"—"}<br>Status: ${o.status}<br>Emissão: ${new Date().toLocaleDateString("pt-BR")}</div></div>`;
@@ -13944,16 +13969,22 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
       </div>
 
       <Divider label="Escopo do trabalho"/>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,color:C.oliva,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.6px"}}>Modelo pronto:</span>
+        <Btn sm v="oliva" onClick={()=>addPreset("metodo")}>🌿 Projeto Método CONTÍNUA</Btn>
+        <Btn sm v="oliva" onClick={()=>addPreset("implantacao")}>⚙️ Implantação do sistema</Btn>
+        <span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Adiciona os itens com descrição; você edita ou apaga o que quiser.</span>
+      </div>
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200}}><Inp placeholder="Descreva um item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
+        <div style={{flex:1,minWidth:200}}><Inp placeholder="Nome do serviço / item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
         <Btn sm onClick={addEscopo}>+ Adicionar</Btn>
       </div>
       {(o.escopo||[]).length===0
         ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
         :(o.escopo||[]).map(e=>(
-          <div key={e.id} style={{display:"flex",gap:8,alignItems:"center",background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
-            <span style={{flex:1,color:C.cafe}}>{e.texto}</span>
-            <Btn sm v="ghost" onClick={()=>rmEscopo(e.id)}>🗑</Btn>
+          <div key={e.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:13}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{flex:1,color:C.cafe,fontWeight:600}}>{e.texto}</span><Btn sm v="ghost" onClick={()=>rmEscopo(e.id)}>🗑</Btn></div>
+            <textarea value={e.obs||""} onChange={ev=>obsEscopo(e.id,ev.target.value)} rows={2} placeholder="Descrição / observação deste serviço (aparece embaixo do nome no orçamento)" style={{width:"100%",marginTop:6,padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:12,background:C.linho,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"}}/>
           </div>))}
 
       <Divider label="Formato de atendimento"/>
