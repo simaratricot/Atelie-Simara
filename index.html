@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v106 · 2026-11-13 orcamento-modelos-obs";
+const APP_BUILD = "v107 · 2026-11-13 orc-destino-opcoes";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -6892,12 +6892,13 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   // ── orçamento ──
   const [escopoTxt,setEscopoTxt]=useState("");
   const [escopoVal,setEscopoVal]=useState("");
+  const [escopoObsP,setEscopoObsP]=useState("");
   const O=(k,v)=>{setOrc(o=>({...o,[k]:v}));setOrcSujo(true);};
   const addEscopoItem=()=>{
     const t=String(escopoTxt||"").trim();
     if(!t)return;
-    setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:"",valor:Number(escopoVal)||0}]}));
-    setEscopoTxt("");setEscopoVal("");setOrcSujo(true);
+    setOrc(o=>({...o,escopo:[...(o.escopo||[]),{id:uid(),texto:t,prioridadeId:"",valor:Number(escopoVal)||0,obs:String(escopoObsP||"").trim()}]}));
+    setEscopoTxt("");setEscopoVal("");setEscopoObsP("");setOrcSujo(true);
   };
   const obsEscopoItem=(id,v)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).map(e=>e.id===id?{...e,obs:v}:e)}));setOrcSujo(true);};
   const valorEscopoItem=(id,v)=>{setOrc(o=>({...o,escopo:(o.escopo||[]).map(e=>e.id===id?{...e,valor:v===""?"":Number(v)}:e)}));setOrcSujo(true);};
@@ -7974,8 +7975,9 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
 
       <Divider label="Escopo do projeto"/>
       <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200}}><Inp placeholder="Descreva um item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
+        <div style={{flex:1,minWidth:200}}><Inp placeholder="Nome do serviço / item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
         <div style={{width:140}}><Inp type="number" placeholder="Valor (R$)" value={escopoVal} onChange={setEscopoVal}/></div>
+        <div style={{flexBasis:"100%"}}><Inp rows={2} placeholder="Observações do serviço (opcional) — descrição do que será feito" value={escopoObsP} onChange={setEscopoObsP}/></div>
         <Btn sm onClick={addEscopoItem}>+ Adicionar</Btn>
         {priorDisponiveis.length>0&&<Btn sm v="ghost" onClick={importarPrioridadesEscopo}>📥 Trazer das prioridades</Btn>}
       </div>
@@ -13784,7 +13786,7 @@ const ORC_PRESETS={
     ["Orientação da rotina de lançamentos","Combinados de como e quando lançar vendas, pagamentos e demais registros para o sistema ficar sempre em dia."],
     ["Acompanhamento pós-implantação","Suporte para tirar dúvidas e corrigir o uso nos primeiros dias, até a rotina ficar firme."]]}
 };
-const orcNovoRegistro=()=>({id:null,clienteNome:"",phone:"",cpfCnpj:"",empresa:"",titulo:"",objetivo:"",criadoEm:pcHoje(),orcamento:pcOrcDefault()});
+const orcNovoRegistro=()=>({id:null,clienteNome:"",phone:"",cpfCnpj:"",empresa:"",titulo:"",objetivo:"",destino:"",criadoEm:pcHoje(),orcamento:pcOrcDefault()});
 // converte orçamentos criados no formato antigo (lista de itens) para o formato novo
 const orcMigrarLegado=(o)=>{
   if(o.orcamento)return o;
@@ -13793,6 +13795,7 @@ const orcMigrarLegado=(o)=>{
   return {id:o.id,clienteNome:o.cliente||"",phone:o.phone||"",cpfCnpj:"",empresa:"",titulo:o.titulo||"",objetivo:"",criadoEm:o.data||pcHoje(),pedidoId:o.pedidoId||"",
     orcamento:{...pcOrcDefault(),escopo:itens.map(i=>({id:uid(),texto:`${Number(i.qtd)>1?i.qtd+"x ":""}${i.desc}`})),ajusteManual:true,valorManual:total,motivoAjuste:"Valor do orçamento original",formaPagamento:o.formaPag||"PIX",cronograma:o.prazo||"",status:o.status||"Rascunho"}};
 };
+const ORC_DESTINOS={metodo:"Projeto Método CONTÍNUA",implantacao:"Implantação do sistema"};
 const orcValidadeTxt=(o)=>{const base=o.dataEnvio||o.criadoEm||pcHoje();const d=new Date(base+"T00:00");d.setDate(d.getDate()+(Number(o.orcamento.validadeDias)||15));return d.toLocaleDateString("pt-BR");};
 const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsultoria,config}) => {
   const [edit,setEdit]=useState(null);
@@ -13800,6 +13803,7 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
   const [filtro,setFiltro]=useState("Abertos");
   const [busca,setBusca]=useState("");
   const [escopoTxt,setEscopoTxt]=useState("");
+  const [escopoObsTxt,setEscopoObsTxt]=useState("");
   const [docBusy,setDocBusy]=useState(false);
   const [docPrev,setDocPrev]=useState(null);
 
@@ -13817,9 +13821,16 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
     const c=clients.find(x=>norm(x.name)===norm(nome));
     setEdit(e=>({...e,clienteNome:nome,phone:e.phone||(c?c.phone||"":""),cpfCnpj:e.cpfCnpj||(c?c.cpfCnpj||"":"")}));setSujo(true);
   };
-  const addEscopo=()=>{const t=escopoTxt.trim();if(!t)return;O("escopo",[...(edit.orcamento.escopo||[]),{id:uid(),texto:t}]);setEscopoTxt("");};
+  const addEscopo=()=>{const t=escopoTxt.trim();if(!t)return;O("escopo",[...(edit.orcamento.escopo||[]),{id:uid(),texto:t,obs:escopoObsTxt.trim()}]);setEscopoTxt("");setEscopoObsTxt("");};
   const rmEscopo=(id)=>O("escopo",(edit.orcamento.escopo||[]).filter(e=>e.id!==id));
+  const setDestino=(k)=>{
+    const novo=edit.destino===k?"":k;
+    setEdit(e=>({...e,destino:novo,titulo:(novo&&!e.titulo)?ORC_DESTINOS[novo]:e.titulo}));setSujo(true);
+  };
   const obsEscopo=(id,v)=>O("escopo",(edit.orcamento.escopo||[]).map(e=>e.id===id?{...e,obs:v}:e));
+  const addOpcao=()=>{const l=edit.orcamento.opcoes||[];O("opcoes",[...l,{id:uid(),nome:`Opção ${l.length+1}`,descricao:"",valor:""}]);};
+  const setOpcao=(id,k,v)=>O("opcoes",(edit.orcamento.opcoes||[]).map(x=>x.id===id?{...x,[k]:v}:x));
+  const rmOpcao=(id)=>{const l=(edit.orcamento.opcoes||[]).filter(x=>x.id!==id);setEdit(e=>({...e,orcamento:{...e.orcamento,opcoes:l,opcaoEscolhidaId:e.orcamento.opcaoEscolhidaId===id?"":e.orcamento.opcaoEscolhidaId}}));setSujo(true);};
   const addPreset=(k)=>{
     const pr=ORC_PRESETS[k];if(!pr)return;
     const atuais=edit.orcamento.escopo||[];
@@ -13844,7 +13855,7 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
     if(rec.pedidoId||!setConsultoria)return rec;
     const calc=pcCalcOrcamento(rec.orcamento);
     const pid=uid();
-    setConsultoria(prev=>[...prev,{id:pid,clientId:"",clienteNome:rec.clienteNome,clienteCpfCnpj:rec.cpfCnpj||"",empresaTerceira:rec.empresa||"",servico:rec.titulo||"Consultoria",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:calc.final,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:pcHoje(),dataFim:"",dataVencimento:"",formaPag:rec.orcamento.formaPagamento==="Outro"?"PIX":rec.orcamento.formaPagamento,obs:[rec.orcamento.condicoesPagamento,`Origem: orçamento ${rec.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
+    setConsultoria(prev=>[...prev,{id:pid,clientId:"",clienteNome:rec.clienteNome,clienteCpfCnpj:rec.cpfCnpj||"",empresaTerceira:rec.empresa||"",servico:rec.titulo||(rec.destino?ORC_DESTINOS[rec.destino]:"Consultoria"),destino:rec.destino||"",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:calc.final,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:pcHoje(),dataFim:"",dataVencimento:"",formaPag:rec.orcamento.formaPagamento==="Outro"?"PIX":rec.orcamento.formaPagamento,obs:[rec.orcamento.condicoesPagamento,rec.destino?`Encaminhamento: ${ORC_DESTINOS[rec.destino]}`:"",`Origem: orçamento ${rec.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
     if(setClients&&rec.clienteNome&&!clients.find(c=>norm(c.name)===norm(rec.clienteNome))){
       setClients(prev=>[...prev,{id:uid(),name:rec.clienteNome,phone:rec.phone||"",email:"",city:"",orders:1,total:calc.final,vip:false,joined:today,origem:"Orçamento",segmento:"Consultoria",cpfCnpj:rec.cpfCnpj||""}]);
     }
@@ -13852,9 +13863,15 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
   };
   const mudarStatus=(status)=>{
     if(!edit.clienteNome.trim()){alert("Informe o nome do cliente antes.");return;}
+    if(status==="Aprovado"&&(edit.orcamento.opcoes||[]).length&&!(edit.orcamento.opcoes||[]).some(x=>x.id===edit.orcamento.opcaoEscolhidaId)){alert("Este orçamento tem opções de proposta. Marque qual opção o cliente escolheu antes de aprovar.");return;}
     if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?${status==="Aprovado"?"\n\nEle vai virar um pedido em \"Pedidos e atendimentos\".":""}`))return;
     const extra=status==="Enviado"?{dataEnvio:pcHoje()}:(status==="Aprovado"||status==="Recusado")?{dataResposta:pcHoje()}:{};
     let rec={...edit,orcamento:{...edit.orcamento,status,...extra}};
+    if(status==="Aprovado"&&(rec.orcamento.opcoes||[]).length){
+      const esc=rec.orcamento.opcoes.find(x=>x.id===rec.orcamento.opcaoEscolhidaId);
+      rec={...rec,orcamento:{...rec.orcamento,ajusteManual:true,valorManual:Number(esc.valor)||0,motivoAjuste:`Opção escolhida: ${esc.nome}`}};
+    }
+    if(!rec.id)rec={...rec,id:proximoId()};
     if(status==="Aprovado")rec=criarPedido(rec);
     guardar(rec);
     showSavedGlobal(status==="Aprovado"?"Orçamento aprovado! Virou pedido em Consultoria.":`Orçamento: ${status}`);
@@ -13873,11 +13890,12 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
     ${hdr}
     ${cli}
     ${rec.titulo?`<h2>Serviço</h2><div class="campo">${rec.titulo}</div>`:""}
+    ${rec.destino?`<div class="campo"><b>Encaminhamento:</b> ${ORC_DESTINOS[rec.destino]||""}</div>`:""}
     ${rec.objetivo?`<h2>Objetivo</h2><div class="campo">${rec.objetivo}</div>`:""}
     <h2>Escopo do trabalho</h2>${escopoLinhas?`<ul>${escopoLinhas}</ul>`:'<div class="campo">Escopo a ser detalhado.</div>'}
     ${o.cronograma?`<h2>Cronograma / etapas</h2><div class="campo" style="white-space:pre-line">${o.cronograma}</div>`:""}
     <h2>Formato de atendimento</h2><div class="campo">${formatoTxt}</div>
-    <h2>Investimento</h2><div class="campo"><b>Valor do trabalho:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>
+    <h2>Investimento</h2>${(o.opcoes||[]).length?`<table><tr><th>Opção</th><th>O que inclui</th><th style="text-align:right">Valor</th></tr>${(o.opcoes||[]).map(op=>`<tr${o.opcaoEscolhidaId===op.id?' style="background:#E8F3EC"':""}><td><b>${String(op.nome||"").replace(/</g,"&lt;")}</b>${o.opcaoEscolhidaId===op.id?" ✓ escolhida":""}</td><td style="font-size:12px;white-space:pre-line">${String(op.descricao||"").replace(/</g,"&lt;")}</td><td style="text-align:right"><b>${fmtBRL(Number(op.valor)||0)}</b></td></tr>`).join("")}</table>`:`<div class="campo"><b>Valor do trabalho:</b> <span style="font-size:18px">${fmtBRL(calc.final)}</span></div>`}
     <h2>Pagamento</h2><div class="campo"><b>Forma de pagamento:</b> ${o.formaPagamento}</div>${o.condicoesPagamento?`<div class="campo"><b>Condições:</b> ${o.condicoesPagamento}</div>`:""}
     <h2>Validade da proposta</h2><div class="campo">Esta proposta é válida até ${validade}.</div>
     <div class="ass"><div class="ass-box">Simara Ap. de Souza Lobui<br>Consultoria</div><div class="ass-box">${rec.clienteNome}<br>Aceite do cliente</div></div>
@@ -13967,17 +13985,22 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
         <Inp label="Serviço / título do trabalho" value={edit.titulo} onChange={v=>H("titulo",v)} placeholder="Ex: Organização fiscal e administrativa"/>
         <Inp label="Objetivo" value={edit.objetivo} onChange={v=>H("objetivo",v)}/>
       </div>
+      <div style={{background:C.linho,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+        <div style={{fontSize:11,color:C.oliva,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:6}}>Direcionar o cliente para</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          {Object.entries(ORC_DESTINOS).map(([k,l])=><button key={k} onClick={()=>setDestino(k)} style={{padding:"8px 14px",borderRadius:6,border:`2px solid ${edit.destino===k?"#6B4530":C.areia}`,background:edit.destino===k?"#6B4530":"#fff",color:edit.destino===k?"#fff":C.cafe,fontWeight:700,fontSize:12,cursor:"pointer"}}>{k==="metodo"?"🌿 ":"⚙️ "}{l}{edit.destino===k?" ✓":""}</button>)}
+          <span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>{edit.destino?"Este orçamento fica ligado a "+ORC_DESTINOS[edit.destino]+" (clique de novo para desmarcar).":"Escolha quando o cliente for seguir por um dos dois caminhos."}</span>
+        </div>
+      </div>
 
       <Divider label="Escopo do trabalho"/>
-      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-        <span style={{fontSize:11,color:C.oliva,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.6px"}}>Modelo pronto:</span>
-        <Btn sm v="oliva" onClick={()=>addPreset("metodo")}>🌿 Projeto Método CONTÍNUA</Btn>
-        <Btn sm v="oliva" onClick={()=>addPreset("implantacao")}>⚙️ Implantação do sistema</Btn>
-        <span style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Adiciona os itens com descrição; você edita ou apaga o que quiser.</span>
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200}}><Inp placeholder="Nome do serviço / item do escopo" value={escopoTxt} onChange={setEscopoTxt}/></div>
-        <Btn sm onClick={addEscopo}>+ Adicionar</Btn>
+      <div style={{background:C.linho,borderRadius:8,padding:12,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
+        <Inp label="Serviço" placeholder="Nome do serviço" value={escopoTxt} onChange={setEscopoTxt}/>
+        <Inp label="Observações do serviço (opcional)" rows={2} placeholder="Descrição do que será feito neste serviço" value={escopoObsTxt} onChange={setEscopoObsTxt}/>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}>
+          {edit.destino&&<Btn sm v="ghost" onClick={()=>addPreset(edit.destino)}>📥 Inserir escopo sugerido ({ORC_DESTINOS[edit.destino]})</Btn>}
+          <Btn sm onClick={addEscopo}>+ Adicionar serviço</Btn>
+        </div>
       </div>
       {(o.escopo||[]).length===0
         ?<div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Nenhum item no escopo ainda.</div>
@@ -14033,6 +14056,21 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
         <div style={{fontSize:22,fontWeight:700,color:"#1F7A4D"}}>{fmtBRL(calc.final)}</div>
         {o.ajusteManual&&!String(o.motivoAjuste||"").trim()&&<div style={{fontSize:11,color:C.vermelho,marginTop:4}}>⚠ Informe o motivo do ajuste manual.</div>}
       </div>
+
+      <Divider label="Opções de proposta (opcional)"/>
+      <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Para apresentar mais de uma opção ao cliente (ex: Opção 1 — valor X, Opção 2 — valor Y). Se não usar, vale o valor final acima. Quando o cliente escolher, marque a opção; ao aprovar, o valor da opção escolhida vira o valor do orçamento.</div>
+      {(o.opcoes||[]).map(op=>(
+        <div key={op.id} style={{background:"#fff",border:`1.5px solid ${o.opcaoEscolhidaId===op.id?"#1F7A4D":C.areia}`,borderRadius:6,padding:"8px 12px",marginBottom:6,display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <input value={op.nome} onChange={ev=>setOpcao(op.id,"nome",ev.target.value)} placeholder="Nome da opção" style={{flex:1,minWidth:160,padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:13,fontWeight:600,background:C.linho}}/>
+            <span style={{fontSize:11,color:C.oliva}}>R$</span>
+            <input type="number" value={op.valor} onChange={ev=>setOpcao(op.id,"valor",ev.target.value)} placeholder="0" style={{width:110,padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:13,background:C.linho}}/>
+            <Btn sm v={o.opcaoEscolhidaId===op.id?"oliva":"ghost"} onClick={()=>O("opcaoEscolhidaId",o.opcaoEscolhidaId===op.id?"":op.id)}>{o.opcaoEscolhidaId===op.id?"✓ Escolhida":"Marcar como escolhida"}</Btn>
+            <Btn sm v="ghost" onClick={()=>rmOpcao(op.id)}>🗑</Btn>
+          </div>
+          <textarea value={op.descricao||""} onChange={ev=>setOpcao(op.id,"descricao",ev.target.value)} rows={2} placeholder="O que inclui esta opção (opcional)" style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:6,fontSize:12,background:C.linho,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"}}/>
+        </div>))}
+      <Btn sm v="ghost" onClick={addOpcao}>+ Adicionar opção</Btn>
 
       <Divider label="Pagamento e cronograma"/>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:10}}>
@@ -14095,7 +14133,7 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
             <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:14}}>{o.clienteNome}</b><PcChip t={o.orcamento.status} sm/></div>
-                <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{o.id} · {fmtDate(o.criadoEm)}{o.titulo?` · ${o.titulo}`:""}</div>
+                <div style={{fontSize:12,color:C.oliva,marginTop:2}}>{o.id} · {fmtDate(o.criadoEm)}{o.titulo?` · ${o.titulo}`:""}{o.destino?` · ${o.destino==="metodo"?"🌿":"⚙️"} ${ORC_DESTINOS[o.destino]}`:""}{(o.orcamento.opcoes||[]).length?` · ${o.orcamento.opcoes.length} opções`:""}</div>
                 <div style={{fontSize:11,color:C.oliva}}>{(o.orcamento.escopo||[]).length} item(ns) no escopo · validade {o.orcamento.validadeDias||15} dias{o.pedidoId?" · virou pedido":""}</div>
               </div>
               <div style={{fontSize:18,fontFamily:"'Playfair Display',serif",fontWeight:700,color:C.cafe}}>{fmtBRL(calc.final)}</div>
