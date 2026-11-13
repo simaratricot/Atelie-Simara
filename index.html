@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v103 · 2026-11-12 botao-receber-sempre";
+const APP_BUILD = "v105 · 2026-11-13 obra-fotos-termo";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -650,7 +650,7 @@ const _backupNuvem = async (key) => {
 // Essas usam 1 documento POR ITEM, numa subcoleção própria, em vez de um
 // documento só com o array inteiro — assim o tamanho de um produto nunca
 // compromete o salvamento dos outros.
-const COLECAO_POR_ITEM = new Set(["products"]);
+const COLECAO_POR_ITEM = new Set(["products","obrasFotos"]);
 
 const _ultimoJsonCol = {};
 const fbSaveColecao = (key, arrayValue) => {
@@ -4273,7 +4273,7 @@ const Finance = ({finance,setFinance,orders,contas,setContas,clients=[],categori
                       <Btn sm onClick={()=>fecharFatura(cartao,comp)}>Fechar fatura</Btn>
                     </div>
                   </div>
-                  {itens.map(f=><div key={f.id} style={{fontSize:11,color:C.oliva,display:"flex",justifyContent:"space-between",padding:"2px 0"}}><span>{f.desc}</span><span>{fmtBRL(f.value)}</span></div>)}
+                  {itens.map(f=><div key={f.id} style={{fontSize:11,color:C.oliva,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"2px 0",gap:6}}><span style={{flex:1,minWidth:0}}>{f.desc}</span><span>{fmtBRL(f.value)}</span><span style={{display:"flex",gap:2}}><button title="Editar" onClick={()=>editarLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13,padding:2}}>✎</button><button title="Excluir" onClick={()=>excluirLanc(f)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13,padding:2}}>🗑</button></span></div>)}
                 </div>
               );
             })}
@@ -13033,14 +13033,14 @@ const obAbrirImprimir=(html)=>{const w=window.open("","_blank");if(w){w.document
 const OBRAS_UNIDADES=[{v:"un",l:"Unidade"},{v:"m",l:"Metro"},{v:"global",l:"Global"}];
 const obUnidLabel=u=>u==="m"?"m":u==="global"?"-":"un";
 
-const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config,contas=[],setContas})=>{
+const Obras=({obras=[],setObras,obrasFotos=[],setObrasFotos,finance=[],setFinance,compromissos=[],setCompromissos,clients=[],setClients,config,contas=[],setContas})=>{
   const CO=CORES_OBRAS;
   const [busca,setBusca]=useState("");
   const [filtStatus,setFiltStatus]=useState("Todos");
   const [modal,setModal]=useState(null); // "orcamento" | "comp" | "detalhe"
   const [selId,setSelId]=useState(null);
   const [detTab,setDetTab]=useState("servicos");
-  const EFO=()=>({id:null,clientId:"",clienteNome:"",clienteCpfCnpj:"",tipo:"Reforma",endereco:"",itensOrcamento:[{id:uid(),descricao:"",qtd:1,unidade:"un",valorUnit:0}],formaCobranca:"PIX",taxaCartaoPct:0,valor:0,dataOrcamento:today,dataPrevista:"",status:"Orçamento",obs:"",servicos:[],medicoes:[],recebimentos:[]});
+  const EFO=()=>({id:null,clientId:"",clienteNome:"",clienteCpfCnpj:"",tipo:"Reforma",endereco:"",itensOrcamento:[{id:uid(),descricao:"",qtd:1,unidade:"un",valorUnit:0}],formaCobranca:"PIX",taxaCartaoPct:0,valor:0,dataOrcamento:today,dataPrevista:"",status:"Orçamento",obs:"",servicos:[],medicoes:[],recebimentos:[],naoIncluso:"",obsPagamento:""});
   const [form,setForm]=useState(EFO());
   const [compForm,setCompForm]=useState(null);
 
@@ -13097,8 +13097,108 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
   const recebidoMes=obras.reduce((s,o)=>s+(o.recebimentos||[]).filter(r=>(r.data||"").startsWith(mesAtualObras)).reduce((ss,r)=>ss+Number(r.valor||0),0),0);
   const proxComp=compromissos.filter(c=>c.tipo==="Obra"&&c.data>=today&&c.status!=="Concluído").sort((a,b)=>a.data.localeCompare(b.data)).slice(0,5);
 
-  const abrirNovo=()=>{setForm(EFO());setSelId(null);setModal("orcamento");};
-  const abrirEditar=(o)=>{setForm({...EFO(),...o});setSelId(o.id);setModal("orcamento");};
+  // ── fotos do escopo (guardadas à parte, em "obrasFotos": 1 registro por obra) ──
+  const fotosDaObra=(id)=>{
+    const r=(obrasFotos||[]).find(x=>x&&x.id===id);
+    if(!r)return [];
+    return (r.photos||[]).map((src,i)=>({src,legenda:(r.legendas||[])[i]||"",servico:(r.servicos||[])[i]||""}));
+  };
+  const [fotosForm,setFotosForm]=useState([]);
+  const [termoForm,setTermoForm]=useState(null);
+  const abrirTermo=(o)=>{
+    setSelId(o.id);
+    setTermoForm({
+      termoPrazo:o.termoPrazo||(o.dataPrevista?`Início e conclusão previstos para ${fmtDate(o.dataPrevista)}`:""),
+      termoMateriais:o.termoMateriais||"mo",
+      termoGarantiaDias:o.termoGarantiaDias!=null&&o.termoGarantiaDias!==""?o.termoGarantiaDias:90,
+      termoMulta:o.termoMulta!=null&&o.termoMulta!==""?o.termoMulta:2,
+      termoForo:o.termoForo||"",
+      termoExtra:o.termoExtra||""
+    });
+    setModal("termo");
+  };
+  const gerarTermoDoc=(o,t)=>{
+    const co=configObras;
+    const esc=x=>String(x||"").replace(/</g,"&lt;").replace(/\n/g,"<br>");
+    const brancos="______________________";
+    const mat=t.termoMateriais==="mat"?"O CONTRATADO fornecerá a mão de obra e os materiais necessários, já incluídos no valor ajustado.":t.termoMateriais==="comb"?"Os materiais serão fornecidos conforme combinado entre as partes, registrado neste termo ou no orçamento.":"O valor ajustado refere-se à MÃO DE OBRA. Os materiais (tinta, massa, cimento, argamassa, revestimentos, ferramentas especiais e demais insumos) são de responsabilidade do CONTRATANTE, que deve disponibilizá-los a tempo de não parar o serviço.";
+    const dias=Number(t.termoGarantiaDias)||0;
+    const multa=Number(t.termoMulta)||0;
+    const cl=[];
+    cl.push(["Do objeto",`O CONTRATADO executará os serviços descritos no Orçamento Nº ${obNumObra(obras,o.id)} (quadro acima), no endereço ${o.endereco||brancos}, limitando-se ao que está descrito e ao que aparece nas fotos do Anexo I. Qualquer ambiente, parede, área ou item que não esteja descrito ou fotografado NÃO faz parte deste contrato.`]);
+    cl.push(["Do que não está incluso",`${o.naoIncluso?esc(o.naoIncluso)+"<br><br>":""}Serviços não descritos neste termo, bem como reparos em problemas ocultos já existentes (infiltrações, rachaduras, fiação e encanamentos embutidos, reboco solto, estrutura etc.), serão avaliados e orçados à parte, com concordância do CONTRATANTE antes da execução.`]);
+    cl.push(["Do valor",`Pelos serviços, o CONTRATANTE pagará ao CONTRATADO o valor total de <b>${fmtBRL(o.valor)}</b> (${obValorExtenso(o.valor)}).`]);
+    cl.push(["Da forma de pagamento",`Forma: ${formaCobrancaTexto(o)}.${o.obsPagamento?`<br>${esc(o.obsPagamento)}`:""}<br>Em caso de atraso no pagamento, incidirão ${multa?`multa de ${multa}% sobre o valor em atraso, mais `:""}juros de 1% ao mês e correção monetária, e o CONTRATADO poderá suspender os serviços até a regularização, sem que isso configure atraso de sua parte.`]);
+    cl.push(["Dos materiais",mat]);
+    cl.push(["Do prazo",`${t.termoPrazo?esc(t.termoPrazo)+". ":""}O prazo poderá ser prorrogado, na mesma proporção, em caso de chuva ou condições que impeçam o serviço, falta de acesso ao local, falta ou atraso de materiais a cargo do CONTRATANTE, atraso de pagamento, alterações de escopo ou outros fatos alheios ao CONTRATADO.`]);
+    cl.push(["Das alterações e serviços adicionais",`Qualquer serviço a mais, mudança de cor, de material ou de local só será feito depois de combinado o valor e o prazo e aprovado pelo CONTRATANTE por escrito (mensagem de WhatsApp vale como registro). Sem essa aprovação, o CONTRATADO não é obrigado a executar o serviço adicional, e o que foi executado a pedido será cobrado como serviço extra.`]);
+    cl.push(["Obrigações do CONTRATANTE",`a) Garantir acesso livre ao local nos dias combinados; b) fornecer água e energia elétrica; c) retirar ou proteger móveis, objetos de valor e pertences antes do início; d) efetuar os pagamentos nas datas combinadas; e) informar com antecedência qualquer restrição do imóvel (condomínio, horários, regras de obra).`]);
+    cl.push(["Obrigações do CONTRATADO",`a) Executar os serviços com boa técnica e dentro do escopo acordado; b) responsabilizar-se por sua equipe e seus equipamentos; c) manter o local organizado e remover o entulho gerado pelo serviço, salvo se combinado de forma diferente; d) comunicar ao CONTRATANTE qualquer imprevisto que altere o serviço, o prazo ou o valor.`]);
+    cl.push(["Da conclusão e aceite",`Concluído o serviço, o CONTRATANTE fará a conferência em até 3 (três) dias. Não havendo reclamação por escrito nesse prazo, os serviços serão considerados aceitos. Havendo medições parciais, cada medição aprovada deverá ser paga conforme a forma de pagamento acima.`]);
+    cl.push(["Da garantia",dias>0?`O CONTRATADO garante os serviços executados contra defeitos de execução pelo prazo de ${dias} dias contados da conclusão. A garantia não cobre mau uso, desgaste natural, danos causados por terceiros, infiltrações ou problemas de origem externa ao serviço, nem defeitos de materiais fornecidos pelo CONTRATANTE.`:`Os serviços seguem a garantia prevista em lei, não cobrindo mau uso, desgaste natural, danos causados por terceiros ou defeitos de materiais fornecidos pelo CONTRATANTE.`]);
+    cl.push(["Da responsabilidade",`O CONTRATADO responde pelos danos que causar por culpa sua ou de sua equipe durante a execução. Não responde por defeitos ocultos já existentes no imóvel, nem por eventos de força maior (chuva forte, falta de energia, interdições, entre outros).`]);
+    cl.push(["Da rescisão",`Qualquer das partes poderá encerrar este contrato com aviso por escrito de 5 (cinco) dias. Nesse caso, o CONTRATANTE pagará pelos serviços já executados e pelos materiais já adquiridos para a obra pelo CONTRATADO, proporcionalmente ao que foi feito até a data do encerramento.`]);
+    if(t.termoExtra)cl.push(["Condições adicionais",esc(t.termoExtra)]);
+    cl.push(["Do foro",`Fica eleito o foro da comarca de ${t.termoForo?esc(t.termoForo):"domicílio do CONTRATANTE"} para resolver eventuais questões deste contrato, após tentativa amigável de acordo entre as partes.`]);
+    const hoje=new Date().toLocaleDateString("pt-BR",{day:"numeric",month:"long",year:"numeric"});
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Termo de Compromisso — ${o.clienteNome}</title><style>${obDocStyles} .cl{font-size:12.5px;margin-bottom:9px;text-align:justify;page-break-inside:avoid} .cl b.n{color:#6B4530}</style></head><body>
+    ${obHdr(o,obras,"Termo de Compromisso — Prestação de Serviços",config)}
+    <div class="box"><b>CONTRATADO (prestador):</b> ${co.nome||"Marcelo Lobui & Equipe"}${co.cpfCnpj?` — CPF/CNPJ ${co.cpfCnpj}`:""}${co.telefone?` — Tel: ${co.telefone}`:""}</div>
+    <div class="box"><b>CONTRATANTE (cliente):</b> ${o.clienteNome}${o.clienteCpfCnpj?` — CPF/CNPJ ${o.clienteCpfCnpj}`:` — CPF/CNPJ ${brancos}`}<br><b>Endereço da obra:</b> ${o.endereco||brancos}</div>
+    <div style="font-size:12.5px;margin-bottom:10px">As partes acima, de comum acordo, firmam este termo de compromisso e contrato de prestação de serviços, após a aprovação do orçamento${o.dataAprovacao?` em ${fmtDate(o.dataAprovacao)}`:""}, mediante as cláusulas abaixo:</div>
+    ${obTabelaItensOrcDoc(o)}
+    <div class="total-box">VALOR TOTAL: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
+    ${cl.map((c,i)=>`<div class="cl"><b class="n">CLÁUSULA ${i+1}ª — ${c[0].toUpperCase()}.</b> ${c[1]}</div>`).join("")}
+    <div style="font-size:12.5px;margin:14px 0 4px">E, por estarem de acordo, assinam em 2 (duas) vias de igual teor.</div>
+    <div style="font-size:12.5px;margin-bottom:6px">${t.termoForo?esc(t.termoForo)+", ":""}${hoje}.</div>
+    <div class="ass"><div class="ass-box"><b>${co.nomeAssinatura||co.nome||"Marcelo Lobui"}</b>CONTRATADO</div><div class="ass-box"><b>${o.clienteNome}</b>CONTRATANTE</div></div>
+    <div class="ass" style="margin-top:18px"><div class="ass-box"><b>Testemunha 1</b>Nome / CPF</div><div class="ass-box"><b>Testemunha 2</b>Nome / CPF</div></div>
+    ${fotosDaObra(o.id).length?`<div style="page-break-before:always"></div>${obHdr(o,obras,"Anexo I — Registro fotográfico",config)}${obFotosHtml(o)}<div style="font-size:12px;margin-top:18px">Ciente do escopo (rubrica do CONTRATANTE): ____________________</div>`:""}
+    <div class="tagline">${co.frase||"Construindo com as mãos, realizando sonhos."}</div>
+    ${obRodape(config)}</body></html>`;
+    obAbrirImprimir(html);
+  };
+  const salvarEGerarTermo=()=>{
+    if(!sel||!termoForm)return;
+    const patch={...termoForm,termoGeradoEm:today};
+    setObras(prev=>prev.map(x=>x.id===sel.id?{...x,...patch}:x));
+    gerarTermoDoc({...sel,...patch},patch);
+    setModal(sel.status==="Aprovado"?null:"detalhe");
+    showSavedGlobal("Termo de compromisso gerado!");
+  };
+  const [fotoBusy,setFotoBusy]=useState(false);
+  const adicionarFotos=async(files)=>{
+    const lista=Array.from(files||[]).filter(f=>f&&/^image\//.test(f.type));
+    if(!lista.length)return;
+    if((fotosForm.length+lista.length)>20){alert("Máximo de 20 fotos por orçamento. Escolha as mais importantes.");return;}
+    setFotoBusy(true);
+    try{
+      const novas=[];
+      for(const f of lista){const src=await readFile(f);novas.push({src,legenda:"",servico:""});}
+      setFotosForm(prev=>[...prev,...novas]);
+    }catch(e){alert("Não consegui ler uma das fotos. Tente de novo.");}
+    setFotoBusy(false);
+  };
+  const salvarFotosDaObra=(obraId)=>{
+    if(!setObrasFotos)return;
+    setObrasFotos(prev=>{
+      const outros=(prev||[]).filter(x=>x&&x.id!==obraId);
+      const jaTinha=(prev||[]).some(x=>x&&x.id===obraId);
+      if(!fotosForm.length)return jaTinha?outros:prev;
+      return [...outros,{id:obraId,photos:fotosForm.map(f=>f.src),legendas:fotosForm.map(f=>f.legenda||""),servicos:fotosForm.map(f=>f.servico||"")}];
+    });
+  };
+  const obFotosHtml=(o)=>{
+    const fs=fotosDaObra(o.id).filter(f=>f.src&&String(f.src).startsWith("data:image"));
+    if(!fs.length)return "";
+    return `<div style="page-break-inside:avoid"><div style="font-size:13px;font-weight:800;color:#6B4530;text-transform:uppercase;letter-spacing:0.8px;margin:18px 0 6px">Registro fotográfico do escopo (visita técnica)</div>
+    <div style="font-size:11.5px;margin-bottom:8px">As fotos abaixo mostram o que será feito. <b>O que não aparece nas fotos nem na descrição dos serviços não está incluso</b> e será orçado à parte.</div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px">${fs.map((f,i)=>`<div style="width:calc(50% - 5px);border:1px solid #E2DCD3;border-radius:6px;padding:6px;box-sizing:border-box;page-break-inside:avoid"><img src="${f.src}" style="width:100%;max-height:230px;object-fit:contain;border-radius:4px"><div style="font-size:11px;margin-top:4px"><b>Foto ${i+1}${f.servico?` — ${f.servico}`:""}</b>${f.legenda?`<br>${String(f.legenda).replace(/</g,"&lt;")}`:""}</div></div>`).join("")}</div>`;
+  };
+  const obEscopoPagtoHtml=(o)=>`${o.naoIncluso?`<div class="box" style="border-color:#C0392B"><b style="color:#C0392B">NÃO está incluso neste orçamento:</b><br>${String(o.naoIncluso).replace(/</g,"&lt;").replace(/\n/g,"<br>")}</div>`:""}${o.obsPagamento?`<div class="box"><b>Condições / observações de pagamento:</b><br>${String(o.obsPagamento).replace(/</g,"&lt;").replace(/\n/g,"<br>")}</div>`:""}`;
+
+  const abrirNovo=()=>{setForm(EFO());setFotosForm([]);setSelId(null);setModal("orcamento");};
+  const abrirEditar=(o)=>{setForm({...EFO(),...o});setFotosForm(fotosDaObra(o.id));setSelId(o.id);setModal("orcamento");};
   const abrirDetalhe=(o)=>{setSelId(o.id);setDetTab(o.status==="Orçamento"?"orcamento":"servicos");setModal("detalhe");};
 
   const addItemOrc=()=>setForm(f=>({...f,itensOrcamento:[...(f.itensOrcamento||[]),{id:uid(),descricao:"",qtd:1,unidade:"un",valorUnit:0}]}));
@@ -13110,19 +13210,22 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     if(!form.clienteNome){alert("Escolha ou informe o nome do cliente.");return;}
     if(form.id){
       setObras(prev=>prev.map(x=>x.id===form.id?{...x,...form,valor:Number(form.valor)||0}:x));
+      salvarFotosDaObra(form.id);
       showSavedGlobal("Obra atualizada!");
     } else {
-      setObras(prev=>[...prev,{...form,id:uid(),valor:Number(form.valor)||0,status:"Orçamento"}]);
+      const novoId=uid();
+      setObras(prev=>[...prev,{...form,id:novoId,valor:Number(form.valor)||0,status:"Orçamento"}]);
+      salvarFotosDaObra(novoId);
       showSavedGlobal("Orçamento salvo!");
     }
     setModal(null);
   };
 
-  const excluirObra=id=>{if(window.confirm("Excluir este orçamento/obra?"))setObras(prev=>prev.filter(o=>o.id!==id));};
+  const excluirObra=id=>{if(window.confirm("Excluir este orçamento/obra?")){setObras(prev=>prev.filter(o=>o.id!==id));if(setObrasFotos)setObrasFotos(prev=>(prev||[]).filter(x=>x&&x.id!==id));}};
 
   const aprovarOrcamento=o=>{
     setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Aprovado",dataAprovacao:today}:x));
-    showSavedGlobal("Orçamento aprovado!");
+    showSavedGlobal("Orçamento aprovado! Agora gere o 📝 Termo de compromisso para o cliente assinar.");
   };
 
   const voltarOrcamento=o=>setObras(prev=>prev.map(x=>x.id===o.id?{...x,status:"Orçamento"}:x));
@@ -13167,7 +13270,9 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
     ${obTabelaItensOrcDoc(o)}
     <div class="total-box">VALOR TOTAL DO ORÇAMENTO: ${fmtBRL(o.valor)} (${obValorExtenso(o.valor)})</div>
     <div class="box"><b>Forma de cobrança proposta:</b> ${formaCobrancaTexto(o)}${o.dataPrevista?`<br><b>Previsão de início/conclusão:</b> ${fmtDate(o.dataPrevista)}`:""}</div>
-    <div style="font-size:12.5px;margin-bottom:10px">Orçamento válido por 15 dias a partir da data de emissão.</div>
+    ${obEscopoPagtoHtml(o)}
+    ${obFotosHtml(o)}
+    <div style="font-size:12.5px;margin:10px 0">Orçamento válido por 15 dias a partir da data de emissão.</div>
     <div class="ass"><div class="ass-box"><b>${configObras.nomeAssinatura||configObras.nome||"Marcelo Lobui"}</b>Prestador de Serviço</div><div class="ass-box"><b>${o.clienteNome}</b>De acordo (cliente)</div></div>
     <div class="tagline">${configObras.frase||"Construindo com as mãos, realizando sonhos."}</div>
     ${obRodape(config)}</body></html>`;
@@ -13399,6 +13504,7 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {["Orçamento","Aprovado"].includes(o.status)&&<Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(o)}>📄 Orçamento</Btn>}
               {o.status==="Orçamento"&&<Btn sm onClick={()=>aprovarOrcamento(o)}>✓ Aprovar</Btn>}
+              {o.status==="Aprovado"&&<Btn sm v="oliva" onClick={()=>abrirTermo(o)}>📝 Termo de compromisso</Btn>}
               {o.status==="Aprovado"&&<Btn sm onClick={()=>iniciarExecucao(o)}>🚀 Iniciar execução</Btn>}
               {o.status==="Aprovado"&&<button onClick={()=>voltarOrcamento(o)} style={{fontSize:9,padding:"2px 6px",borderRadius:8,border:`1px solid ${C.areia}`,background:"transparent",color:C.oliva,cursor:"pointer"}}>↩ Voltar p/ orçamento</button>}
               {["Em andamento","Concluída"].includes(o.status)&&<Btn sm v="oliva" onClick={()=>abrirDetalhe(o)}>📂 Abrir obra</Btn>}
@@ -13438,6 +13544,32 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <div style={{fontSize:11,color:C.oliva,marginTop:8,fontStyle:"italic"}}>Pode deixar o valor unitário em branco pros serviços que você ainda não quer detalhar — eles entram como item (com quantidade, se quiser) e o valor fica só no total global abaixo. Soma dos itens com valor preenchido: <b>{fmtBRL(somaItensOrc(form.itensOrcamento))}</b></div>
           </div>
 
+          <div style={{background:C.linho,borderRadius:6,padding:12}}>
+            <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:4}}>📷 Fotos do que será feito (escopo)</label>
+            <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginBottom:8}}>Tire fotos na visita técnica das paredes/áreas que entram no serviço e escreva embaixo o que será feito em cada uma. Elas vão no orçamento e no termo, para o cliente confirmar exatamente o que foi combinado.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {fotosForm.map((f,i)=>(
+                <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",background:"#fff",borderRadius:6,padding:8,border:`1px solid ${C.areia}`}}>
+                  {String(f.src).startsWith("data:")?<img src={f.src} alt="" style={{width:84,height:84,objectFit:"cover",borderRadius:4,flexShrink:0}}/>:<div style={{width:84,height:84,background:C.areia,borderRadius:4,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.oliva,textAlign:"center"}}>carregando…</div>}
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:6,minWidth:0}}>
+                    <input value={f.legenda||""} onChange={e=>{const v=e.target.value;setFotosForm(p=>p.map((x,j)=>j===i?{...x,legenda:v}:x));}} placeholder="O que será feito aqui? Ex: pintar só esta parede (sala)" style={{padding:"7px 9px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}/>
+                    <select value={f.servico||""} onChange={e=>{const v=e.target.value;setFotosForm(p=>p.map((x,j)=>j===i?{...x,servico:v}:x));}} style={{padding:"7px 6px",border:`1.5px solid ${C.areia}`,borderRadius:3,fontSize:12}}>
+                      <option value="">Serviço relacionado (opcional)</option>
+                      {(form.itensOrcamento||[]).filter(it=>it.descricao).map(it=><option key={it.id} value={it.descricao}>{it.descricao}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={()=>setFotosForm(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.vermelho,cursor:"pointer",fontSize:14}} title="Remover foto">✕</button>
+                </div>
+              ))}
+            </div>
+            <label style={{display:"inline-block",marginTop:8,padding:"8px 14px",borderRadius:4,border:`2px dashed ${CO.primaria}`,color:CO.primaria,fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              {fotoBusy?"Processando fotos…":"+ Adicionar fotos"}
+              <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{adicionarFotos(e.target.files);e.target.value="";}}/>
+            </label>
+            <span style={{fontSize:11,color:C.oliva,marginLeft:8}}>{fotosForm.length}/20</span>
+          </div>
+          <Inp label="O que NÃO está incluso (muito importante) — ex: só a parede da sala; demais paredes, teto e portas serão orçados à parte" rows={3} value={form.naoIncluso||""} onChange={v=>setForm(f=>({...f,naoIncluso:v}))}/>
+
           <Inp label="Valor total do orçamento (R$) — o que você vai cobrar, global" type="number" value={form.valor} onChange={v=>setForm(f=>({...f,valor:v}))}/>
 
           <div><label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",display:"block",marginBottom:6}}>Forma de cobrança proposta (sem dados de pagamento ainda)</label>
@@ -13448,11 +13580,27 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
             <div style={{fontSize:11,color:C.oliva,fontStyle:"italic"}}>Valor com acréscimo no cartão: <b>{fmtBRL(Number(form.valor||0)*(1+(Number(form.taxaCartaoPct)||0)/100))}</b></div>
           </>}
 
+          <Inp label="Como será o pagamento (observações) — ex: 50% de entrada no início e 50% na entrega; ou por medição semanal" rows={3} value={form.obsPagamento||""} onChange={v=>setForm(f=>({...f,obsPagamento:v}))}/>
           <Inp label="Data do orçamento" type="date" value={form.dataOrcamento} onChange={v=>setForm(f=>({...f,dataOrcamento:v}))}/>
           <Inp label="Previsão de início/conclusão" type="date" value={form.dataPrevista} onChange={v=>setForm(f=>({...f,dataPrevista:v}))}/>
           <Inp label="Observações" rows={2} value={form.obs} onChange={v=>setForm(f=>({...f,obs:v}))}/>
         </div>
         <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(null)}>Cancelar</Btn><Btn onClick={salvarOrcamento} style={{background:CO.primaria}}>Salvar</Btn></div>
+      </Modal>}
+
+      {modal==="termo"&&sel&&termoForm&&<Modal title={`📝 Termo de compromisso — ${sel.clienteNome}`} onClose={()=>setModal(sel.status==="Aprovado"?null:"detalhe")} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:12,color:C.oliva,fontStyle:"italic"}}>O termo já vem com cláusulas padrão de prestação de serviços (objeto, valor, pagamento, alterações de escopo, prazo, garantia, rescisão, foro). Confira os pontos abaixo e gere. O escopo, o "não incluso", as fotos e a forma de pagamento vêm do orçamento.</div>
+          <Inp label="Prazo de execução" value={termoForm.termoPrazo} onChange={v=>setTermoForm(f=>({...f,termoPrazo:v}))} placeholder="Ex: 5 dias úteis a partir do início, em 10/12"/>
+          <Sel label="Materiais" value={termoForm.termoMateriais} onChange={v=>setTermoForm(f=>({...f,termoMateriais:v}))} options={[{v:"mo",l:"Só mão de obra (materiais por conta do cliente)"},{v:"mat",l:"Mão de obra + materiais por minha conta"},{v:"comb",l:"Conforme combinado entre as partes"}]}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Inp label="Garantia (dias)" type="number" value={termoForm.termoGarantiaDias} onChange={v=>setTermoForm(f=>({...f,termoGarantiaDias:v}))}/>
+            <Inp label="Multa por atraso no pagamento (%)" type="number" value={termoForm.termoMulta} onChange={v=>setTermoForm(f=>({...f,termoMulta:v}))}/>
+          </div>
+          <Inp label="Cidade do foro (e do local de assinatura)" value={termoForm.termoForo} onChange={v=>setTermoForm(f=>({...f,termoForo:v}))} placeholder="Ex: Campinas/SP"/>
+          <Inp label="Condições adicionais (opcional)" rows={3} value={termoForm.termoExtra} onChange={v=>setTermoForm(f=>({...f,termoExtra:v}))}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}><Btn v="ghost" onClick={()=>setModal(sel.status==="Aprovado"?null:"detalhe")}>Voltar</Btn><Btn onClick={salvarEGerarTermo} style={{background:CO.primaria}}>📝 Gerar termo</Btn></div>
       </Modal>}
 
       {modal==="comp"&&compForm&&<Modal title="Agendar visita/orçamento" onClose={()=>setModal(null)}>
@@ -13600,7 +13748,14 @@ const Obras=({obras=[],setObras,finance=[],setFinance,compromissos=[],setComprom
           </table>
           <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Valor total do orçamento: {fmtBRL(sel.valor)}</div>
           <div style={{fontSize:12,color:C.oliva,marginBottom:14}}>Forma de cobrança proposta: {formaCobrancaTexto(sel)}</div>
+          {sel.naoIncluso&&<div style={{fontSize:12,marginBottom:10,padding:"8px 12px",borderRadius:6,border:`1px solid ${C.vermelho}`}}><b style={{color:C.vermelho}}>NÃO incluso:</b> {sel.naoIncluso}</div>}
+          {sel.obsPagamento&&<div style={{fontSize:12,marginBottom:10,padding:"8px 12px",borderRadius:6,background:C.linho}}><b>Pagamento:</b> {sel.obsPagamento}</div>}
+          {fotosDaObra(sel.id).length>0&&<div style={{marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:6}}>📷 Fotos do escopo ({fotosDaObra(sel.id).length})</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{fotosDaObra(sel.id).map((f,i)=><div key={i} style={{width:110}}>{String(f.src).startsWith("data:")?<img src={f.src} alt="" style={{width:110,height:80,objectFit:"cover",borderRadius:4}}/>:<div style={{width:110,height:80,background:C.areia,borderRadius:4}}/>}<div style={{fontSize:10,color:C.oliva,marginTop:2}}>{f.legenda||f.servico||`Foto ${i+1}`}</div></div>)}</div>
+          </div>}
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {["Aprovado","Em andamento","Concluída"].includes(sel.status)?<Btn sm onClick={()=>abrirTermo(sel)} style={{background:CO.primaria}}>📝 {sel.termoGeradoEm?"Gerar termo de novo":"Termo de compromisso"}</Btn>:<span style={{fontSize:11,color:C.oliva,fontStyle:"italic",alignSelf:"center"}}>📝 O termo de compromisso fica disponível depois de aprovar o orçamento.</span>}
             <Btn sm v="ghost" onClick={()=>gerarOrcamentoDoc(sel)}>📄 Gerar orçamento</Btn>
             <Btn sm v="ghost" onClick={()=>abrirEditar(sel)}>✎ Editar dados/itens</Btn>
           </div>
@@ -13964,6 +14119,7 @@ function App() {
   const [consultoria, setConsultoria]=useStorage("consultoria", []);
   const [orcamentos, setOrcamentos]=useStorage("orcamentos", []);
   const [obras, setObras]=useStorage("obras", []);
+  const [obrasFotos, setObrasFotos]=useStorage("obrasFotos", []);
   const [projetosContinua, setProjetosContinua]=useStorage("projetosContinua", []);
   const [prospeccao, setProspeccao]=useStorage("prospeccao", []);
   const [implantacoes, setImplantacoes]=useStorage("implantacoes", []);
@@ -14079,7 +14235,7 @@ function App() {
     setPersonalReceitas(prev=>[...prev,{id:uid(),descricao:desc||"Retirada do negócio",categoria:catPl?catPl.nome:"Pró-labore/Retirada do negócio",valor:Number(valor)||0,data:data||today,formaRecebimento:"Transferência",origem:"Pró-labore/Retirada do negócio",observacoes:"Gerado automaticamente a partir do Financeiro do negócio",automatica:true,recebido:true,dataRecebimento:data||today,contaRecebimento:contaId||""}]);
   };
 
-  const allData={consultoria,obras,projetosContinua,prospeccao,implantacoes,compromissos,orcamentos,products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
+  const allData={consultoria,obras,obrasFotos,projetosContinua,prospeccao,implantacoes,compromissos,orcamentos,products,orders,clients,stockSup,finance,contas,frases,banners,depoimentos,categories,subcategories,projects,metas,config,personalDespesas,personalReceitas,personalCategorias,personalContas,personalFaturas};
 
   const copyLink=()=>{
     const link=`${window.location.origin}/?loja=1`;
@@ -14170,7 +14326,7 @@ function App() {
           {view==="cad_prod" &&<Config modo="cadastros" initialTab="producao" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {view==="cad_pag" &&<Config modo="cadastros" initialTab="pagamentos" esconderAbas participantes={<Clients clients={clients} setClients={setClients} orders={orders} config={config} finance={finance}/>} config={config} setConfig={setConfig} frases={frases} setFrases={setFrases} banners={banners} setBanners={setBanners} depoimentos={depoimentos} setDepoimentos={setDepoimentos} categories={categories} setCategories={setCategories} subcategories={subcategories} setSubcategories={setSubcategories} allData={allData} finance={finance} setFinance={setFinance} contas={contas} setContas={setContas} faturas={personalFaturas} setFaturas={setPersonalFaturas} orders={orders} setOrders={setOrders} clients={clients} setClients={setClients}/>}
           {(view==="consultoria"||view.startsWith("cons_")) &&<Consultoria abaFixa={view==="consultoria"?"prospec":({cons_prospec:"prospec",cons_orc:"orcamentos",cons_continua:"continua",cons_implant:"implant",cons_pedidos:"pedidos"})[view]} implantacoes={implantacoes} setImplantacoes={setImplantacoes} prospeccao={prospeccao} setProspeccao={setProspeccao} projetosContinua={projetosContinua} setProjetosContinua={setProjetosContinua} orcamentos={orcamentos} setOrcamentos={setOrcamentos} orders={orders} setOrders={setOrders} obras={obras} setObras={setObras} consultoria={consultoria} setConsultoria={setConsultoria} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config}/>}
-          {view==="obras"        &&<Obras obras={obras} setObras={setObras} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config} contas={contas} setContas={setContas}/>}
+          {view==="obras"        &&<Obras obras={obras} setObras={setObras} obrasFotos={obrasFotos} setObrasFotos={setObrasFotos} finance={finance} setFinance={setFinance} compromissos={compromissos} setCompromissos={setCompromissos} clients={clients} setClients={setClients} config={config} contas={contas} setContas={setContas}/>}
           {view==="agenda"       &&<Agenda orders={orders} compromissos={compromissos} setCompromissos={setCompromissos} publicacoes={publicacoes} setPublicacoes={setPublicacoes} ideias={ideias} setIdeias={setIdeias}/>}
           {view==="diario"       &&<Diario cartas={cartas} setCartas={setCartas} volumes={volumes} setVolumes={setVolumes}/>}
           {view==="orcamento"   &&<Orcamento config={config} stockSup={stockSup}/>}
