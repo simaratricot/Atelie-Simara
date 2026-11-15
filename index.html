@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v108 · 2026-11-15 orc-implantacao-link";
+const APP_BUILD = "v109 · 2026-11-15 implantacao-lista-empresa";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -9860,8 +9860,9 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <div key={p.id} onClick={()=>{setSelId(p.id);setTab("resumo");}} style={{background:C.branco,border:`1px solid ${C.areia}`,borderRadius:8,padding:14,marginBottom:10,cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                 <div style={{minWidth:180}}>
-                  <div style={{fontWeight:700,color:C.cafe,fontSize:15}}>{p.sistema}</div>
-                  <div style={{fontSize:12,color:C.oliva}}>{p.clienteNome}{p.empresa?` · ${p.empresa}`:""}</div>
+                  <div style={{fontWeight:700,color:C.cafe,fontSize:15}}><span style={{fontSize:11,fontWeight:600,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Empresa: </span>{p.empresa||p.clienteNome}</div>
+                  <div style={{fontSize:13,color:C.cafe,marginTop:2}}><span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Cliente: </span>{p.clienteNome}</div>
+                  <div style={{fontSize:13,color:C.cafe,marginTop:2}}><span style={{fontSize:11,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.5px"}}>Sistema: </span>{p.sistema}</div>
                 </div>
                 <IsChip t={p.status}/>
               </div>
