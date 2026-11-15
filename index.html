@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v109 · 2026-11-15 implantacao-lista-empresa";
+const APP_BUILD = "v110 · 2026-11-15 pauta-reuniao";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -6764,6 +6764,114 @@ const PcNivel=({n})=>n
   :<span style={{background:"#F3F0F7",color:"#8C8499",border:"1px dashed #C9BEDB",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>Nível a definir</span>;
 const PcBarra=({pct,cor})=><div style={{height:8,background:"#EEE8F4",borderRadius:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor||CORES_CONSUL.primaria,transition:"width .3s"}}/></div>;
 
+// ─── PAUTA DE REUNIÃO (usada em Método CONTÍNUA e em Implantação e Treinamento) ───
+const PAUTA_CAMPOS=[
+  ["abertura","Abertura e Propósito do Projeto"],
+  ["diagnostico","Diagnóstico"],
+  ["governanca","Novas Regras de Governança e Processos"],
+  ["tecnico","Alinhamento Técnico e Infraestrutura"],
+  ["cronograma","Cronograma de Treinamento por Núcleos"],
+  ["proximos","Próximos Passos"],
+  ["encerramento","Encerramento"]
+];
+const pautaEsc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const pautaHtml=(pt)=>{
+  const dt=pt.data?pt.data.split("-").reverse().join("/"):"";
+  const secoes=PAUTA_CAMPOS.map(([k,l],i)=>`<div class="sec"><h2>${i+1}. ${l}</h2><div class="txt">${pt[k]?pautaEsc(pt[k]):""}</div><div class="lin"></div><div class="lin"></div></div>`).join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pauta de Reunião — ${pautaEsc(pt.projeto)}</title><style>
+  @page{size:A4;margin:14mm}
+  body{font-family:Georgia,serif;color:#2C2C2C;font-size:13px;line-height:1.6;max-width:760px;margin:0 auto;padding:10px}
+  .hdr{border-bottom:3px solid #6B4530;padding-bottom:8px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end}
+  .hdr b{font-size:18px;letter-spacing:1px;color:#6B4530}.hdr span{font-size:11px;color:#777;text-transform:uppercase;letter-spacing:1px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}td{border:1px solid #DDD;padding:6px 9px;vertical-align:top}td.k{width:140px;background:#F5EFE6;font-weight:bold;font-size:12px}
+  .sec{page-break-inside:avoid;margin-bottom:12px}h2{font-size:14px;color:#6B4530;margin:0 0 4px;border-bottom:1px solid #E2DCD3;padding-bottom:2px}
+  .txt{white-space:pre-wrap;min-height:20px}.lin{border-bottom:1px dotted #BBB;height:20px}
+  </style></head><body>
+  <div class="hdr"><b>PAUTA DE REUNIÃO</b><span>Simara Lobui</span></div>
+  <table><tr><td class="k">Projeto</td><td>${pautaEsc(pt.projeto)}</td></tr>
+  <tr><td class="k">Data / Horário</td><td>${dt}${pt.hora?` às ${pautaEsc(pt.hora)}`:""}</td></tr>
+  <tr><td class="k">Participantes sugeridos</td><td style="white-space:pre-wrap">${pautaEsc(pt.participantes)}</td></tr></table>
+  ${secoes}</body></html>`;
+};
+const pautaImprimir=(pt)=>{const w=window.open("","_blank");if(w){w.document.write(pautaHtml(pt));w.document.close();setTimeout(()=>w.print(),600);}else alert("O navegador bloqueou a janela de impressão. Permita pop-ups para este site.");};
+const PautaReuniao=({pautas=[],onChange,projetoNome="",refId="",compromissos=[],setCompromissos})=>{
+  const [edit,setEdit]=useState(null);
+  const novo=()=>({id:"",projeto:projetoNome,participantes:"",hora:"09:00",data:"",compromissoId:"",...Object.fromEntries(PAUTA_CAMPOS.map(([k])=>[k,""]))});
+  const setF=(k,v)=>setEdit(e=>({...e,[k]:v}));
+  const salvar=()=>{
+    const f={...edit};
+    if(!String(f.projeto||"").trim())f.projeto=projetoNome;
+    let comp=f.compromissoId;
+    let naAgenda=false;
+    if(f.data&&setCompromissos){
+      const desc=`Reunião — ${f.projeto}`;
+      const hora=f.hora||"09:00";
+      if(comp&&compromissos.some(c=>c.id===comp)){
+        setCompromissos(prev=>prev.map(c=>c.id===comp?{...c,desc,data:f.data,hora}:c));
+      } else {
+        comp=uid();
+        const cid=comp;
+        setCompromissos(prev=>[...prev,{id:cid,desc,obs:"Pauta preparada na aba Pauta Reunião.",data:f.data,hora,prioridade:"Alta",status:"Pendente",tipo:"Consultoria",projetoId:refId}]);
+      }
+      naAgenda=true;
+    }
+    f.compromissoId=comp||"";
+    const lista=f.id?pautas.map(x=>x.id===f.id?f:x):[...pautas,{...f,id:uid(),criadoEm:pcHoje()}];
+    onChange(lista);
+    setEdit(null);
+    showSavedGlobal(naAgenda?"Pauta salva e compromisso lançado na Agenda!":"Pauta salva!");
+  };
+  const excluir=(pt)=>{
+    if(!window.confirm("Excluir esta pauta?"))return;
+    if(pt.compromissoId&&setCompromissos&&compromissos.some(c=>c.id===pt.compromissoId)&&window.confirm("Remover também o compromisso dessa reunião da Agenda?"))
+      setCompromissos(prev=>prev.filter(c=>c.id!==pt.compromissoId));
+    onChange(pautas.filter(x=>x.id!==pt.id));
+  };
+  const ta={width:"100%",padding:"9px 11px",border:`1.5px solid ${C.areia}`,borderRadius:6,fontSize:13,fontFamily:"inherit",background:"#fff",resize:"vertical",boxSizing:"border-box",lineHeight:1.5,whiteSpace:"pre-wrap"};
+  const lbl={fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.7px",display:"block",marginBottom:4};
+  if(edit){
+    return(<div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+        <Btn sm v="ghost" onClick={()=>setEdit(null)}>← Voltar às pautas</Btn>
+        <div style={{flex:1}}/>
+        <Btn sm v="ghost" onClick={()=>pautaImprimir(edit)}>🖨 Imprimir</Btn>
+        <Btn sm onClick={salvar}>✓ Salvar pauta</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:12}}>
+        <div style={{gridColumn:"1 / -1"}}><label style={lbl}>Projeto</label><input value={edit.projeto} onChange={e=>setF("projeto",e.target.value)} style={{...ta,resize:"none"}}/></div>
+        <div><label style={lbl}>Data</label><input type="date" value={edit.data} onChange={e=>setF("data",e.target.value)} style={{...ta,resize:"none"}}/></div>
+        <div><label style={lbl}>Horário</label><input type="time" value={edit.hora} onChange={e=>setF("hora",e.target.value)} style={{...ta,resize:"none"}}/></div>
+      </div>
+      <div style={{fontSize:11,color:C.oliva,fontStyle:"italic",marginTop:-6,marginBottom:12}}>{edit.data?(edit.compromissoId?"✓ Esta reunião está na Agenda; se mudar a data ou o horário, o compromisso é atualizado ao salvar.":"Ao salvar, a reunião é lançada na Agenda neste dia e horário."):"Ao preencher a data, a reunião vai para a Agenda quando você salvar."}</div>
+      <div style={{marginBottom:12}}><label style={lbl}>Participantes sugeridos</label><textarea rows={3} value={edit.participantes} onChange={e=>setF("participantes",e.target.value)} style={ta}/></div>
+      {PAUTA_CAMPOS.map(([k,l],i)=>(<div key={k} style={{marginBottom:12}}><label style={lbl}>{i+1}. {l}</label><textarea rows={5} value={edit[k]} onChange={e=>setF(k,e.target.value)} style={ta}/></div>))}
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap"}}><Btn v="ghost" onClick={()=>pautaImprimir(edit)}>🖨 Imprimir</Btn><Btn onClick={salvar}>✓ Salvar pauta</Btn></div>
+    </div>);
+  }
+  const ord=[...pautas].sort((a,b)=>String(b.data||b.criadoEm||"").localeCompare(String(a.data||a.criadoEm||"")));
+  return(<div>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+      <div style={{flex:1,minWidth:200,fontSize:12,color:C.oliva,lineHeight:1.5}}>Sua preparação antes de cada reunião. Escreva em cada tópico, salve e imprima para conduzir a reunião.</div>
+      <Btn onClick={()=>setEdit(novo())}>+ Nova Pauta</Btn>
+    </div>
+    {!ord.length&&<div style={{textAlign:"center",padding:30,color:C.oliva,fontStyle:"italic"}}>Nenhuma pauta ainda ✦</div>}
+    {ord.map(pt=>(<div key={pt.id} style={{background:"#fff",border:`1px solid ${C.areia}`,borderRadius:8,padding:"12px 14px",marginBottom:8}}>
+      <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap"}}>
+        <div style={{minWidth:200}}>
+          <div style={{fontWeight:700,color:C.cafe}}>{pt.projeto||projetoNome}</div>
+          <div style={{fontSize:12,color:C.oliva}}>{pt.data?`${fmtDate(pt.data)}${pt.hora?` às ${pt.hora}`:""}`:"Sem data definida"}{pt.compromissoId?" · 📅 na Agenda":""}</div>
+          {pt.participantes&&<div style={{fontSize:12,color:C.cafe,marginTop:4,whiteSpace:"pre-wrap"}}>👥 {String(pt.participantes).slice(0,140)}{String(pt.participantes).length>140?"…":""}</div>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"flex-start",flexWrap:"wrap"}}>
+          <Btn sm v="ghost" onClick={()=>setEdit({...novo(),...pt})}>✎ Abrir / editar</Btn>
+          <Btn sm v="ghost" onClick={()=>pautaImprimir(pt)}>🖨 Imprimir</Btn>
+          <Btn sm v="danger" onClick={()=>excluir(pt)}>🗑</Btn>
+        </div>
+      </div>
+    </div>))}
+  </div>);
+};
+
 const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[],setFinance,compromissos=[],setCompromissos,config,implantacoes=[],setImplantacoes})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
@@ -7640,7 +7748,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
   const et=pcEtapas(p);
   const atual=et.findIndex(e=>!e.ok);
   const fin=pcFin(finance,p);
-  const abas=[["resumo","📊 Resumo"],["perg","❓ Perguntas avulsas"],["diag","🔎 Diagnóstico"],["orc","💰 Orçamento"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["exec","🛠 Execução"],["evol","🧭 Evolução"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["doc","📄 Documentos"],["sistema","🖥️ Sistema"]];
+  const abas=[["resumo","📊 Resumo"],["pauta","🗒 Pauta Reunião"],["perg","❓ Perguntas avulsas"],["diag","🔎 Diagnóstico"],["orc","💰 Orçamento"],["prior","🎯 Prioridades"],["plano","✅ Plano de ação"],["exec","🛠 Execução"],["evol","🧭 Evolução"],["atend","🗓 Atendimentos"],["ind","📈 Indicadores"],["doc","📄 Documentos"],["sistema","🖥️ Sistema"]];
 
   const renderResumo=()=>{
     const proximas=(p.acoes||[]).filter(a=>a.status!=="Concluída").slice().sort((a,b)=>String(a.prazo||"9999").localeCompare(String(b.prazo||"9999"))).slice(0,5);
@@ -8376,6 +8484,7 @@ const ProjetosContinua=({projetos=[],setProjetos,clients=[],setClients,finance=[
         {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
       </div>
       {tab==="resumo"&&renderResumo()}
+      {tab==="pauta"&&<PautaReuniao pautas={p.pautas||[]} onChange={l=>upd(pp=>({...pp,pautas:l}))} projetoNome={p.nome||""} refId={p.id} compromissos={compromissos} setCompromissos={setCompromissos}/>}
       {tab==="perg"&&renderPerguntas()}
       {tab==="diag"&&renderDiag()}
       {tab==="prior"&&renderPrior()}
@@ -9327,7 +9436,7 @@ const isEtapas=(p)=>[
 
 const IsChip=({t,sm})=>{const c=IS_COR[t]||["#EEE","#555"];return <span style={{background:c[0],color:c[1],borderRadius:20,padding:sm?"2px 8px":"3px 11px",fontSize:sm?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{t}</span>;};
 
-const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients,config,consultoria=[],setConsultoria})=>{
+const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients,config,consultoria=[],setConsultoria,compromissos=[],setCompromissos})=>{
   const cor=CORES_CONSUL;
   const [selId,setSelId]=useState(null);
   const [tab,setTab]=useState("resumo");
@@ -9882,7 +9991,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   // ═════════ IMPLANTAÇÃO ABERTA ═════════
   const p=sel;
   const et=isEtapas(p);
-  const abas=[["resumo","📊 Resumo"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["treino","🎓 Plano de Treinamento"],["cronograma","🗓 Linha do Tempo"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"],["valid","✅ Validação"],["encerrar","🏁 Encerramento"],["espInt","📊 Espelho Interno"],["espCli","📈 Espelho do Cliente"],["diario","🧠 Diário"]];
+  const abas=[["resumo","📊 Resumo"],["pauta","🗒 Pauta Reunião"],["lev","👨‍💻 Levantamento c/ Desenvolvedor"],["diag","🔎 Diagnóstico"],["mapa","🧩 Mapa da Operação"],["check","☑ Pré-Implantação"],["trilha","🧭 Trilha do Treinamento"],["treino","🎓 Plano de Treinamento"],["cronograma","🗓 Linha do Tempo"],["sessoes","🎬 Execução"],["pend","🧩 Pendências"],["horas","⏱️ Horas"],["valid","✅ Validação"],["encerrar","🏁 Encerramento"],["espInt","📊 Espelho Interno"],["espCli","📈 Espelho do Cliente"],["diario","🧠 Diário"]];
 
   const renderResumo=()=>{
     const eventos=(p.eventos||[]).slice(-6).reverse();
@@ -10411,6 +10520,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         {abas.map(([k,l])=>btnPill(tab===k,()=>setTab(k),l))}
       </div>
       {tab==="resumo"&&renderResumo()}
+      {tab==="pauta"&&<PautaReuniao pautas={p.pautas||[]} onChange={l=>upd(pp=>({...pp,pautas:l}))} projetoNome={[p.empresa||p.clienteNome,p.sistema].filter(Boolean).join(" — ")} refId={p.id} compromissos={compromissos} setCompromissos={setCompromissos}/>}
       {tab==="lev"&&renderLevantamento()}
       {tab==="diag"&&renderDiag()}
       {tab==="mapa"&&renderMapa()}
@@ -10467,7 +10577,7 @@ const Consultoria=(props)=>{
         <ProspeccaoComercial prospects={props.prospeccao||[]} setProspects={props.setProspeccao} clients={props.clients||[]} setClients={props.setClients} projetosContinua={props.projetosContinua||[]} setProjetosContinua={props.setProjetosContinua}/>
       </div>}
       {visitouImplant&&<div style={{display:aba==="implant"?"block":"none"}}>
-        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients} config={props.config} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria}/>
+        <ImplantacaoSistema implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes} clients={props.clients||[]} setClients={props.setClients} config={props.config} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos}/>
       </div>}
     </div>
   );
