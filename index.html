@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v107 · 2026-11-13 orc-destino-opcoes";
+const APP_BUILD = "v108 · 2026-11-15 orc-implantacao-link";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -10457,7 +10457,7 @@ const Consultoria=(props)=>{
       </div>}
       <div style={{display:aba==="pedidos"?"block":"none"}}><ConsultoriaPedidos {...props}/></div>
       <div style={{display:aba==="orcamentos"?"block":"none"}}>
-        <Orcamentos orcamentos={props.orcamentos||[]} setOrcamentos={props.setOrcamentos} clients={props.clients||[]} setClients={props.setClients} orders={props.orders||[]} setOrders={props.setOrders} finance={props.finance||[]} setFinance={props.setFinance} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria} obras={props.obras||[]} setObras={props.setObras} config={props.config}/>
+        <Orcamentos orcamentos={props.orcamentos||[]} setOrcamentos={props.setOrcamentos} clients={props.clients||[]} setClients={props.setClients} orders={props.orders||[]} setOrders={props.setOrders} finance={props.finance||[]} setFinance={props.setFinance} consultoria={props.consultoria||[]} setConsultoria={props.setConsultoria} obras={props.obras||[]} setObras={props.setObras} config={props.config} implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes}/>
       </div>
       {visitouContinua&&<div style={{display:aba==="continua"?"block":"none"}}>
         <ProjetosContinua projetos={props.projetosContinua||[]} setProjetos={props.setProjetosContinua} clients={props.clients||[]} setClients={props.setClients} finance={props.finance||[]} setFinance={props.setFinance} compromissos={props.compromissos||[]} setCompromissos={props.setCompromissos} config={props.config} implantacoes={props.implantacoes||[]} setImplantacoes={props.setImplantacoes}/>
@@ -13797,7 +13797,7 @@ const orcMigrarLegado=(o)=>{
 };
 const ORC_DESTINOS={metodo:"Projeto Método CONTÍNUA",implantacao:"Implantação do sistema"};
 const orcValidadeTxt=(o)=>{const base=o.dataEnvio||o.criadoEm||pcHoje();const d=new Date(base+"T00:00");d.setDate(d.getDate()+(Number(o.orcamento.validadeDias)||15));return d.toLocaleDateString("pt-BR");};
-const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsultoria,config}) => {
+const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsultoria,config,implantacoes=[],setImplantacoes}) => {
   const [edit,setEdit]=useState(null);
   const [sujo,setSujo]=useState(false);
   const [filtro,setFiltro]=useState("Abertos");
@@ -13857,14 +13857,35 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
     const pid=uid();
     setConsultoria(prev=>[...prev,{id:pid,clientId:"",clienteNome:rec.clienteNome,clienteCpfCnpj:rec.cpfCnpj||"",empresaTerceira:rec.empresa||"",servico:rec.titulo||(rec.destino?ORC_DESTINOS[rec.destino]:"Consultoria"),destino:rec.destino||"",tipo:"Esporádico",tipoCobranca:"Taxa única",status:"Em andamento",valor:calc.final,valorHora:0,horasContratadas:0,diaEmissao:22,dataInicio:pcHoje(),dataFim:"",dataVencimento:"",formaPag:rec.orcamento.formaPagamento==="Outro"?"PIX":rec.orcamento.formaPagamento,obs:[rec.orcamento.condicoesPagamento,rec.destino?`Encaminhamento: ${ORC_DESTINOS[rec.destino]}`:"",`Origem: orçamento ${rec.id}`].filter(Boolean).join(" — "),orcamento:false,lancarFinanceiro:false,atendimentos:[],medicoes:[],lancado:false}]);
     if(setClients&&rec.clienteNome&&!clients.find(c=>norm(c.name)===norm(rec.clienteNome))){
-      setClients(prev=>[...prev,{id:uid(),name:rec.clienteNome,phone:rec.phone||"",email:"",city:"",orders:1,total:calc.final,vip:false,joined:today,origem:"Orçamento",segmento:"Consultoria",cpfCnpj:rec.cpfCnpj||""}]);
+      setClients(prev=>[...prev,{id:rec.clientId||uid(),name:rec.clienteNome,phone:rec.phone||"",email:"",city:"",orders:1,total:calc.final,vip:false,joined:today,origem:"Orçamento",segmento:"Consultoria",cpfCnpj:rec.cpfCnpj||""}]);
     }
     return {...rec,pedidoId:pid};
+  };
+  // Cria o projeto em "Implantação e Treinamento" a partir do orçamento direcionado (uma vez só por orçamento)
+  const criarImplantacao=(rec)=>{
+    if(rec.implantacaoId||!setImplantacoes)return rec;
+    const cli=clients.find(c=>norm(c.name)===norm(rec.clienteNome));
+    const cid=cli?cli.id:(rec.clientId||uid());
+    const o=rec.orcamento||{};
+    const horas=(Number(o.horasOnline)||0)+(Number(o.horasPresenciais)||0);
+    const novo=isNovo({clientId:cid,clienteNome:rec.clienteNome,empresa:rec.empresa||"",sistema:"Sistema CONTÍNUA",responsavel:"Simara Lobui",desenvolvedor:"",dataInicio:pcHoje(),dataPrevista:"",horasContratadas:horas,status:"Em implantação",obs:`Origem: orçamento ${rec.id}${rec.titulo?` — ${rec.titulo}`:""}.`});
+    novo.origemOrcamentoId=rec.id;
+    setImplantacoes(prev=>[...(prev||[]),novo]);
+    return {...rec,clientId:cid,implantacaoId:novo.id};
+  };
+  const enviarParaImplantacao=()=>{
+    if(!edit.clienteNome.trim()){alert("Informe o nome do cliente antes.");return;}
+    if(!window.confirm("Criar este atendimento em Consultoria → Implantação e Treinamento?\n\nO sistema vai abrir o projeto de implantação deste cliente (você ajusta o nome do sistema lá)."))return;
+    let rec={...edit};
+    if(!rec.id)rec={...rec,id:proximoId()};
+    rec=criarImplantacao(rec);
+    guardar(rec);
+    showSavedGlobal("Projeto criado em Implantação e Treinamento!");
   };
   const mudarStatus=(status)=>{
     if(!edit.clienteNome.trim()){alert("Informe o nome do cliente antes.");return;}
     if(status==="Aprovado"&&(edit.orcamento.opcoes||[]).length&&!(edit.orcamento.opcoes||[]).some(x=>x.id===edit.orcamento.opcaoEscolhidaId)){alert("Este orçamento tem opções de proposta. Marque qual opção o cliente escolheu antes de aprovar.");return;}
-    if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?${status==="Aprovado"?"\n\nEle vai virar um pedido em \"Pedidos e atendimentos\".":""}`))return;
+    if((status==="Aprovado"||status==="Recusado")&&!window.confirm(`Marcar orçamento como "${status}"?${status==="Aprovado"?"\n\nEle vai virar um pedido em \"Pedidos e atendimentos\".":""}${status==="Aprovado"&&edit.destino==="implantacao"&&!edit.implantacaoId?"\nE será criado o projeto em Implantação e Treinamento.":""}`))return;
     const extra=status==="Enviado"?{dataEnvio:pcHoje()}:(status==="Aprovado"||status==="Recusado")?{dataResposta:pcHoje()}:{};
     let rec={...edit,orcamento:{...edit.orcamento,status,...extra}};
     if(status==="Aprovado"&&(rec.orcamento.opcoes||[]).length){
@@ -13872,9 +13893,11 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
       rec={...rec,orcamento:{...rec.orcamento,ajusteManual:true,valorManual:Number(esc.valor)||0,motivoAjuste:`Opção escolhida: ${esc.nome}`}};
     }
     if(!rec.id)rec={...rec,id:proximoId()};
+    if(status==="Aprovado"&&rec.destino==="implantacao")rec={...rec,clientId:rec.clientId||uid()};
     if(status==="Aprovado")rec=criarPedido(rec);
+    if(status==="Aprovado"&&rec.destino==="implantacao")rec=criarImplantacao(rec);
     guardar(rec);
-    showSavedGlobal(status==="Aprovado"?"Orçamento aprovado! Virou pedido em Consultoria.":`Orçamento: ${status}`);
+    showSavedGlobal(status==="Aprovado"?(rec.implantacaoId?"Orçamento aprovado! Virou pedido e o projeto foi criado em Implantação e Treinamento.":"Orçamento aprovado! Virou pedido em Consultoria."):`Orçamento: ${status}`);
   };
   const excluir=(o)=>{if(window.confirm(`Excluir o orçamento ${o.id}?`))setOrcamentos(prev=>prev.filter(x=>x.id!==o.id));};
 
@@ -13968,6 +13991,8 @@ const Orcamentos = ({orcamentos=[],setOrcamentos,clients=[],setClients,setConsul
         {o.status!=="Recusado"&&<Btn sm v="danger" onClick={()=>mudarStatus("Recusado")}>✕ Recusado</Btn>}
         {o.status==="Recusado"&&<Btn sm v="ghost" onClick={()=>mudarStatus("Rascunho")}>↩ Reabrir</Btn>}
         {edit.pedidoId&&<span style={{fontSize:12,color:"#2E6B2E",alignSelf:"center"}}>✓ já virou pedido em Consultoria</span>}
+        {edit.destino==="implantacao"&&o.status==="Aprovado"&&!edit.implantacaoId&&<Btn sm onClick={enviarParaImplantacao}>🖥️ Criar em Implantação e Treinamento</Btn>}
+        {edit.implantacaoId&&<span style={{fontSize:12,color:"#2E6B2E",alignSelf:"center"}}>✓ já está em Implantação e Treinamento</span>}
       </div>
 
       <Divider label="Cliente"/>
