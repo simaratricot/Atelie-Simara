@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v110 · 2026-11-15 pauta-reuniao";
+const APP_BUILD = "v114 · 2026-11-17 plano-treinamento-geral-mapa";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -628,7 +628,7 @@ let _setSemNuvemGlobal = null;
 // Cópia de segurança diária: antes da 1ª gravação do dia de cada lista importante, guarda o
 // que está na nuvem em "atelie_backups" (1 cópia por chave por dia).
 const _backupFeito = {};
-const CHAVES_BACKUP = new Set(["finance","contas","orders","clients","consultoria","obras","projetosContinua","orcamentos","stockSup","config"]);
+const CHAVES_BACKUP = new Set(["finance","contas","orders","clients","consultoria","obras","projetosContinua","orcamentos","stockSup","config","implantacoes","compromissos","prospeccao"]);
 const _backupNuvem = async (key) => {
   if (!CHAVES_BACKUP.has(key)) return;
   const dia = new Date().toISOString().split("T")[0];
@@ -637,9 +637,9 @@ const _backupNuvem = async (key) => {
   _backupFeito[id] = true;
   try {
     const dst = db.collection("atelie_backups").doc(id);
-    const ja = await dst.get();
+    const ja = await dst.get({source: "server"});
     if (ja.exists) return;
-    const src = await db.collection("atelie").doc(key).get();
+    const src = await db.collection("atelie").doc(key).get({source: "server"});
     if (src.exists && src.data().value && src.data().value.length > 2) {
       await dst.set({ value: src.data().value, updated: src.data().updated || 0, copiadoEm: Date.now() });
     }
@@ -756,10 +756,12 @@ const fbSave = (key, value) => {
       }
 
       // Salva no Firebase
+      const _t = Date.now();
       await db.collection("atelie").doc(key).set({
         value: json,
-        updated: Date.now()
+        updated: _t
       });
+      _marcarBase("atelie_" + key, _t);
     } catch(e) {
       showSaveError(`⚠ Não consegui salvar "${key}" na nuvem (${(e&&e.message)||"erro desconhecido"}). Ficou salvo neste aparelho, mas confira sua internet e tente de novo — ou abra em outro aparelho pra ver se já chegou.`);
     }
@@ -794,10 +796,32 @@ const _lerLocal = (K) => {
     return {value: parsed, ts: 0}; // formato antigo (de antes desta correção)
   } catch { return null; }
 };
-const _gravarLocal = (K, value) => {
-  try { localStorage.setItem(K, JSON.stringify({value, ts: Date.now()})); }
+const _gravarLocal = (K, value, base) => {
+  try {
+    // "base" = instante (da nuvem) em que este aparelho esteve igual à nuvem pela última vez.
+    // Serve pra saber se a nuvem mudou depois (outro aparelho) e nunca deixar dado velho vencer dado novo.
+    if (base === undefined) { const ant = _lerLocal(K); if (ant && ant.base !== undefined) base = ant.base; }
+    localStorage.setItem(K, JSON.stringify(base === undefined ? {value, ts: Date.now()} : {value, ts: Date.now(), base}));
+  }
   catch(e) { showSaveError(`⚠ Não consegui salvar "${K.replace("atelie_","")}" neste aparelho — o espaço de armazenamento deve estar cheio. Confira em Configurações → Monitor de Armazenamento e apague fotos antigas.`); }
 };
+
+const _marcarBase = (K, t) => {
+  try { const l = _lerLocal(K); if (l) localStorage.setItem(K, JSON.stringify({value: l.value, ts: l.ts, base: t})); } catch {}
+};
+// Guarda (até 3) cópias do que este aparelho tinha e foi trocado pela nuvem num conflito
+const _guardarConflito = (key, local) => {
+  try {
+    if (!local || local.value == null || (Array.isArray(local.value) && !local.value.length)) return;
+    const k = "atelie_conf_" + key;
+    const lista = JSON.parse(localStorage.getItem(k) || "[]");
+    if (lista[0] && JSON.stringify(lista[0].value) === JSON.stringify(local.value)) return;
+    lista.unshift({salvoEm: Date.now(), value: local.value});
+    localStorage.setItem(k, JSON.stringify(lista.slice(0, 3)));
+  } catch {}
+};
+// Registro das chaves em uso (usado pela tela de recuperação)
+const _registro = {};
 
 const useStorage = (key, initial) => {
   const K = "atelie_" + key;
@@ -839,7 +863,7 @@ const useStorage = (key, initial) => {
     const iniciar = (tent) => {
     if (COLECAO_POR_ITEM.has(key)) {
       // Lê a subcoleção (1 documento por item) em vez de um documento único.
-      db.collection("atelie_col_" + key).get().then(snap => {
+      db.collection("atelie_col_" + key).get({source: "server"}).then(snap => {
         const local = _lerLocal(K);
         const cloudArr = snap.docs.map(d => { try { return JSON.parse(d.data().value); } catch { return null; } }).filter(Boolean);
         const cloudTs = snap.docs.reduce((m,d) => Math.max(m, d.data().updated||0), 0);
@@ -871,7 +895,7 @@ const useStorage = (key, initial) => {
       return;
     }
 
-    db.collection("atelie").doc(key).get().then(doc => {
+    db.collection("atelie").doc(key).get({source: "server"}).then(doc => {
       const local = _lerLocal(K);
       if (doc.exists) {
         let cloudVal, cloudTs;
@@ -885,7 +909,13 @@ const useStorage = (key, initial) => {
         }
         if (CHAVES_PROTEGIDAS.has(key) && Array.isArray(cloudVal) && cloudVal.length > (_maiorTamanhoVisto[key]||0)) _maiorTamanhoVisto[key] = cloudVal.length;
         const localEncolhido = local && Array.isArray(local.value) && Array.isArray(cloudVal) && cloudVal.length >= 8 && local.value.length < cloudVal.length * 0.5;
-        let usarLocal = !!(local && local.ts > cloudTs && !localEncolhido);
+        // conflito: a nuvem mudou (outro aparelho) depois da última vez que este aparelho estava igual a ela
+        const nuvemMudou = !!(local && local.base !== undefined && cloudTs !== local.base);
+        let usarLocal = !!(local && local.ts > cloudTs && !localEncolhido && !nuvemMudou);
+        // aparelho de versão antiga (sem "base"): se não tem mais itens que a nuvem, a nuvem vence (e a cópia daqui é guardada)
+        const legadoIgual = !!(local && local.base === undefined && Array.isArray(local.value) && Array.isArray(cloudVal) && local.value.length <= cloudVal.length && JSON.stringify(local.value) !== JSON.stringify(cloudVal));
+        if (legadoIgual) usarLocal = false;
+        if ((nuvemMudou || legadoIgual) && local.ts > cloudTs) _guardarConflito(key, local);
         // nuvem com MUITO menos itens que este aparelho: pode ser a nuvem que foi sobrescrita
         if (!usarLocal && local && CHAVES_PROTEGIDAS.has(key) && Array.isArray(local.value) && Array.isArray(cloudVal) && local.value.length >= 8 && cloudVal.length < local.value.length * 0.5) {
           _guardarAnterior(key, local);
@@ -900,9 +930,10 @@ const useStorage = (key, initial) => {
           _fbOk[key] = true;
           fbSave(key, local.value);
         } else {
+          if (local && JSON.stringify(local.value) !== JSON.stringify(cloudVal) && local.ts > cloudTs) _guardarConflito(key, local);
           setVal(cloudVal);
           lastTs.current = cloudTs;
-          _gravarLocal(K, cloudVal);
+          _gravarLocal(K, cloudVal, cloudTs);
           _fbOk[key] = true;
         }
       } else if (local) {
@@ -945,6 +976,38 @@ const useStorage = (key, initial) => {
     return () => window.removeEventListener("storage", onStorage);
   }, [K]);
 
+  // Quando o app volta a ficar visível (ex.: PC que ficou aberto), confere se outro aparelho
+  // gravou algo mais novo na nuvem. Se sim, traz pra cá ANTES de qualquer edição daqui —
+  // assim uma aba parada com dado velho nunca grava por cima do dado novo.
+  const valRef = useRef(val); valRef.current = val;
+  useEffect(() => {
+    if (MODO_SEM_NUVEM || COLECAO_POR_ITEM.has(key)) return;
+    let ocupado = false;
+    const conferir = async () => {
+      if (ocupado || document.visibilityState === "hidden" || !_fbOk[key] || _fbPendentes > 0) return;
+      ocupado = true;
+      try {
+        const doc = await db.collection("atelie").doc(key).get({source: "server"});
+        if (!doc.exists || _fbPendentes > 0) return;
+        const cloudTs = doc.data().updated || 0;
+        const l = _lerLocal(K);
+        const base = l && l.base !== undefined ? l.base : 0;
+        if (l && cloudTs !== base) {
+          const cloudVal = JSON.parse(doc.data().value);
+          if (JSON.stringify(cloudVal) !== JSON.stringify(valRef.current)) {
+            _guardarConflito(key, l);
+            setVal(cloudVal); lastTs.current = cloudTs; _gravarLocal(K, cloudVal, cloudTs);
+          } else _marcarBase(K, cloudTs);
+        }
+      } catch {} finally { ocupado = false; }
+    };
+    const onVis = () => { if (document.visibilityState === "visible") conferir(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", conferir);
+    const iv = setInterval(conferir, 120000);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", conferir); clearInterval(iv); };
+  }, [K]);
+
   const set = useCallback(u => {
     setVal(prev => {
       const next = typeof u === "function" ? u(prev) : u;
@@ -958,6 +1021,7 @@ const useStorage = (key, initial) => {
     });
   }, [K, key]);
 
+  _registro[key] = {get: () => valRef.current, set};
   return [val, set];
 };
 
@@ -973,12 +1037,12 @@ const Btn = ({children,v="primary",onClick,sm,full,disabled,style:sx={}}) => {
   return <button disabled={disabled} style={{...b,...(vs[v]||vs.primary),...sx}} onClick={disabled?undefined:onClick}>{children}</button>;
 };
 
-const Inp = ({label,value,onChange,type="text",placeholder,rows,small}) => (
+const Inp = ({label,value,onChange,type="text",placeholder,rows,small,list}) => (
   <div style={{display:"flex",flexDirection:"column",gap:4}}>
     {label&&<label style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase"}}>{label}</label>}
     {rows
       ? <textarea rows={rows} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%",resize:"vertical",fontFamily:"'Inter',sans-serif"}}/>
-      : <input type={type} value={value??""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:small?"6px 10px":"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%"}}/>
+      : <input list={list} type={type} value={value??""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{background:C.branco,border:`1.5px solid ${C.areia}`,borderRadius:3,padding:small?"6px 10px":"9px 13px",fontSize:13,color:C.cafe,outline:"none",width:"100%"}}/>
     }
   </div>
 );
@@ -9258,12 +9322,23 @@ const isCarregarTreinoPadrao=(p)=>{
   return isEv({...p,planoTreinamento:[...lista,...novos]},"treino",`Plano padrão carregado: ${novos.length} item(ns)`);
 };
 
+// ── plano de treinamento: dados gerais do documento (salvam sozinhos) ──
+const IS_TREINO_CAMPOS=[
+  ["nome","Nome do treinamento",0,""],["responsavel","Responsável pelo treinamento",0,""],
+  ["objetivo","Objetivo",4,"Qual o propósito deste treinamento?"],["metodologia","Metodologia",4,"Como o treinamento será conduzido"],
+  ["cronograma","Cronograma previsto",4,"Datas, períodos, frequência..."],["resultados","Resultados esperados",4,""],
+  ["escopo","Escopo do treinamento",4,"O que está incluído (e o que não está)"],["consideracoes","Considerações finais",4,""]
+];
+const IS_MODALIDADES=["","Presencial","Online","Híbrido"];
+const isSetTreinoGeral=(p,campo,valor)=>({...p,treinoGeral:{...(p.treinoGeral||{}),[campo]:valor}});
+
 // ── plano de treinamento (por processo) ──
 const isSalvarTreino=(p,f)=>{
   const lista=p.planoTreinamento||[];
   if(f.id&&lista.some(x=>x.id===f.id))return {...p,planoTreinamento:lista.map(x=>x.id===f.id?{...x,...f}:x)};
   return isEv({...p,planoTreinamento:[...lista,{...f,id:uid()}]},"treino",`Treinamento planejado: ${f.conteudo} — ${f.usuario}`);
 };
+const isToggleAcaoTreino=(p,treinoId,acaoId)=>({...p,planoTreinamento:(p.planoTreinamento||[]).map(x=>x.id!==treinoId?x:{...x,acoes:(x.acoes||[]).map(a=>a.id===acaoId?{...a,feito:!a.feito}:a)})});
 const isExcluirTreino=(p,id)=>({...p,planoTreinamento:(p.planoTreinamento||[]).filter(x=>x.id!==id)});
 const isMoverTreino=(p,id,dir)=>{
   const l=[...(p.planoTreinamento||[])];const i=l.findIndex(x=>x.id===id);const j=i+dir;
@@ -9283,6 +9358,8 @@ const IS_CATEGORIA_HORA=["Treinamento","Preparação","Validação","Retrabalho"
 const IS_MOTIVO_DIF=["👤 Cliente","💻 Sistema","🎓 Treinamento","🔄 Processo","📋 Dados","⚙️ Parametrização"];
 const IS_EXEC_ITENS=["Demonstração","Prática do usuário","Dúvidas","Correções","Validação"];
 const IS_RESP_PEND=["Cliente","Desenvolvedor","Treinamento","Simara"];
+// Ficha de execução (campos de texto livres, além de data/módulo/assunto/participantes)
+const IS_FICHA_CAMPOS=[["demonstrado","O que foi demonstrado e explicado"],["duvidas","Dúvidas apresentadas"],["dificuldades","Dificuldades identificadas"],["orientacoes","Orientações realizadas"],["reforcos","Reforços necessários"],["responsaveisProx","Responsáveis pelas próximas ações"]];
 IS_COR["Concluído"]=["#DDF0E6","#1F7A4D"];IS_COR["Parcial"]=["#F6EFD9","#8A6D1F"];IS_COR["Não concluído"]=["#F3E1DE","#c0392b"];
 
 // ── execução (sessões de treinamento) ──
@@ -9491,8 +9568,18 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Plano de Treinamento — ${pj.sistema}</title><style>${pcDocStyles}</style></head><body>
     ${isHdr(pj,"PLANO DE TREINAMENTO")}
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
-    <h2>Treinamentos (${l.length})</h2>
-    ${l.length===0?'<div class="campo">Nenhum treinamento planejado.</div>':`<table><tr><th>#</th><th>Conteúdo</th><th>Usuário/área</th><th>Horas prev.</th><th>Status</th></tr>${l.map((x,i)=>`<tr><td>${i+1}</td><td>${x.conteudo}</td><td>${x.usuario||"—"}</td><td>${Number(x.horasPrevistas)>0?fmtH(x.horasPrevistas):"—"}</td><td>${x.status}</td></tr>`).join("")}</table>`}
+    ${(()=>{const g=pj.treinoGeral||{};const e=s=>String(s||"").replace(/</g,"&lt;");
+      return `${g.nome?`<h2>${e(g.nome)}</h2>`:""}${g.responsavel?`<div class="campo"><b>Responsável pelo treinamento:</b> ${e(g.responsavel)}</div>`:""}${g.modalidade?`<div class="campo"><b>Modalidade:</b> ${e(g.modalidade)}</div>`:""}`+
+      IS_TREINO_CAMPOS.slice(2).filter(([k])=>g[k]).map(([k,lb])=>`<h2>${lb}</h2><div class="campo" style="white-space:pre-line">${e(g[k])}</div>`).join("");})()}
+    <h2>Mapa de treinamento (${l.length})</h2>
+    ${l.length===0?'<div class="campo">Nenhum treinamento planejado.</div>':`<table><tr><th>#</th><th>Conteúdo</th><th>Usuário/área</th><th>Horas prev.</th><th>Status</th></tr>${l.map((x,i)=>`<tr><td>${i+1}</td><td>${x.conteudo}</td><td>${x.usuario||"—"}</td><td>${Number(x.horasPrevistas)>0?fmtH(x.horasPrevistas):"—"}</td><td>${x.status}</td></tr>`).join("")}</table>
+    ${l.filter(x=>x.etapa||x.obs||x.objetivo||(x.acoes||[]).length||x.resultadoEsperado||x.evidencias).map((x,i)=>`<h2>${x.conteudo}${x.usuario?` — ${x.usuario}`:""}</h2>
+      ${x.etapa?`<div class="campo"><b>Etapa:</b> ${String(x.etapa).replace(/</g,"&lt;")}</div>`:""}
+      ${x.obs?`<div class="campo" style="white-space:pre-line"><b>Observação:</b> ${String(x.obs).replace(/</g,"&lt;")}</div>`:""}
+      ${x.objetivo?`<div class="campo" style="white-space:pre-line"><b>Objetivo:</b> ${String(x.objetivo).replace(/</g,"&lt;")}</div>`:""}
+      ${(x.acoes||[]).length?`<div class="campo"><b>Ações da treinadora:</b><br>${(x.acoes||[]).map(a=>`${a.feito?"☑":"☐"} ${String(a.texto).replace(/</g,"&lt;")}`).join("<br>")}</div>`:""}
+      ${x.resultadoEsperado?`<div class="campo" style="white-space:pre-line"><b>Resultado esperado:</b> ${String(x.resultadoEsperado).replace(/</g,"&lt;")}</div>`:""}
+      ${x.evidencias?`<div class="campo" style="white-space:pre-line"><b>Evidências:</b> ${String(x.evidencias).replace(/</g,"&lt;")}</div>`:""}`).join("")}`}
     ${pcRodape(config)}</body></html>`;
   };
   const docDiarioReunioes=(pj)=>{
@@ -9543,7 +9630,10 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
     <div class="campo"><b>Data:</b> ${fmtDate(x.data)}${x.horaInicio&&x.horaFim?` · <b>Horário:</b> ${x.horaInicio}–${x.horaFim}`:""}</div>
     ${x.participantes?`<div class="campo"><b>Participantes:</b> ${x.participantes}</div>`:""}
-    <div class="campo"><b>Objetivo:</b> ${x.objetivo||"—"}</div>
+    ${x.modulo?`<div class="campo"><b>Módulo trabalhado:</b> ${x.modulo}</div>`:""}
+    <div class="campo"><b>Assunto abordado:</b> ${x.objetivo||"—"}</div>
+    ${IS_FICHA_CAMPOS.filter(([k])=>x[k]).map(([k,l])=>`<h2>${l}</h2><div class="campo" style="white-space:pre-line">${String(x[k]).replace(/</g,"&lt;")}</div>`).join("")}
+    ${x.proximoData?`<div class="campo"><b>Próximo atendimento:</b> ${fmtDate(x.proximoData)}${x.proximoHora?` às ${x.proximoHora}`:""}</div>`:""}
     ${x.conteudoPrevisto?`<div class="campo" style="white-space:pre-line"><b>Conteúdo previsto:</b><br>${x.conteudoPrevisto}</div>`:""}
     ${exec.length>0?`<div class="campo"><b>Etapas realizadas:</b> ${exec.join(", ")}</div>`:""}
     <div class="campo"><b>Resultado:</b> ${x.resultado||"—"}</div>
@@ -9566,6 +9656,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   const upd=(fn)=>setImplantacoes&&setImplantacoes(prev=>prev.map(p=>p.id===selId?fn(p):p));
   const F=(k,v)=>setForm(f=>({...f,[k]:v}));
   const [pendSessao,setPendSessao]=useState([]);
+  const [novaAcaoTxt,setNovaAcaoTxt]=useState("");
   const addPendSessao=()=>setPendSessao(l=>[...l,{id:uid(),item:"",responsavel:IS_RESP_PEND[0],prazo:"",origem:"Treinamento"}]);
   const updPendSessao=(id,campo,v)=>setPendSessao(l=>l.map(x=>x.id===id?{...x,[campo]:v}:x));
   const delPendSessao=(id)=>setPendSessao(l=>l.filter(x=>x.id!==id));
@@ -9648,7 +9739,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
   // ── plano de treinamento ──
   const carregarTreinoPadrao=()=>{upd(isCarregarTreinoPadrao);showSavedGlobal("Plano padrão carregado!");};
-  const novoTreino=()=>{setForm({usuario:"",conteudo:"",horasPrevistas:"",status:"Pendente"});setModal("treino");};
+  const novoTreino=()=>{setForm({usuario:"",horasPrevistas:"",conteudo:"",etapa:"",obs:"",objetivo:"",acoes:[],resultadoEsperado:"",evidencias:"",status:"Pendente"});setNovaAcaoTxt("");setModal("treino");};
   const salvarTreino=()=>{
     if(!String(form.conteudo||"").trim()){alert("Informe o conteúdo do treinamento.");return;}
     upd(p=>isSalvarTreino(p,form));setModal(null);showSavedGlobal("Treinamento planejado!");
@@ -9664,13 +9755,24 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   };
   const salvarSessao=()=>{
     if(!form.data){alert("Informe a data da sessão.");return;}
-    if(!String(form.objetivo||"").trim()){alert("Informe o objetivo da sessão.");return;}
+    if(!String(form.objetivo||"").trim()){alert("Informe o assunto abordado.");return;}
+    let proxCompId=form.proxCompId||"";
+    if(form.proximoData&&setCompromissos){
+      const desc=`Atendimento — ${[sel.empresa||sel.clienteNome,sel.sistema].filter(Boolean).join(" — ")}`;
+      const hora=form.proximoHora||"09:00";
+      if(proxCompId&&compromissos.some(c=>c.id===proxCompId)){
+        setCompromissos(prev=>prev.map(c=>c.id===proxCompId?{...c,desc,data:form.proximoData,hora}:c));
+      } else {
+        const cid=uid();proxCompId=cid;
+        setCompromissos(prev=>[...prev,{id:cid,desc,obs:form.modulo?`Módulo: ${form.modulo}`:"",data:form.proximoData,hora,prioridade:"Alta",status:"Pendente",tipo:"Consultoria",projetoId:sel.id}]);
+      }
+    }
     const calc=isCalcHoras(form.horaInicio,form.horaFim);
     const horasUtilizadas=Math.round((calc>0?calc:(Number(form.horasUtilizadas)||0))*100)/100;
     const sessaoId=form.id||uid();
     const novasPend=pendSessao.filter(x=>String(x.item||"").trim()).map(x=>({...x,id:uid(),status:"Pendente",sessaoId,atividadeId:form.atividadeId||""}));
     upd(p=>{
-      let n=isSalvarSessao(p,{...form,id:sessaoId,horasUtilizadas});
+      let n=isSalvarSessao(p,{...form,id:sessaoId,horasUtilizadas,proxCompId});
       novasPend.forEach(np=>{n=isSalvarPendencia(n,np);});
       return n;
     });
@@ -9772,11 +9874,30 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
       </div>
     </Modal>}
 
-    {modal==="treino"&&form&&<Modal wide title={form.id?"✎ Editar treinamento":"🎓 Novo treinamento"} onClose={()=>setModal(null)}>
+    {modal==="treino"&&form&&<Modal wide title={form.id?"✎ Editar treinamento":"🎓 Novo treinamento"} onClose={()=>{if(!form.id&&(form.conteudo||form.usuario||form.objetivo||form.etapa||form.obs)&&!window.confirm("Você ainda não salvou este treinamento. Fechar mesmo assim?"))return;setModal(null);}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
         <Inp label="Usuário / área" value={form.usuario} onChange={v=>F("usuario",v)} placeholder="Ex: Administrativo"/>
         <Inp label="Horas previstas" type="number" value={form.horasPrevistas} onChange={v=>F("horasPrevistas",v)}/>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Conteúdo (processo, não tela)" value={form.conteudo} onChange={v=>F("conteudo",v)} placeholder="Ex: Cadastros"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Título do plano (Conteúdo — processo, não tela)" value={form.conteudo} onChange={v=>F("conteudo",v)} placeholder="Ex: Cadastros"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Etapa — nome" value={form.etapa||""} onChange={v=>F("etapa",v)} placeholder="Ex: Etapa 1 — Cadastros básicos"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Observação" rows={3} value={form.obs||""} onChange={v=>F("obs",v)} placeholder="Anotações desta etapa"/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Objetivo" rows={3} value={form.objetivo||""} onChange={v=>F("objetivo",v)} placeholder="Descreva o que este treinamento precisa alcançar"/></div>
+        <div style={{gridColumn:"1 / -1"}}>
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.8px",color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Minhas ações como treinadora (checklist)</div>
+          {(form.acoes||[]).map(a=>(
+            <div key={a.id} style={{display:"flex",gap:8,alignItems:"center",background:C.linho,borderRadius:6,padding:"6px 10px",marginBottom:6}}>
+              <input type="checkbox" checked={!!a.feito} onChange={()=>F("acoes",(form.acoes||[]).map(z=>z.id===a.id?{...z,feito:!z.feito}:z))} style={{width:18,height:18,cursor:"pointer"}}/>
+              <input value={a.texto} onChange={e=>F("acoes",(form.acoes||[]).map(z=>z.id===a.id?{...z,texto:e.target.value}:z))} style={{flex:1,padding:"6px 8px",border:`1px solid ${C.areia}`,borderRadius:4,fontSize:13,background:"#fff",textDecoration:a.feito?"line-through":"none"}}/>
+              <Btn sm v="ghost" onClick={()=>F("acoes",(form.acoes||[]).filter(z=>z.id!==a.id))}>✕</Btn>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}><Inp placeholder="Escreva uma ação e clique em Adicionar" value={novaAcaoTxt} onChange={setNovaAcaoTxt}/></div>
+            <Btn sm onClick={()=>{const t=novaAcaoTxt.trim();if(!t)return;F("acoes",[...(form.acoes||[]),{id:uid(),texto:t,feito:false}]);setNovaAcaoTxt("");}}>+ Adicionar ação</Btn>
+          </div>
+        </div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Resultado esperado" rows={3} value={form.resultadoEsperado||""} onChange={v=>F("resultadoEsperado",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Evidências" rows={3} value={form.evidencias||""} onChange={v=>F("evidencias",v)} placeholder="Como você vai comprovar que foi alcançado (fotos, lançamentos feitos, prints, relatos...)"/></div>
         <Sel label="Status" value={form.status} onChange={v=>F("status",v)} options={IS_STATUS_ITEM}/>
       </div>
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
@@ -9786,19 +9907,14 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     </Modal>}
 
     {modal==="sessao"&&form&&<Modal wide title={form.id?"✎ Editar sessão":"🎬 Registrar sessão de treinamento"} onClose={()=>setModal(null)}>
+      <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Ficha de execução</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
-        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
-        <Inp label="Participantes" value={form.participantes} onChange={v=>F("participantes",v)}/>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Objetivo da sessão" value={form.objetivo} onChange={v=>F("objetivo",v)}/></div>
-        <div style={{gridColumn:"1 / -1"}}><Inp label="Conteúdo previsto" rows={2} value={form.conteudoPrevisto} onChange={v=>F("conteudoPrevisto",v)}/></div>
-        <Sel label="Resultado" value={form.resultado} onChange={v=>F("resultado",v)} options={IS_RESULTADO_SESSAO}/>
-        <Sel label="Categoria da hora" value={form.categoria} onChange={v=>F("categoria",v)} options={IS_CATEGORIA_HORA}/>
-        <Inp label="Hora início" type="time" value={form.horaInicio} onChange={v=>F("horaInicio",v)}/>
-        <Inp label="Hora fim" type="time" value={form.horaFim} onChange={v=>F("horaFim",v)}/>
-        {isCalcHoras(form.horaInicio,form.horaFim)>0&&<div style={{gridColumn:"1 / -1",fontSize:12,color:C.verde,fontWeight:700}}>⏱ {fmtH(isCalcHoras(form.horaInicio,form.horaFim))} calculadas automaticamente (usadas no lugar de "Horas utilizadas" abaixo)</div>}
-        <Inp label="Horas previstas" type="number" value={form.horasPrevistas} onChange={v=>F("horasPrevistas",v)}/>
-        <Inp label="Horas utilizadas (se não usar hora início/fim)" type="number" value={form.horasUtilizadas} onChange={v=>F("horasUtilizadas",v)}/>
-        <Sel label="Motivo da diferença (se houve)" value={form.motivoDiferenca} onChange={v=>F("motivoDiferenca",v)} options={[{v:"",l:"—"},...IS_MOTIVO_DIF.map(m=>({v:m,l:m}))]}/>
+        <Inp label="Data do atendimento" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <div><Inp label="Módulo trabalhado" value={form.modulo||""} onChange={v=>F("modulo",v)} list="is-modulos-lista" placeholder="Escolha ou escreva"/><datalist id="is-modulos-lista">{((sel&&sel.modulos)||[]).map(m=><option key={m} value={m}/>)}</datalist></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Assunto abordado" value={form.objetivo} onChange={v=>F("objetivo",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="Participantes" value={form.participantes} onChange={v=>F("participantes",v)}/></div>
+        {form.conteudoPrevisto&&<div style={{gridColumn:"1 / -1"}}><Inp label="Conteúdo previsto (registro antigo)" rows={2} value={form.conteudoPrevisto} onChange={v=>F("conteudoPrevisto",v)}/></div>}
+        {IS_FICHA_CAMPOS.map(([k,l])=><div key={k} style={{gridColumn:"1 / -1"}}><Inp label={l} rows={3} value={form[k]||""} onChange={v=>F(k,v)}/></div>)}
       </div>
 
       {form.id&&(()=>{
@@ -9832,6 +9948,29 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         ))}
         <Btn sm v="ghost" onClick={addPendSessao}>+ Adicionar pendência</Btn>
         <div style={{fontSize:11,color:C.oliva,marginTop:4}}>Essas pendências são criadas junto quando você salvar a sessão, já vinculadas a ela — depois só precisa ir em Pendências pra mudar o status.</div>
+      </div>
+
+      <div style={{marginTop:16}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Próximo atendimento</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+          <Inp label="Data" type="date" value={form.proximoData||""} onChange={v=>F("proximoData",v)}/>
+          <Inp label="Horário" type="time" value={form.proximoHora||""} onChange={v=>F("proximoHora",v)}/>
+        </div>
+        <div style={{fontSize:11,color:C.oliva,marginTop:4}}>{form.proximoData?(form.proxCompId?"✓ Está na Agenda; se mudar a data ou o horário, o compromisso é atualizado ao salvar.":"Ao salvar, o próximo atendimento é lançado na Agenda."):"Ao preencher a data, o próximo atendimento vai para a Agenda quando você salvar."}</div>
+      </div>
+
+      <div style={{marginTop:16}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Resultado e horas</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+          <Sel label="Resultado" value={form.resultado} onChange={v=>F("resultado",v)} options={IS_RESULTADO_SESSAO}/>
+          <Sel label="Categoria da hora" value={form.categoria} onChange={v=>F("categoria",v)} options={IS_CATEGORIA_HORA}/>
+          <Inp label="Hora início" type="time" value={form.horaInicio} onChange={v=>F("horaInicio",v)}/>
+          <Inp label="Hora fim" type="time" value={form.horaFim} onChange={v=>F("horaFim",v)}/>
+          {isCalcHoras(form.horaInicio,form.horaFim)>0&&<div style={{gridColumn:"1 / -1",fontSize:12,color:C.verde,fontWeight:700}}>⏱ {fmtH(isCalcHoras(form.horaInicio,form.horaFim))} calculadas automaticamente (usadas no lugar de "Horas utilizadas" abaixo)</div>}
+          <Inp label="Horas previstas" type="number" value={form.horasPrevistas} onChange={v=>F("horasPrevistas",v)}/>
+          <Inp label="Horas utilizadas (se não usar hora início/fim)" type="number" value={form.horasUtilizadas} onChange={v=>F("horasUtilizadas",v)}/>
+          <Sel label="Motivo da diferença (se houve)" value={form.motivoDiferenca} onChange={v=>F("motivoDiferenca",v)} options={[{v:"",l:"—"},...IS_MOTIVO_DIF.map(m=>({v:m,l:m}))]}/>
+        </div>
       </div>
 
       <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end",flexWrap:"wrap"}}>
@@ -10184,7 +10323,14 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const lista=p.planoTreinamento||[];
     const r=isTreinoResumo(p);
     return(<div>
-      <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Planeje por processo, não por tela do sistema — "como vocês fazem isso hoje" em vez de "tela 1, tela 2".</div>
+      <Divider label="📘 Dados do plano (salvam automaticamente)"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12,marginBottom:6}}>
+        {IS_TREINO_CAMPOS.slice(0,2).map(([k,l,r,ph])=>(<Inp key={k} label={l} value={(p.treinoGeral||{})[k]||""} onChange={v=>upd(pp=>isSetTreinoGeral(pp,k,v))} placeholder={ph}/>))}
+        <Sel label="Modalidade" value={(p.treinoGeral||{}).modalidade||""} onChange={v=>upd(pp=>isSetTreinoGeral(pp,"modalidade",v))} options={IS_MODALIDADES}/>
+      </div>
+      {IS_TREINO_CAMPOS.slice(2).map(([k,l,r,ph])=>(<div key={k} style={{marginBottom:10}}><Inp label={l} rows={r} value={(p.treinoGeral||{})[k]||""} onChange={v=>upd(pp=>isSetTreinoGeral(pp,k,v))} placeholder={ph}/></div>))}
+      <Divider label="🗺 Mapa de treinamento"/>
+      <div style={{fontSize:12,color:C.oliva,marginBottom:10}}>Lance um a um: usuário/área, horas previstas e conteúdo, mais a etapa e uma observação. Planeje por processo, não por tela do sistema.</div>
       <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
         <Btn onClick={carregarTreinoPadrao}>📥 Carregar plano padrão</Btn>
         <Btn v="ghost" onClick={novoTreino}>+ Novo treinamento</Btn>
@@ -10200,6 +10346,15 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             <IsChip t={x.status} sm/>
           </div>
           {campo("Usuário/área",x.usuario)}{Number(x.horasPrevistas)>0&&campo("Horas previstas",fmtH(x.horasPrevistas))}
+          {x.etapa&&campo("Etapa",x.etapa)}
+          {x.obs&&<div style={{fontSize:12,color:C.cafe,marginTop:4,whiteSpace:"pre-line"}}><b>Observação:</b> {x.obs}</div>}
+          {x.objetivo&&<div style={{fontSize:12,color:C.cafe,marginTop:4,whiteSpace:"pre-line"}}><b>Objetivo:</b> {x.objetivo}</div>}
+          {(x.acoes||[]).length>0&&<div style={{marginTop:6}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.oliva,textTransform:"uppercase",letterSpacing:"0.6px",marginBottom:3}}>Minhas ações ({(x.acoes||[]).filter(a=>a.feito).length}/{(x.acoes||[]).length})</div>
+            {(x.acoes||[]).map(a=>(<label key={a.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:13,color:a.feito?C.oliva:C.cafe,textDecoration:a.feito?"line-through":"none",cursor:"pointer",padding:"2px 0"}}><input type="checkbox" checked={!!a.feito} onChange={()=>upd(pp=>isToggleAcaoTreino(pp,x.id,a.id))} style={{width:16,height:16,cursor:"pointer"}}/>{a.texto}</label>))}
+          </div>}
+          {x.resultadoEsperado&&<div style={{fontSize:12,color:C.cafe,marginTop:5,whiteSpace:"pre-line"}}><b>Resultado esperado:</b> {x.resultadoEsperado}</div>}
+          {x.evidencias&&<div style={{fontSize:12,color:C.cafe,marginTop:5,whiteSpace:"pre-line"}}><b>Evidências:</b> {x.evidencias}</div>}
           {jaLancado&&<div style={{fontSize:11,color:C.verde,fontWeight:700,marginTop:4}}>✓ já está na Linha do Tempo</div>}
           <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
             <Btn sm v="oliva" onClick={()=>{upd(pp=>isLancarTreinoNaLinha(pp,x));showSavedGlobal("Lançado na Linha do Tempo!");}}>🗓 Lançar na Linha do Tempo</Btn>
@@ -10208,7 +10363,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             {IS_STATUS_ITEM.filter(s=>s!==x.status).map(s=>(
               <Btn key={s} sm v="ghost" onClick={()=>upd(pp=>isStatusTreino(pp,x.id,s))}>{s}</Btn>
             ))}
-            <Btn sm v="ghost" onClick={()=>{setForm({...x});setModal("treino");}}>✎</Btn>
+            <Btn sm v="ghost" onClick={()=>{setForm({...x,acoes:x.acoes||[]});setNovaAcaoTxt("");setModal("treino");}}>✎</Btn>
             <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir este treinamento?"))upd(pp=>isExcluirTreino(pp,x.id));}}>🗑</Btn>
           </div>
         </div>);})}
@@ -10238,7 +10393,12 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             </div>
             <IsChip t={x.resultado} sm/>
           </div>
+          {x.modulo&&<div style={{fontSize:12,color:C.oliva,marginTop:3}}><b style={{color:C.cafe}}>Módulo:</b> {x.modulo}</div>}
           {x.conteudoPrevisto&&<div style={{fontSize:12,color:C.oliva,marginTop:3,whiteSpace:"pre-line"}}><b style={{color:C.cafe}}>Conteúdo previsto:</b> {x.conteudoPrevisto}</div>}
+          {IS_FICHA_CAMPOS.some(([k])=>x[k])&&<details style={{marginTop:6}}><summary style={{cursor:"pointer",fontSize:12,color:cor.primaria,fontWeight:700}}>Ver ficha de execução</summary>
+            {IS_FICHA_CAMPOS.filter(([k])=>x[k]).map(([k,l])=><div key={k} style={{fontSize:12,color:C.cafe,marginTop:5,whiteSpace:"pre-line"}}><b>{l}:</b> {x[k]}</div>)}
+          </details>}
+          {x.proximoData&&<div style={{fontSize:12,color:C.oliva,marginTop:4}}>📅 Próximo atendimento: <b>{fmtDate(x.proximoData)}{x.proximoHora?` às ${x.proximoHora}`:""}</b></div>}
           <div style={{fontSize:12,color:C.oliva,marginTop:6}}>
             {x.categoria?`🏷 ${x.categoria}  `:""}
             {x.horaInicio&&x.horaFim?`🕐 ${x.horaInicio}–${x.horaFim}  `:""}
@@ -12074,6 +12234,16 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
       const r=mergePorId(clients,dados.clients);
       if(r.add){setClients(r.lista);resumo.clientsN=r.add;}
     }
+    // Demais áreas (Consultoria, Obras, Orçamentos, Implantação, Agenda...): também só acrescenta o que falta, por id
+    const tratadas=new Set(["finance","contas","personalFaturas","orders","clients"]);
+    const extra=[];
+    Object.keys(dados||{}).forEach(k=>{
+      if(tratadas.has(k)||!Array.isArray(dados[k])||!dados[k].length)return;
+      const reg=_registro[k]; if(!reg||k==="products"||k==="obrasFotos")return;
+      const r=mergePorId(reg.get(),dados[k]);
+      if(r.add){reg.set(r.lista);extra.push(`${r.add} em ${k}`);}
+    });
+    resumo.extra=extra;
     setRestoreResumo(resumo);
     showSavedGlobal("Restauração concluída!");
   };
@@ -12099,11 +12269,24 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
     const loc={};
     chaves.forEach(([k,dk])=>{try{const v=JSON.parse(localStorage.getItem("atelie_bkp_"+k)||"null");if(v&&Array.isArray(v.value))loc[dk]=v.value;}catch{}});
     if(Object.keys(loc).length)achadas.push({rotulo:"Cópia guardada neste aparelho",dados:loc,resumo:Object.entries(loc).map(([k,v])=>`${v.length} ${k}`).join(" · ")});
+    // cópias locais de conflito (o que este aparelho tinha quando a nuvem foi considerada mais certa)
     try{
-      const snap=await db.collection("atelie_backups").get();
+      for(let i=0;i<localStorage.length;i++){
+        const nm=localStorage.key(i)||"";
+        if(nm.startsWith("atelie_conf_")){
+          const k=nm.replace("atelie_conf_","");
+          (JSON.parse(localStorage.getItem(nm)||"[]")).forEach(c=>{if(Array.isArray(c.value)&&c.value.length)achadas.push({rotulo:`Cópia deste aparelho (${k}) de ${new Date(c.salvoEm).toLocaleString("pt-BR")}`,dados:{[k]:c.value},resumo:`${c.value.length} ${k}`});});
+        } else if(nm.startsWith("atelie_bkp_")&&!chaves.some(([k])=>"atelie_bkp_"+k===nm)){
+          const k=nm.replace("atelie_bkp_",""); const c=JSON.parse(localStorage.getItem(nm)||"null");
+          if(c&&Array.isArray(c.value)&&c.value.length)achadas.push({rotulo:`Cópia deste aparelho (${k})`,dados:{[k]:c.value},resumo:`${c.value.length} ${k}`});
+        }
+      }
+    }catch{}
+    try{
+      const snap=await db.collection("atelie_backups").get({source:"server"});
       const porDia={};
       snap.docs.forEach(d=>{const [k,dia]=d.id.split("__");if(!dia)return;try{(porDia[dia]=porDia[dia]||{})[k]=JSON.parse(d.data().value);}catch{}});
-      Object.keys(porDia).sort().reverse().forEach(dia=>{const dd=porDia[dia];achadas.push({rotulo:`Cópia da nuvem de ${fmtDate(dia)}`,dados:dd,resumo:["finance","contas","orders","clients"].filter(k=>Array.isArray(dd[k])).map(k=>`${dd[k].length} ${k}`).join(" · ")});});
+      Object.keys(porDia).sort().reverse().forEach(dia=>{const dd=porDia[dia];achadas.push({rotulo:`Cópia da nuvem de ${fmtDate(dia)}`,dados:dd,resumo:Object.keys(dd).filter(k=>Array.isArray(dd[k])).map(k=>`${dd[k].length} ${k}`).join(" · ")});});
     }catch{ showSaveError("Não consegui consultar as cópias da nuvem agora (internet?)."); }
     setCopias(achadas);
   };
@@ -12270,9 +12453,9 @@ const Config = ({config,setConfig,frases,setFrases,banners,setBanners,depoimento
             <input ref={restoreRef} type="file" accept="application/json,.json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];e.target.value="";restaurarBackup(f);}}/>
             <Btn v="ghost" onClick={()=>restoreRef.current?.click()} disabled={restoreBusy}>{restoreBusy?"Lendo arquivo...":"📁 Escolher arquivo de backup"}</Btn>
             {restoreResumo&&<div style={{marginTop:10,background:"#D4E8D4",borderRadius:6,padding:"10px 14px",fontSize:12,color:"#2E6B2E"}}>
-              {(restoreResumo.financeN+restoreResumo.contasN+restoreResumo.ordersN+restoreResumo.clientsN+restoreResumo.faturasN)===0
+              {(restoreResumo.financeN+restoreResumo.contasN+restoreResumo.ordersN+restoreResumo.clientsN+restoreResumo.faturasN+((restoreResumo.extra||[]).length))===0
                 ? "Nada novo encontrado nesse arquivo — tudo que tinha lá já está aqui hoje."
-                : <>✓ Restaurado: {restoreResumo.financeN>0&&<>{restoreResumo.financeN} lançamento(s) do Financeiro. </>}{restoreResumo.contasN>0&&<>{restoreResumo.contasN} conta(s). </>}{restoreResumo.faturasN>0&&<>{restoreResumo.faturasN} fatura(s). </>}{restoreResumo.ordersN>0&&<>{restoreResumo.ordersN} pedido(s). </>}{restoreResumo.clientsN>0&&<>{restoreResumo.clientsN} cliente(s)/fornecedor(es). </>}</>}
+                : <>✓ Restaurado: {restoreResumo.financeN>0&&<>{restoreResumo.financeN} lançamento(s) do Financeiro. </>}{restoreResumo.contasN>0&&<>{restoreResumo.contasN} conta(s). </>}{restoreResumo.faturasN>0&&<>{restoreResumo.faturasN} fatura(s). </>}{restoreResumo.ordersN>0&&<>{restoreResumo.ordersN} pedido(s). </>}{restoreResumo.clientsN>0&&<>{restoreResumo.clientsN} cliente(s)/fornecedor(es). </>}{(restoreResumo.extra||[]).length>0&&<>Outras áreas: {restoreResumo.extra.join(", ")}. </>}</>}
             </div>}
           </div>
           <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.dourado}`}}>
