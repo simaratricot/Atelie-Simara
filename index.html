@@ -110,7 +110,7 @@ const fmtBRL = v => `R$ ${Number(v||0).toLocaleString("pt-BR",{minimumFractionDi
 // Marca de versão — muda a cada atualização entregue. Serve pra conferir rapidinho,
 // principalmente no celular, se o aparelho já carregou a versão mais nova do app
 // (o navegador às vezes guarda uma cópia antiga em cache e não busca a atualizada).
-const APP_BUILD = "v114 · 2026-11-17 plano-treinamento-geral-mapa";
+const APP_BUILD = "v115 · 2026-11-17 ata-de-reuniao";
 const fmtDate = d => d ? new Date(d+"T00:00").toLocaleDateString("pt-BR") : "—";
 const porNomeAZ=(arr)=>[...(arr||[])].sort((a,b)=>String(a&&a.nome||"").localeCompare(String(b&&b.nome||""),"pt-BR",{sensitivity:"base"}));
 const uid = () => `${Date.now()}${Math.floor(Math.random()*9999)}`;
@@ -9366,7 +9366,7 @@ IS_COR["Concluído"]=["#DDF0E6","#1F7A4D"];IS_COR["Parcial"]=["#F6EFD9","#8A6D1F
 const isSalvarSessao=(p,f)=>{
   const lista=p.sessoes||[];
   if(f.id&&lista.some(x=>x.id===f.id))return {...p,sessoes:lista.map(x=>x.id===f.id?{...x,...f}:x)};
-  return isEv({...p,sessoes:[...lista,{...f,id:uid()}]},"sessao",`Sessão de treinamento: ${f.objetivo||f.participantes||"registrada"}${Number(f.horasUtilizadas)>0?` · ${fmtH(f.horasUtilizadas)}`:""}`,f.data);
+  return isEv({...p,sessoes:[...lista,{...f,id:f.id||uid()}]},"sessao",`Sessão de treinamento: ${f.objetivo||f.participantes||"registrada"}${Number(f.horasUtilizadas)>0?` · ${fmtH(f.horasUtilizadas)}`:""}`,f.data);
 };
 const isExcluirSessao=(p,id)=>({...p,sessoes:(p.sessoes||[]).filter(x=>x.id!==id)});
 const isToggleExecItem=(p,sessaoId,item)=>({...p,sessoes:(p.sessoes||[]).map(x=>{
@@ -9626,12 +9626,15 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const pend=(pj.pendencias||[]).filter(z=>z.sessaoId===x.id);
     const exec=x.execucao||[];
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ATA ${ata} — ${pj.clienteNome}</title><style>${pcDocStyles}</style></head><body>
-    ${isHdr(pj,`ATA DE SESSÃO Nº ${ata}`)}
+    ${isHdr(pj,x.formato==="ata"?`ATA DE REUNIÃO Nº ${ata}`:`ATA DE SESSÃO Nº ${ata}`)}
     ${pcCliBloco(pj,clients.find(c=>c.id===pj.clientId))}
     <div class="campo"><b>Data:</b> ${fmtDate(x.data)}${x.horaInicio&&x.horaFim?` · <b>Horário:</b> ${x.horaInicio}–${x.horaFim}`:""}</div>
     ${x.participantes?`<div class="campo"><b>Participantes:</b> ${x.participantes}</div>`:""}
+    ${x.formato==="ata"?`<h2>1. Objetivo da Reunião</h2><div class="campo" style="white-space:pre-line">${String(x.ataObjetivo||"").replace(/</g,"&lt;")}</div>
+    <h2>2. Pauta e Pontos Discutidos</h2><div class="campo" style="white-space:pre-line">${String(x.ataPauta||"—").replace(/</g,"&lt;")}</div>
+    <h2>3. Plano de Ação e Encaminhamentos</h2>${pend.length>0?`<table><tr><th>Ação</th><th>Responsável</th><th>Status / Prazo</th></tr>${pend.map(z=>`<tr><td>${z.item}</td><td>${z.responsavel||"—"}</td><td>${[z.prazoTxt,z.prazo?fmtDate(z.prazo):"",z.status].filter(Boolean).join(" · ")}</td></tr>`).join("")}</table>`:'<div class="campo">—</div>'}`:`
     ${x.modulo?`<div class="campo"><b>Módulo trabalhado:</b> ${x.modulo}</div>`:""}
-    <div class="campo"><b>Assunto abordado:</b> ${x.objetivo||"—"}</div>
+    <div class="campo"><b>Assunto abordado:</b> ${x.objetivo||"—"}</div>`}
     ${IS_FICHA_CAMPOS.filter(([k])=>x[k]).map(([k,l])=>`<h2>${l}</h2><div class="campo" style="white-space:pre-line">${String(x[k]).replace(/</g,"&lt;")}</div>`).join("")}
     ${x.proximoData?`<div class="campo"><b>Próximo atendimento:</b> ${fmtDate(x.proximoData)}${x.proximoHora?` às ${x.proximoHora}`:""}</div>`:""}
     ${x.conteudoPrevisto?`<div class="campo" style="white-space:pre-line"><b>Conteúdo previsto:</b><br>${x.conteudoPrevisto}</div>`:""}
@@ -9639,7 +9642,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     <div class="campo"><b>Resultado:</b> ${x.resultado||"—"}</div>
     ${Number(x.horasUtilizadas)>0?`<div class="campo"><b>Duração:</b> ${fmtH(x.horasUtilizadas)}${x.categoria?` (${x.categoria})`:""}</div>`:""}
     ${x.motivoDiferenca?`<div class="campo"><b>Motivo da diferença:</b> ${x.motivoDiferenca}</div>`:""}
-    ${pend.length>0?`<h2>Pendências identificadas nesta sessão</h2><table><tr><th>Pendência</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${pend.map(z=>`<tr><td>${z.item}</td><td>${z.responsavel||"—"}</td><td>${z.prazo?fmtDate(z.prazo):"—"}</td><td>${z.status}</td></tr>`).join("")}</table>`:""}
+    ${x.formato!=="ata"&&pend.length>0?`<h2>Pendências identificadas nesta sessão</h2><table><tr><th>Pendência</th><th>Responsável</th><th>Prazo</th><th>Status</th></tr>${pend.map(z=>`<tr><td>${z.item}</td><td>${z.responsavel||"—"}</td><td>${z.prazo?fmtDate(z.prazo):"—"}</td><td>${z.status}</td></tr>`).join("")}</table>`:""}
     <div class="ass" style="margin-top:40px"><div class="ass-box">Simara Lobui<br>Treinamento</div><div class="ass-box">${pj.clienteNome}<br>Cliente</div></div>
     ${pcRodape(config)}</body></html>`;
   };
@@ -9747,7 +9750,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
   // ── execução (sessões) ──
   const novaSessao=(atividade)=>{
-    setForm({data:isHoje(),participantes:"",objetivo:atividade?atividade.atividade:"",conteudoPrevisto:"",resultado:"Concluído",categoria:IS_CATEGORIA_HORA[0],
+    setForm({formato:"ata",ataObjetivo:atividade?atividade.atividade:"",ataPauta:"",data:isHoje(),participantes:"",objetivo:atividade?atividade.atividade:"",conteudoPrevisto:"",resultado:"Concluído",categoria:IS_CATEGORIA_HORA[0],
       horaInicio:"",horaFim:"",horasPrevistas:atividade&&Number(atividade.previsto)>0?atividade.previsto:"",horasUtilizadas:"",motivoDiferenca:"",
       atividadeId:atividade?atividade.id:""});
     setPendSessao([]);
@@ -9755,7 +9758,9 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
   };
   const salvarSessao=()=>{
     if(!form.data){alert("Informe a data da sessão.");return;}
-    if(!String(form.objetivo||"").trim()){alert("Informe o assunto abordado.");return;}
+    if(form.formato==="ata"){
+      if(!String(form.ataObjetivo||"").trim()){alert("Informe o objetivo da reunião.");return;}
+    } else if(!String(form.objetivo||"").trim()){alert("Informe o assunto abordado.");return;}
     let proxCompId=form.proxCompId||"";
     if(form.proximoData&&setCompromissos){
       const desc=`Atendimento — ${[sel.empresa||sel.clienteNome,sel.sistema].filter(Boolean).join(" — ")}`;
@@ -9772,7 +9777,8 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     const sessaoId=form.id||uid();
     const novasPend=pendSessao.filter(x=>String(x.item||"").trim()).map(x=>({...x,id:uid(),status:"Pendente",sessaoId,atividadeId:form.atividadeId||""}));
     upd(p=>{
-      let n=isSalvarSessao(p,{...form,id:sessaoId,horasUtilizadas,proxCompId});
+      const resumoAta=form.formato==="ata"?{objetivo:String(form.ataObjetivo||"").trim().split("\n")[0].slice(0,140)}:{};
+      let n=isSalvarSessao(p,{...form,...resumoAta,id:sessaoId,horasUtilizadas,proxCompId});
       novasPend.forEach(np=>{n=isSalvarPendencia(n,np);});
       return n;
     });
@@ -9907,7 +9913,17 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
     </Modal>}
 
     {modal==="sessao"&&form&&<Modal wide title={form.id?"✎ Editar sessão":"🎬 Registrar sessão de treinamento"} onClose={()=>setModal(null)}>
-      <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Ficha de execução</div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        {[["ata","📝 Ata de reunião"],["ficha","📋 Ficha de execução"]].map(([k,l])=>(<Btn key={k} sm v={form.formato===k?"oliva":"ghost"} onClick={()=>F("formato",k)}>{l}</Btn>))}
+      </div>
+      {form.formato==="ata"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+        <Inp label="Data" type="date" value={form.data} onChange={v=>F("data",v)}/>
+        <Inp label="Participantes" value={form.participantes} onChange={v=>F("participantes",v)} placeholder="Ex: Equipe Operacional / Financeira (cliente) e Simara Lobui"/>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="1. Objetivo da reunião" rows={4} value={form.ataObjetivo||""} onChange={v=>F("ataObjetivo",v)}/></div>
+        <div style={{gridColumn:"1 / -1"}}><Inp label="2. Pauta e pontos discutidos" rows={14} value={form.ataPauta||""} onChange={v=>F("ataPauta",v)} placeholder="Escreva (ou cole) os pontos discutidos. As quebras de linha são mantidas na ata."/></div>
+        <div style={{gridColumn:"1 / -1",fontSize:11,color:C.oliva}}>3. Plano de ação e encaminhamentos: preencha logo abaixo, em "Plano de ação e encaminhamentos".</div>
+      </div>}
+      {form.formato!=="ata"&&<><div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:8}}>Ficha de execução</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
         <Inp label="Data do atendimento" type="date" value={form.data} onChange={v=>F("data",v)}/>
         <div><Inp label="Módulo trabalhado" value={form.modulo||""} onChange={v=>F("modulo",v)} list="is-modulos-lista" placeholder="Escolha ou escreva"/><datalist id="is-modulos-lista">{((sel&&sel.modulos)||[]).map(m=><option key={m} value={m}/>)}</datalist></div>
@@ -9915,10 +9931,10 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
         <div style={{gridColumn:"1 / -1"}}><Inp label="Participantes" value={form.participantes} onChange={v=>F("participantes",v)}/></div>
         {form.conteudoPrevisto&&<div style={{gridColumn:"1 / -1"}}><Inp label="Conteúdo previsto (registro antigo)" rows={2} value={form.conteudoPrevisto} onChange={v=>F("conteudoPrevisto",v)}/></div>}
         {IS_FICHA_CAMPOS.map(([k,l])=><div key={k} style={{gridColumn:"1 / -1"}}><Inp label={l} rows={3} value={form[k]||""} onChange={v=>F(k,v)}/></div>)}
-      </div>
+      </div></>}
 
       {form.id&&(()=>{
-        const vinculadas=(p.pendencias||[]).filter(z=>z.sessaoId===form.id);
+        const vinculadas=((sel&&sel.pendencias)||[]).filter(z=>z.sessaoId===form.id);
         return vinculadas.length>0?(<div style={{marginTop:16}}>
           <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase",marginBottom:6}}>Pendências já vinculadas a esta sessão</div>
           {vinculadas.map(z=>(
@@ -9935,14 +9951,16 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
 
       <div style={{marginTop:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>Pendências identificadas nesta sessão</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,color:C.oliva,textTransform:"uppercase"}}>{form.formato==="ata"?"Plano de ação e encaminhamentos":"Pendências identificadas nesta sessão"}</div>
+          <datalist id="is-resp-lista">{[...IS_RESP_PEND,sel&&sel.clienteNome,sel&&sel.empresa].filter(Boolean).map(r=><option key={r} value={r}/>)}</datalist>
         </div>
         {pendSessao.length===0&&<div style={{fontSize:12,color:C.oliva,fontStyle:"italic",marginBottom:6}}>Nenhuma ainda — registre aqui o que precisa virar pendência, sem sair desta tela.</div>}
         {pendSessao.map(x=>(
           <div key={x.id} style={{background:C.linho,borderRadius:6,padding:"8px 10px",marginBottom:6,display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
             <div style={{flex:2,minWidth:160}}><Inp label="Pendência" value={x.item} onChange={v=>updPendSessao(x.id,"item",v)}/></div>
-            <div style={{flex:1,minWidth:130}}><Sel label="Responsável" value={x.responsavel} onChange={v=>updPendSessao(x.id,"responsavel",v)} options={IS_RESP_PEND}/></div>
+            <div style={{flex:1,minWidth:130}}><Inp label="Responsável" value={x.responsavel} list="is-resp-lista" onChange={v=>updPendSessao(x.id,"responsavel",v)} placeholder="Escolha ou escreva"/></div>
             <div style={{flex:1,minWidth:130}}><Inp label="Prazo" type="date" value={x.prazo} onChange={v=>updPendSessao(x.id,"prazo",v)}/></div>
+            <div style={{flex:1,minWidth:160}}><Inp label="Status / prazo (texto)" value={x.prazoTxt||""} onChange={v=>updPendSessao(x.id,"prazoTxt",v)} placeholder="Ex: Após recebimento dos arquivos"/></div>
             <Btn sm v="danger" onClick={()=>delPendSessao(x.id)}>✕</Btn>
           </div>
         ))}
@@ -10414,7 +10432,7 @@ const ImplantacaoSistema=({implantacoes=[],setImplantacoes,clients=[],setClients
             })}
           </div>
           <div style={{display:"flex",gap:6,marginTop:10}}>
-            <Btn sm v="ghost" onClick={()=>{setForm({...x,horaInicio:x.horaInicio||"",horaFim:x.horaFim||""});setPendSessao([]);setModal("sessao");}}>✎ Editar</Btn>
+            <Btn sm v="ghost" onClick={()=>{const temFicha=!!(x.modulo||IS_FICHA_CAMPOS.some(([k])=>x[k]));setForm({...x,formato:x.formato||(temFicha?"ficha":"ata"),ataObjetivo:x.ataObjetivo!==undefined?x.ataObjetivo:(x.objetivo||""),ataPauta:x.ataPauta!==undefined?x.ataPauta:(x.conteudoPrevisto||""),horaInicio:x.horaInicio||"",horaFim:x.horaFim||""});setPendSessao([]);setModal("sessao");}}>✎ Editar</Btn>
             <Btn sm v="ghost" onClick={()=>isAbrirImprimir(docAtaSessao(p,x))}>🖨 Imprimir ATA</Btn>
             {consultoria.length>0&&<Btn sm v="ghost" onClick={()=>abrirEnviarAtend(x)}>📤 Enviar p/ Pedido de atendimento</Btn>}
             <Btn sm v="ghost" onClick={()=>{if(window.confirm("Excluir esta sessão?"))upd(pp=>isExcluirSessao(pp,x.id));}}>🗑</Btn>
